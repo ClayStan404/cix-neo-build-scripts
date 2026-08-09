@@ -87,10 +87,13 @@ prepare_ccache_dir() {
         parent_dirs+=("${HOME}")
 
         # The unshare build user is mapped to a subordinate UID. It needs
-        # traversal permission on the path and read/write access to cache
-        # contents. a+X does not grant directory listing or file read access.
+        # traversal permission on the path and read/write access to the cache
+        # root. Do not chmod recursively: cache entries created in a previous
+        # unshare build are owned by the subordinate UID and cannot be chmod'ed
+        # by the host user. CCACHE_UMASK=000 in sbuild/config.pl makes new cache
+        # entries shared and writable.
         run chmod a+X -- "${parent_dirs[@]}"
-        run chmod -R a+rwX -- "${ccache_dir}"
+        run chmod a+rwx -- "${ccache_dir}"
     else
         run_as_root mkdir -p -- "${ccache_dir}"
         run_as_root chmod 1777 -- "${ccache_dir}"
@@ -211,13 +214,28 @@ done
 command -v sudo >/dev/null || die "sudo is required"
 
 readonly host_packages=(
+    bc
+    bison
     ca-certificates
     ccache
+    cpio
     debian-archive-keyring
+    debhelper
     devscripts
+    dh-dkms
     dpkg-dev
+    dwarves
+    fakeroot
+    flex
+    kmod
+    libelf-dev
+    libssl-dev
     lintian
     mmdebstrap
+    python3
+    python3-debian
+    python3-yaml
+    rsync
     sbuild
     uidmap
     zstd

@@ -1,0 +1,44 @@
+version: 1
+
+targets:
+  kernel:
+    script: build-scripts/build-kernel.sh
+
+  gpu-dkms:
+    script: build-scripts/build-gpu-dkms.sh
+    control: debian/gpu-dkms/control
+
+projects:
+  cix_opensource/linux:
+    path: sources/linux
+    rules:
+      - paths: ["**"]
+        targets: [kernel]
+
+  cix_opensource/gpu_kernel:
+    path: sources/gpu-kernel
+    rules:
+      - paths: ["**"]
+        targets: [gpu-dkms]
+
+  cix-neo-build-scripts:
+    path: build-scripts
+    rules:
+      - paths: ["build-kernel.sh"]
+        targets: [kernel]
+      - paths: ["build-gpu-dkms.sh", "sbuild/**", "setup-sbuild.sh"]
+        targets: [gpu-dkms]
+      - paths: ["framework.sh"]
+        targets: [kernel, gpu-dkms]
+    ignore:
+      - ".gitignore"
+      - "README.md"
+      - "ci/**"
+
+  cix-neo-debian:
+    path: debian
+    rules:
+      - paths: ["gpu-dkms/**"]
+        targets: [gpu-dkms]
+    ignore:
+      - "README.md"
