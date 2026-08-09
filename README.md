@@ -11,6 +11,9 @@ The initial modules are the Linux kernel and GPU DKMS package:
 ./build-scripts/build-gpu-dkms.sh --nexus zj build
 ```
 
+The supported build host baseline is native ARM64 Debian 13. Other Debian and
+Ubuntu host releases are intentionally outside the current scope.
+
 The kernel module builds natively with the kernel-owned configuration fragments
 and the `bindeb-pkg` make target. Before configuration it creates a temporary
 Git worktree and applies the ordered patch series from
@@ -20,7 +23,7 @@ it with `sbuild`.
 
 ## sbuild Environment
 
-Run the setup script as a regular user with sudo access:
+Run the setup script on ARM64 Debian 13 as a regular user with sudo access:
 
 ```bash
 ./build-scripts/setup-sbuild.sh
@@ -31,6 +34,21 @@ namespace support, provisions dedicated temporary and ccache directories, and
 creates an sbuild unshare tarball with `mmdebstrap`.
 
 Use `--help` to see distribution, mirror, tarball, and rebuild overrides.
+
+## GPU DKMS compatibility test
+
+The GPU driver depends on CIX-specific kernel interfaces and does not support a
+generic upstream kernel. After building both packages, compile the modules
+against the headers produced by the CIX kernel build:
+
+```bash
+./build-scripts/test-gpu-dkms.sh
+```
+
+The script extracts both debs into a disposable directory and gives DKMS
+isolated source, state, and module trees. It does not install packages or write
+to the host `/usr/src`, `/var/lib/dkms`, or `/lib/modules` trees. Jenkins may
+pass exact artifacts with `--kernel-headers` and `--gpu-package`.
 
 ## CI build planning
 
@@ -53,7 +71,7 @@ Generate a plan from a changed project or path:
   cix_opensource/gpu_kernel:drivers/gpu/arm/midgard/mali_kbase_core_linux.c
 ```
 
-For CI execution, print the topologically ordered scripts:
+For Jenkins execution, print the topologically ordered scripts:
 
 ```bash
 changed_projects | ./build-scripts/ci/plan.py --format text --mode scripts
@@ -61,3 +79,6 @@ changed_projects | ./build-scripts/ci/plan.py --format text --mode scripts
 
 Unmapped non-ignored paths, missing scripts or controls, duplicate package
 providers, and dependency cycles are fatal validation errors.
+
+The eventual CI deployment is company-internal Jenkins. This repository does
+not define a GitHub-hosted build workflow.

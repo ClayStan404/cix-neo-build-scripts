@@ -40,10 +40,25 @@ cix_validate_nexus_site() {
     esac
 }
 
-cix_validate_native_arm64() {
+cix_validate_debian_13_arm64() {
+    local architecture
+    local ID
+    local os_id
+    local os_version
+    local VERSION_ID
+
+    [[ -r /etc/os-release ]] || cix_die "/etc/os-release is missing"
+    # shellcheck disable=SC1091
+    source /etc/os-release
+    os_id="${ID:-}"
+    os_version="${VERSION_ID:-}"
+    [[ "${os_id}" == "debian" && "${os_version}" == "13" ]] ||
+        cix_die "Debian 13 build host required; detected ${os_id:-unknown} ${os_version:-unknown}"
+
     cix_require_command dpkg
-    [[ "$(dpkg --print-architecture)" == "arm64" ]] ||
-        cix_die "native ARM64 host required; detected $(dpkg --print-architecture)"
+    architecture="$(dpkg --print-architecture)"
+    [[ "${architecture}" == "arm64" ]] ||
+        cix_die "native ARM64 host required; detected ${architecture}"
 }
 
 cix_validate_positive_integer() {

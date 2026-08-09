@@ -92,7 +92,7 @@ while (($#)); do
     esac
 done
 
-cix_validate_native_arm64
+cix_validate_debian_13_arm64
 cix_validate_nexus_site "${nexus_site}"
 cix_validate_positive_integer "jobs" "${jobs}"
 [[ "${build_mode}" == "release" || "${build_mode}" == "debug" ]] ||

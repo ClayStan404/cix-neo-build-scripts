@@ -179,7 +179,8 @@ done
 
 # shellcheck disable=SC1091
 source /etc/os-release
-[[ "${ID:-}" == "debian" ]] || die "unsupported host OS: ${ID:-unknown}; Debian is required"
+[[ "${ID:-}" == "debian" && "${VERSION_ID:-}" == "13" ]] ||
+    die "unsupported host OS: ${ID:-unknown} ${VERSION_ID:-unknown}; Debian 13 is required"
 
 command -v dpkg >/dev/null || die "dpkg is required"
 architecture="$(dpkg --print-architecture)"
@@ -223,6 +224,7 @@ readonly host_packages=(
     debhelper
     devscripts
     dh-dkms
+    dkms
     dpkg-dev
     dwarves
     fakeroot

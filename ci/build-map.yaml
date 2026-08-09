@@ -26,8 +26,12 @@ projects:
     rules:
       - paths: ["build-kernel.sh"]
         targets: [kernel]
-      - paths: ["build-gpu-dkms.sh", "sbuild/**", "setup-sbuild.sh"]
+      - paths: ["build-gpu-dkms.sh", "sbuild/**"]
         targets: [gpu-dkms]
+      - paths: ["setup-sbuild.sh"]
+        targets: [kernel, gpu-dkms]
+      - paths: ["test-gpu-dkms.sh"]
+        targets: [kernel, gpu-dkms]
       - paths: ["framework.sh"]
         targets: [kernel, gpu-dkms]
     ignore:
