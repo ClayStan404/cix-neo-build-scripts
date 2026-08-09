@@ -9,6 +9,8 @@ is confirmed.
 ### Project Direction
 
 - This is a greenfield rewrite.
+- Push completed commits to each repository's configured remote as part of the
+  same workflow unless the user explicitly requests a local-only commit.
 - Do not provide compatibility with the legacy build system, its CLI, its
   configuration files, or its internal module contract.
 - Legacy implementation ideas may be studied and reused selectively, but no
