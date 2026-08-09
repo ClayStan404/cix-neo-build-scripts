@@ -1,0 +1,319 @@
+#!/usr/bin/env bash
+# Provision the native ARM64 sbuild environment used by CIX Neo.
+#
+# Run this script as a regular user with sudo access on an ARM64 Debian host.
+# It installs missing host prerequisites, validates unprivileged user
+# namespaces, creates dedicated temporary/cache directories, and builds an
+# unshare chroot tarball with mmdebstrap.
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly SCRIPT_DIR
+readonly SBUILD_CONFIG="${SCRIPT_DIR}/sbuild/config.pl"
+
+distribution="${CIX_SBUILD_DISTRIBUTION:-trixie}"
+mirror="${CIX_SBUILD_MIRROR:-https://mirrors.ustc.edu.cn/debian}"
+architecture=""
+tarball="${CIX_SBUILD_CHROOT:-}"
+tmpdir_root="${CIX_SBUILD_TMPDIR_ROOT:-/var/tmp/cix-neo-sbuild}"
+cache_home="${XDG_CACHE_HOME:-${HOME}/.cache}"
+ccache_dir="${CIX_SBUILD_CCACHE_DIR:-${cache_home}/cix-neo-sbuild/ccache}"
+force=0
+install_host_packages=1
+dry_run=0
+staging_dir=""
+staging_tarball=""
+
+usage() {
+    cat <<'EOF'
+Usage: setup-sbuild.sh [OPTIONS]
+
+Create the native ARM64 sbuild unshare environment for CIX Neo.
+
+Options:
+  --distribution SUITE    Distribution suite to create (default: trixie)
+  --mirror URL            Debian mirror URL
+  --tarball PATH          Chroot tarball output path
+  --tmpdir PATH           Host directory for unpacked build chroots
+  --ccache-dir PATH       Host ccache directory mounted into builds
+  --force                 Atomically replace an existing chroot tarball
+  --skip-host-packages    Do not install missing host packages
+  --dry-run               Print mutating commands without running them
+  -h, --help              Show this help
+
+Environment equivalents:
+  CIX_SBUILD_DISTRIBUTION
+  CIX_SBUILD_MIRROR
+  CIX_SBUILD_CHROOT
+  CIX_SBUILD_TMPDIR_ROOT
+  CIX_SBUILD_CCACHE_DIR
+EOF
+}
+
+die() {
+    echo "ERROR: $*" >&2
+    exit 1
+}
+
+log() {
+    echo ">>> $*"
+}
+
+run() {
+    if ((dry_run)); then
+        printf '+'
+        printf ' %q' "$@"
+        printf '\n'
+        return 0
+    fi
+    "$@"
+}
+
+run_as_root() {
+    run sudo -- "$@"
+}
+
+prepare_ccache_dir() {
+    local current
+    local parent_dirs=()
+
+    if [[ "${ccache_dir}" == "${HOME}/"* ]]; then
+        run mkdir -p -- "${ccache_dir}"
+        current="${ccache_dir}"
+        while [[ "${current}" != "${HOME}" ]]; do
+            parent_dirs+=("${current}")
+            current="$(dirname "${current}")"
+        done
+        parent_dirs+=("${HOME}")
+
+        # The unshare build user is mapped to a subordinate UID. It needs
+        # traversal permission on the path and read/write access to cache
+        # contents. a+X does not grant directory listing or file read access.
+        run chmod a+X -- "${parent_dirs[@]}"
+        run chmod -R a+rwX -- "${ccache_dir}"
+    else
+        run_as_root mkdir -p -- "${ccache_dir}"
+        run_as_root chmod 1777 -- "${ccache_dir}"
+    fi
+}
+
+apt_as_root() {
+    local env_args=(DEBIAN_FRONTEND=noninteractive)
+    local variable
+
+    for variable in \
+        http_proxy https_proxy no_proxy \
+        HTTP_PROXY HTTPS_PROXY NO_PROXY; do
+        if [[ -n "${!variable:-}" ]]; then
+            env_args+=("${variable}=${!variable}")
+        fi
+    done
+
+    run_as_root env "${env_args[@]}" apt-get "$@"
+}
+
+cleanup() {
+    if [[ -n "${staging_tarball}" && -f "${staging_tarball}" ]]; then
+        rm -f -- "${staging_tarball}"
+    fi
+    if [[ -n "${staging_dir}" && -d "${staging_dir}" ]]; then
+        rmdir -- "${staging_dir}" 2>/dev/null || true
+    fi
+}
+trap cleanup EXIT
+
+while (($#)); do
+    case "$1" in
+        --distribution)
+            (($# >= 2)) || die "$1 requires a value"
+            distribution="$2"
+            shift 2
+            ;;
+        --mirror)
+            (($# >= 2)) || die "$1 requires a value"
+            mirror="$2"
+            shift 2
+            ;;
+        --tarball)
+            (($# >= 2)) || die "$1 requires a value"
+            tarball="$2"
+            shift 2
+            ;;
+        --tmpdir)
+            (($# >= 2)) || die "$1 requires a value"
+            tmpdir_root="$2"
+            shift 2
+            ;;
+        --ccache-dir)
+            (($# >= 2)) || die "$1 requires a value"
+            ccache_dir="$2"
+            shift 2
+            ;;
+        --force)
+            force=1
+            shift
+            ;;
+        --skip-host-packages)
+            install_host_packages=0
+            shift
+            ;;
+        --dry-run)
+            dry_run=1
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            die "unknown option: $1"
+            ;;
+    esac
+done
+
+[[ ${EUID} -ne 0 ]] || die "run this script as a regular user, not as root"
+[[ -r /etc/os-release ]] || die "/etc/os-release is missing"
+
+# shellcheck disable=SC1091
+source /etc/os-release
+[[ "${ID:-}" == "debian" ]] || die "unsupported host OS: ${ID:-unknown}; Debian is required"
+
+command -v dpkg >/dev/null || die "dpkg is required"
+architecture="$(dpkg --print-architecture)"
+[[ "${architecture}" == "arm64" ]] ||
+    die "native ARM64 host required; detected ${architecture}"
+
+[[ "${distribution}" =~ ^[a-zA-Z0-9][a-zA-Z0-9.+_-]*$ ]] ||
+    die "invalid Debian distribution: ${distribution}"
+[[ "${mirror}" != *[[:space:]]* ]] || die "mirror URL must not contain whitespace"
+
+if [[ -z "${tarball}" ]]; then
+    tarball="${HOME}/.cache/sbuild/${distribution}-${architecture}-sbuild.tar.zst"
+fi
+
+tmpdir_root="$(realpath -m -- "${tmpdir_root}")"
+ccache_dir="$(realpath -m -- "${ccache_dir}")"
+tarball="$(realpath -m -- "${tarball}")"
+
+for setup_dir in "${tmpdir_root}" "${ccache_dir}"; do
+    [[ "${setup_dir}" == /* ]] || die "setup directory must be absolute: ${setup_dir}"
+    case "${setup_dir}" in
+        /|/var|/var/tmp|/var/cache|"${HOME}")
+            die "refusing to use broad setup directory: ${setup_dir}"
+            ;;
+    esac
+    [[ ! -L "${setup_dir}" ]] || die "setup directory must not be a symlink: ${setup_dir}"
+done
+
+[[ "${tarball}" == *.tar.zst ]] || die "tarball path must end in .tar.zst"
+[[ ! -L "${tarball}" ]] || die "tarball path must not be a symlink: ${tarball}"
+[[ -r "${SBUILD_CONFIG}" ]] || die "missing sbuild config: ${SBUILD_CONFIG}"
+command -v sudo >/dev/null || die "sudo is required"
+
+readonly host_packages=(
+    ca-certificates
+    ccache
+    debian-archive-keyring
+    devscripts
+    dpkg-dev
+    lintian
+    mmdebstrap
+    sbuild
+    uidmap
+    zstd
+)
+
+missing_packages=()
+for package in "${host_packages[@]}"; do
+    if ! dpkg-query -W -f='${db:Status-Status}\n' "${package}" 2>/dev/null |
+        grep -qx 'installed'; then
+        missing_packages+=("${package}")
+    fi
+done
+
+if ((${#missing_packages[@]})); then
+    ((install_host_packages)) ||
+        die "missing host packages: ${missing_packages[*]}"
+    log "Install missing host packages: ${missing_packages[*]}"
+    apt_as_root update
+    apt_as_root install -y \
+        --no-install-recommends "${missing_packages[@]}"
+else
+    log "Host packages are already installed"
+fi
+
+if ((!dry_run)); then
+    for command_name in sbuild mmdebstrap newuidmap newgidmap unshare perl; do
+        command -v "${command_name}" >/dev/null ||
+            die "required command is unavailable after package setup: ${command_name}"
+    done
+
+    sbuild_version="$(dpkg-query -W -f='${Version}' sbuild)"
+    dpkg --compare-versions "${sbuild_version}" ge 0.87.1 ||
+        die "sbuild 0.87.1 or newer is required for this unshare setup; found ${sbuild_version}"
+
+    grep -q "^$(id -un):" /etc/subuid 2>/dev/null ||
+        die "$(id -un) has no subordinate UID range in /etc/subuid"
+    grep -q "^$(id -un):" /etc/subgid 2>/dev/null ||
+        die "$(id -un) has no subordinate GID range in /etc/subgid"
+    unshare --user --map-auto true ||
+        die "unprivileged user namespaces or subordinate ID mappings are unavailable"
+    perl -c "${SBUILD_CONFIG}" >/dev/null
+fi
+
+log "Provision dedicated sbuild directories"
+run_as_root mkdir -p -- "${tmpdir_root}"
+run_as_root chmod 1777 -- "${tmpdir_root}"
+prepare_ccache_dir
+run mkdir -p -- "$(dirname "${tarball}")"
+
+echo
+echo "sbuild environment:"
+echo "  distribution: ${distribution}"
+echo "  architecture: ${architecture}"
+echo "  mirror:       ${mirror}"
+echo "  tarball:      ${tarball}"
+echo "  tmpdir:       ${tmpdir_root}"
+echo "  ccache:       ${ccache_dir}"
+echo "  config:       ${SBUILD_CONFIG}"
+echo
+
+if [[ -f "${tarball}" && ${force} -eq 0 ]]; then
+    [[ -s "${tarball}" ]] || die "existing tarball is empty: ${tarball}"
+    log "Existing chroot tarball retained; use --force to rebuild it"
+else
+    log "Create ${distribution}/${architecture} chroot tarball"
+    if ((dry_run)); then
+        echo "+ mmdebstrap --mode=unshare --architectures=${architecture} ... ${distribution} ${tarball} ${mirror}"
+    else
+        staging_dir="$(mktemp -d "$(dirname "${tarball}")/.setup-sbuild.XXXXXXXXXX")"
+        staging_tarball="${staging_dir}/$(basename "${tarball}")"
+
+        mmdebstrap \
+            --mode=unshare \
+            --architectures="${architecture}" \
+            --variant=buildd \
+            --components=main \
+            --include=ca-certificates,ccache,eatmydata \
+            --aptopt='Acquire::Languages "none"' \
+            --customize-hook="chroot \"\$1\" update-ccache-symlinks" \
+            --skip=output/dev \
+            "${distribution}" \
+            "${staging_tarball}" \
+            "${mirror}"
+
+        [[ -s "${staging_tarball}" ]] || die "mmdebstrap produced no tarball"
+        mv -f -- "${staging_tarball}" "${tarball}"
+        staging_tarball=""
+        rmdir -- "${staging_dir}"
+        staging_dir=""
+    fi
+fi
+
+echo
+echo "sbuild setup complete. Build scripts should export:"
+printf '  SBUILD_CONFIG=%q\n' "${SBUILD_CONFIG}"
+printf '  CIX_SBUILD_DISTRIBUTION=%q\n' "${distribution}"
+printf '  CIX_SBUILD_CHROOT=%q\n' "${tarball}"
+printf '  CIX_SBUILD_CCACHE_DIR=%q\n' "${ccache_dir}"
+printf '  CIX_SBUILD_TMPDIR_TEMPLATE=%q\n' "${tmpdir_root}/tmp.sbuild.XXXXXXXXXX"
