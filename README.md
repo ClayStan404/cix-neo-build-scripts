@@ -4,11 +4,14 @@ This directory contains the new configuration-driven build orchestration
 and module implementations. It must not depend on the legacy build-system CLI
 or framework contract.
 
-The initial modules are the Linux kernel and GPU DKMS package:
+Build the current CIX kernel, DKMS, and boot configuration packages:
 
 ```bash
 ./build-scripts/build-kernel.sh --nexus zj build
 ./build-scripts/build-gpu-dkms.sh --nexus zj build
+./build-scripts/build-vpu-dkms.sh --nexus zj build
+./build-scripts/build-npu-dkms.sh --nexus zj build
+./build-scripts/build-grub-config.sh --nexus zj build
 ```
 
 The supported build host baseline is native ARM64 Debian 13. Other Debian and
@@ -18,8 +21,15 @@ The kernel module builds natively with the kernel-owned configuration fragments
 and the `bindeb-pkg` make target. Before configuration it creates a temporary
 Git worktree and applies the ordered patch series from
 `debian/kernel/patches/series`; the manifest-managed kernel checkout remains
-unchanged. The GPU module creates a standard Debian source package and builds
-it with `sbuild`.
+unchanged. GPU, VPU, and NPU create standard Debian source packages and build
+them with `sbuild`. The flat `build-*-dkms.sh` files remain the per-repository
+CI entry points; `build-dkms-package.sh` only implements their common
+source-package and sbuild mechanics. `cix-grub-config` is a native package
+owned entirely by the Debian metadata repository.
+
+The VPU DKMS package retains its runtime dependency on `cix-vpu-firmware`.
+That firmware is not present in the open-source VPU driver repository and must
+be supplied by a future firmware package source.
 
 ## sbuild Environment
 
@@ -35,20 +45,22 @@ creates an sbuild unshare tarball with `mmdebstrap`.
 
 Use `--help` to see distribution, mirror, tarball, and rebuild overrides.
 
-## GPU DKMS compatibility test
+## DKMS compatibility tests
 
-The GPU driver depends on CIX-specific kernel interfaces and does not support a
-generic upstream kernel. After building both packages, compile the modules
+The drivers depend on CIX-specific kernel interfaces and do not support a
+generic upstream kernel. After building the packages, compile each module
 against the headers produced by the CIX kernel build:
 
 ```bash
 ./build-scripts/test-gpu-dkms.sh
+./build-scripts/test-vpu-dkms.sh
+./build-scripts/test-npu-dkms.sh
 ```
 
-The script extracts both debs into a disposable directory and gives DKMS
-isolated source, state, and module trees. It does not install packages or write
+The scripts extract both debs into a disposable directory and give DKMS
+isolated source, state, and module trees. They do not install packages or write
 to the host `/usr/src`, `/var/lib/dkms`, or `/lib/modules` trees. Jenkins may
-pass exact artifacts with `--kernel-headers` and `--gpu-package`.
+pass exact artifacts with `--kernel-headers` and `--package`.
 
 ## CI build planning
 

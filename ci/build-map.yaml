@@ -8,6 +8,18 @@ targets:
     script: build-scripts/build-gpu-dkms.sh
     control: debian/gpu-dkms/control
 
+  vpu-dkms:
+    script: build-scripts/build-vpu-dkms.sh
+    control: debian/vpu-dkms/control
+
+  npu-dkms:
+    script: build-scripts/build-npu-dkms.sh
+    control: debian/npu-dkms/control
+
+  grub-config:
+    script: build-scripts/build-grub-config.sh
+    control: debian/grub-config/control
+
 projects:
   cix_opensource/linux:
     path: sources/linux
@@ -21,19 +33,47 @@ projects:
       - paths: ["**"]
         targets: [gpu-dkms]
 
+  cix_opensource/vpu_driver:
+    path: sources/vpu-driver
+    rules:
+      - paths: ["**"]
+        targets: [vpu-dkms]
+
+  cix_opensource/npu_driver:
+    path: sources/npu-driver
+    rules:
+      - paths: ["**"]
+        targets: [npu-dkms]
+
   cix-neo-build-scripts:
     path: build-scripts
     rules:
       - paths: ["build-kernel.sh"]
         targets: [kernel]
-      - paths: ["build-gpu-dkms.sh", "sbuild/**"]
+      - paths: ["build-gpu-dkms.sh"]
         targets: [gpu-dkms]
+      - paths: ["build-vpu-dkms.sh"]
+        targets: [vpu-dkms]
+      - paths: ["build-npu-dkms.sh"]
+        targets: [npu-dkms]
+      - paths: ["build-dkms-package.sh"]
+        targets: [gpu-dkms, vpu-dkms, npu-dkms]
+      - paths: ["build-grub-config.sh", "build-native-package.sh"]
+        targets: [grub-config]
+      - paths: ["sbuild/**"]
+        targets: [gpu-dkms, vpu-dkms, npu-dkms, grub-config]
       - paths: ["setup-sbuild.sh"]
-        targets: [kernel, gpu-dkms]
+        targets: [kernel, gpu-dkms, vpu-dkms, npu-dkms, grub-config]
       - paths: ["test-gpu-dkms.sh"]
         targets: [kernel, gpu-dkms]
+      - paths: ["test-vpu-dkms.sh"]
+        targets: [kernel, vpu-dkms]
+      - paths: ["test-npu-dkms.sh"]
+        targets: [kernel, npu-dkms]
+      - paths: ["test-dkms-package.sh"]
+        targets: [kernel, gpu-dkms, vpu-dkms, npu-dkms]
       - paths: ["framework.sh"]
-        targets: [kernel, gpu-dkms]
+        targets: [kernel, gpu-dkms, vpu-dkms, npu-dkms, grub-config]
     ignore:
       - ".gitignore"
       - "README.md"
@@ -46,5 +86,11 @@ projects:
         targets: [kernel]
       - paths: ["gpu-dkms/**"]
         targets: [gpu-dkms]
+      - paths: ["vpu-dkms/**"]
+        targets: [vpu-dkms]
+      - paths: ["npu-dkms/**"]
+        targets: [npu-dkms]
+      - paths: ["grub-config/**"]
+        targets: [grub-config]
     ignore:
       - "README.md"
