@@ -4,6 +4,9 @@ targets:
   kernel:
     script: build-scripts/build-kernel.sh
 
+  kernel-stable:
+    script: build-scripts/build-kernel-stable.sh
+
   gpu-dkms:
     script: build-scripts/build-gpu-dkms.sh
     control: debian/gpu-dkms/control
@@ -26,6 +29,18 @@ projects:
     rules:
       - paths: ["**"]
         targets: [kernel]
+
+  cix-linux-kernel:
+    path: sources/linux-stable
+    rules:
+      - paths: ["**"]
+        targets: [kernel-stable]
+
+  cix-linux-main:
+    path: sources/linux-main
+    rules:
+      - paths: ["**"]
+        targets: [kernel-stable]
 
   cix_opensource/gpu_kernel:
     path: sources/gpu-kernel
@@ -50,6 +65,8 @@ projects:
     rules:
       - paths: ["build-kernel.sh"]
         targets: [kernel]
+      - paths: ["build-kernel-stable.sh"]
+        targets: [kernel-stable]
       - paths: ["build-gpu-dkms.sh"]
         targets: [gpu-dkms]
       - paths: ["build-vpu-dkms.sh"]
@@ -73,11 +90,12 @@ projects:
       - paths: ["test-dkms-package.sh"]
         targets: [kernel, gpu-dkms, vpu-dkms, npu-dkms]
       - paths: ["framework.sh"]
-        targets: [kernel, gpu-dkms, vpu-dkms, npu-dkms, grub-config]
+        targets: [kernel, kernel-stable, gpu-dkms, vpu-dkms, npu-dkms, grub-config]
     ignore:
       - ".gitignore"
       - "README.md"
       - "ci/**"
+      - "docs/**"
 
   cix-neo-debian:
     path: debian

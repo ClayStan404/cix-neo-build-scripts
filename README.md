@@ -8,6 +8,7 @@ Build the current CIX kernel, DKMS, and boot configuration packages:
 
 ```bash
 ./build-scripts/build-kernel.sh --nexus zj build
+./build-scripts/build-kernel-stable.sh --nexus zj build
 ./build-scripts/build-gpu-dkms.sh --nexus zj build
 ./build-scripts/build-vpu-dkms.sh --nexus zj build
 ./build-scripts/build-npu-dkms.sh --nexus zj build
@@ -17,15 +18,22 @@ Build the current CIX kernel, DKMS, and boot configuration packages:
 The supported build host baseline is native ARM64 Debian 13. Other Debian and
 Ubuntu host releases are intentionally outside the current scope.
 
-The kernel module builds natively with the kernel-owned configuration fragments
-and the `bindeb-pkg` make target. Before configuration it creates a temporary
-Git worktree and applies the ordered patch series from
-`debian/kernel/patches/series`; the manifest-managed kernel checkout remains
-unchanged. GPU, VPU, and NPU create standard Debian source packages and build
-them with `sbuild`. The flat `build-*-dkms.sh` files remain the per-repository
-CI entry points; `build-dkms-package.sh` only implements their common
-source-package and sbuild mechanics. `cix-grub-config` is a native package
-owned entirely by the Debian metadata repository.
+There are two independent native kernel targets. `build-kernel.sh` builds the
+CIX 6.6 development kernel using its kernel-owned configuration fragments and
+the external temporary fix in `debian/kernel/patches/`. The
+`build-kernel-stable.sh` target uses the `cix-linux-kernel` harness to build its
+currently supported upstream stable release (7.0.13 at the time of writing)
+with the patch set and defconfig from the separately manifest-managed
+`cix-linux-main` checkout. Both use `make bindeb-pkg`; neither uses `sbuild`.
+The stable harness owns the selected kernel version and currently emits a
+`-cix` kernel release (for example, `7.0.13-cix`). The new system does not
+retain the legacy fixed `7.0.0-generic` package name.
+
+GPU, VPU, and NPU create standard Debian source packages and build them with
+`sbuild`. The flat `build-*.sh` files are the stable per-target CI entry
+points; shared implementation files only provide common mechanics and are not
+independent build targets. `cix-grub-config` is a native package owned entirely
+by the Debian metadata repository.
 
 The VPU DKMS package retains its runtime dependency on `cix-vpu-firmware`.
 That firmware is not present in the open-source VPU driver repository and must
@@ -79,6 +87,8 @@ Generate a plan from a changed project or path:
 
 ```bash
 ./build-scripts/ci/plan.py cix_opensource/linux
+./build-scripts/ci/plan.py cix-linux-kernel
+./build-scripts/ci/plan.py cix-linux-main
 ./build-scripts/ci/plan.py \
   cix_opensource/gpu_kernel:drivers/gpu/arm/midgard/mali_kbase_core_linux.c
 ```

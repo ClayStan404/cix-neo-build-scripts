@@ -26,6 +26,15 @@ is confirmed.
   packages.
 - Build the Linux kernel natively with its own `bindeb-pkg` make target rather
   than running the kernel build through `sbuild`.
+- Maintain two independent kernel targets: the CIX 6.6 development kernel and
+  the newest stable kernel release supported by `cix-linux-kernel`.
+- Build the stable kernel through the native flow owned by
+  `cix-linux-kernel`, using the CIX defconfig and patch series from the
+  manifest-managed `cix-linux-main` checkout. Do not fetch an untracked patch
+  branch during the build.
+- Follow the stable harness's currently supported kernel version and `-cix`
+  kernel release identifier. Do not preserve the legacy fixed
+  `7.0.0-generic` binary package name in the greenfield build system.
 - Compose the kernel configuration from the configuration targets stored in
   the kernel source tree. Do not maintain copied kernel configuration files in
   the external Debian metadata repository.
@@ -77,6 +86,10 @@ is confirmed.
 - Keep upstream source checkouts in a dedicated source directory.
 - Track `cix_opensource/linux` at branch `cix_6.6_master_dev` under
   `sources/linux`.
+- Track `cix-oss/cix-linux-kernel` at branch `master` under
+  `sources/linux-stable`.
+- Track `cixtech/cix-linux-main` at branch `main` under
+  `sources/linux-main`.
 - Track `cix_opensource/gpu_kernel` at branch `cix_r54p1-11eac0_dev` under
   `sources/gpu-kernel`.
 - Track `cix_opensource/vpu_driver` at branch `cix_vpu_dev` under
@@ -87,8 +100,8 @@ is confirmed.
   branch `master` under `build-scripts`.
 - Track the private GitHub repository `ClayStan404/cix-neo-debian` at branch
   `master` under `debian`.
-- The current manifest contains exactly six projects: four upstream source
-  repositories, the build scripts, and the Debian packaging metadata.
+- The current manifest contains exactly eight projects: six source and build
+  input repositories, the build scripts, and the Debian packaging metadata.
 
 ### Project Layout
 
@@ -105,6 +118,9 @@ is confirmed.
 - The build system must support explicit configuration.
 - Module build logic must be able to select different execution paths based on
   the resolved configuration.
+- Give each build target a flat, executable `build-*.sh` CI entry point. Shared
+  helpers may implement common mechanics, but they are not standalone build
+  targets and must not encode package dependency relationships.
 - The baseline configuration includes a Nexus site selector with these values:
   - `sh`: Shanghai
   - `zj`: Zhangjiang
@@ -148,11 +164,12 @@ is confirmed.
 
 The current build system contains these build modules:
 
-1. Linux kernel
-2. GPU DKMS package
-3. VPU DKMS package
-4. NPU DKMS package
-5. CIX GRUB configuration package
+1. CIX 6.6 development Linux kernel
+2. CIX-patched latest stable Linux kernel
+3. GPU DKMS package
+4. VPU DKMS package
+5. NPU DKMS package
+6. CIX GRUB configuration package
 
 The VPU DKMS package must retain its runtime dependency on
 `cix-vpu-firmware`. The open-source VPU driver repository does not contain the
