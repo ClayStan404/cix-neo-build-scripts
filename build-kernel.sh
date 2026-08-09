@@ -103,6 +103,8 @@ cix_validate_positive_integer "jobs" "${jobs}"
     cix_die "invalid distribution: ${distribution}"
 
 readonly kernel_source="${CIX_WORKSPACE_ROOT}/sources/linux"
+readonly kernel_patch_dir="${CIX_WORKSPACE_ROOT}/debian/kernel/patches"
+readonly kernel_patch_series="${kernel_patch_dir}/series"
 build_dir="$(realpath -m -- "${output_dir}/build")"
 readonly build_dir
 [[ -f "${kernel_source}/Makefile" ]] || cix_die "kernel source is missing: ${kernel_source}"
@@ -119,7 +121,65 @@ if [[ "${action}" == "clean" ]]; then
     exit 0
 fi
 
-mkdir -p -- "${build_dir}"
+cix_require_command git
+[[ -f "${kernel_patch_series}" ]] ||
+    cix_die "kernel patch series is missing: ${kernel_patch_series}"
+[[ "$(git -C "${kernel_source}" rev-parse --is-inside-work-tree)" == "true" ]] ||
+    cix_die "kernel source is not a Git worktree: ${kernel_source}"
+if [[ -n "$(git -C "${kernel_source}" status --porcelain)" ]]; then
+    cix_die "kernel source must be clean before creating the patched build worktree"
+fi
+
+mkdir -p -- "${build_dir}" "${output_dir}"
+
+kernel_worktree_root="$(mktemp -d "${output_dir}/.kernel-source.XXXXXXXXXX")"
+kernel_build_source="${kernel_worktree_root}/linux"
+kernel_worktree_registered=0
+
+cleanup_kernel_worktree() {
+    local exit_status=$?
+
+    trap - EXIT
+    if ((kernel_worktree_registered)); then
+        if ! git -C "${kernel_source}" worktree remove --force \
+            "${kernel_build_source}"; then
+            cix_log "Failed to remove temporary kernel worktree: ${kernel_build_source}"
+            ((exit_status != 0)) || exit_status=1
+        fi
+    fi
+    if [[ -d "${kernel_worktree_root}" ]]; then
+        rmdir -- "${kernel_worktree_root}" 2>/dev/null || true
+    fi
+    exit "${exit_status}"
+}
+trap cleanup_kernel_worktree EXIT
+
+kernel_commit="$(git -C "${kernel_source}" rev-parse HEAD)"
+cix_log "Create patched kernel worktree at ${kernel_commit}"
+git -C "${kernel_source}" worktree add --quiet --detach \
+    "${kernel_build_source}" "${kernel_commit}"
+kernel_worktree_registered=1
+
+patch_count=0
+while IFS= read -r patch_entry || [[ -n "${patch_entry}" ]]; do
+    patch_entry="${patch_entry%%#*}"
+    patch_entry="${patch_entry#"${patch_entry%%[![:space:]]*}"}"
+    patch_entry="${patch_entry%"${patch_entry##*[![:space:]]}"}"
+    [[ -n "${patch_entry}" ]] || continue
+    [[ "${patch_entry}" != *[[:space:]]* ]] ||
+        cix_die "kernel patch series options are not supported: ${patch_entry}"
+
+    patch_file="$(realpath -m -- "${kernel_patch_dir}/${patch_entry}")"
+    [[ "${patch_file}" == "${kernel_patch_dir}/"* ]] ||
+        cix_die "kernel patch escapes patch directory: ${patch_entry}"
+    [[ -f "${patch_file}" ]] || cix_die "kernel patch is missing: ${patch_file}"
+
+    cix_log "Apply kernel patch: ${patch_entry}"
+    git -C "${kernel_build_source}" apply --check "${patch_file}"
+    git -C "${kernel_build_source}" apply "${patch_file}"
+    ((patch_count += 1))
+done < "${kernel_patch_series}"
+((patch_count > 0)) || cix_die "kernel patch series is empty: ${kernel_patch_series}"
 
 config_targets=(defconfig cix.config cix_docker.config)
 case "${board}" in
@@ -135,7 +195,7 @@ if [[ "${build_mode}" == "debug" ]]; then
 fi
 
 for config_target in "${config_targets[@]}"; do
-    [[ -f "${kernel_source}/arch/arm64/configs/${config_target}" ]] ||
+    [[ -f "${kernel_build_source}/arch/arm64/configs/${config_target}" ]] ||
         cix_die "kernel-owned config is missing: ${config_target}"
 done
 
@@ -146,7 +206,7 @@ if command -v ccache >/dev/null && [[ -d /usr/lib/ccache ]]; then
 fi
 
 cix_log "Configure kernel with: ${config_targets[*]}"
-make -C "${kernel_source}" \
+make -C "${kernel_build_source}" \
     O="${build_dir}" \
     ARCH=arm64 \
     -j"${jobs}" \
@@ -163,7 +223,7 @@ if [[ -n "${package_version}" ]]; then
 fi
 
 cix_log "Build kernel Debian packages in ${output_dir}"
-make -C "${kernel_source}" \
+make -C "${kernel_build_source}" \
     O="${build_dir}" \
     -j"${jobs}" \
     "${package_args[@]}" \

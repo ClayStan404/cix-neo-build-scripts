@@ -38,6 +38,8 @@ projects:
   cix-neo-debian:
     path: debian
     rules:
+      - paths: ["kernel/**"]
+        targets: [kernel]
       - paths: ["gpu-dkms/**"]
         targets: [gpu-dkms]
     ignore:

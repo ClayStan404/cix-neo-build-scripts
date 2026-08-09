@@ -12,8 +12,11 @@ The initial modules are the Linux kernel and GPU DKMS package:
 ```
 
 The kernel module builds natively with the kernel-owned configuration fragments
-and the `bindeb-pkg` make target. The GPU module creates a standard Debian
-source package and builds it with `sbuild`.
+and the `bindeb-pkg` make target. Before configuration it creates a temporary
+Git worktree and applies the ordered patch series from
+`debian/kernel/patches/series`; the manifest-managed kernel checkout remains
+unchanged. The GPU module creates a standard Debian source package and builds
+it with `sbuild`.
 
 ## sbuild Environment
 
