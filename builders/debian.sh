@@ -1,83 +1,47 @@
 #!/usr/bin/env bash
 # Generic Debian source-package builder used by cix-build.
 
-CIX_ARTIFACTS_DIR=
-CIX_PACKAGE_WORK_ROOT=
-CIX_SBUILD_CCACHE=
-CIX_SBUILD_CHROOT_FILE=
-CIX_SBUILD_CONFIG_FILE=
-CIX_SBUILD_TMP_TEMPLATE=
-CIX_SOURCE_PACKAGE=
-CIX_DEBIAN_VERSION=
-CIX_UPSTREAM_VERSION=
-
-cix_package_cleanup() {
-    local exit_status=$?
-
-    trap - EXIT
-    if [[ -n "${CIX_PACKAGE_WORK_ROOT}" && -d "${CIX_PACKAGE_WORK_ROOT}" ]]; then
-        rm -rf -- "${CIX_PACKAGE_WORK_ROOT}"
-    fi
-    exit "${exit_status}"
-}
-
-cix_sbuild_init() {
-    CIX_ARTIFACTS_DIR="$(realpath -m -- "${CIX_OUTPUT_DIR}/artifacts")"
-    CIX_SBUILD_CONFIG_FILE="${CIX_SCRIPTS_DIR}/sbuild/config.pl"
-    CIX_SBUILD_CHROOT_FILE="${CIX_SBUILD_CHROOT:-${HOME}/.cache/sbuild/${CIX_DISTRIBUTION}-arm64-sbuild.tar.zst}"
-    CIX_SBUILD_CHROOT_FILE="$(realpath -m -- "${CIX_SBUILD_CHROOT_FILE}")"
-    CIX_SBUILD_CCACHE="${CIX_SBUILD_CCACHE_DIR:-${XDG_CACHE_HOME:-${HOME}/.cache}/cix-neo-sbuild/ccache}"
-    CIX_SBUILD_CCACHE="$(realpath -m -- "${CIX_SBUILD_CCACHE}")"
-    CIX_SBUILD_TMP_TEMPLATE="${CIX_SBUILD_TMPDIR_TEMPLATE:-/var/tmp/cix-neo-sbuild/tmp.sbuild.XXXXXXXXXX}"
-}
-
-cix_sbuild_validate_environment() {
-    [[ -f "${CIX_SBUILD_CONFIG_FILE}" ]] ||
-        cix_die "sbuild configuration is missing: ${CIX_SBUILD_CONFIG_FILE}"
-    [[ -s "${CIX_SBUILD_CHROOT_FILE}" ]] ||
-        cix_die "sbuild chroot is missing; run ${CIX_SCRIPTS_DIR}/setup-sbuild: ${CIX_SBUILD_CHROOT_FILE}"
-    [[ -d "${CIX_SBUILD_CCACHE}" ]] ||
-        cix_die "sbuild ccache is missing; run ${CIX_SCRIPTS_DIR}/setup-sbuild: ${CIX_SBUILD_CCACHE}"
-    [[ -d "$(dirname -- "${CIX_SBUILD_TMP_TEMPLATE}")" ]] ||
-        cix_die "sbuild temporary directory is missing; run ${CIX_SCRIPTS_DIR}/setup-sbuild"
-}
-
 cix_validate_packaging() {
     local packaging_dir="$1"
     local expected_format="$2"
     local source_format
 
     [[ -f "${packaging_dir}/control" && -f "${packaging_dir}/changelog" ]] ||
-        cix_die "${CIX_TARGET_DESCRIPTION} Debian metadata is missing: ${packaging_dir}"
+        cix_die "${TARGET[description]} Debian metadata is missing: ${packaging_dir}"
     [[ -f "${packaging_dir}/source/format" ]] ||
         cix_die "Debian source format is missing: ${packaging_dir}/source/format"
     source_format="$(<"${packaging_dir}/source/format")"
     [[ "${source_format}" == "${expected_format}" ]] ||
-        cix_die "${CIX_TARGET_DESCRIPTION} must use source format ${expected_format}; found ${source_format}"
+        cix_die "${TARGET[description]} must use source format ${expected_format}; found ${source_format}"
 }
 
-cix_read_debian_metadata() {
+cix_debian_metadata() {
     local packaging_dir="$1"
+    local debian_version
+    local source_package
+    local upstream_version
 
-    CIX_SOURCE_PACKAGE="$(dpkg-parsechangelog -l"${packaging_dir}/changelog" -S Source)"
-    CIX_DEBIAN_VERSION="$(dpkg-parsechangelog -l"${packaging_dir}/changelog" -S Version)"
-    CIX_UPSTREAM_VERSION="${CIX_DEBIAN_VERSION#*:}"
-    CIX_UPSTREAM_VERSION="${CIX_UPSTREAM_VERSION%%-*}"
-    [[ -n "${CIX_SOURCE_PACKAGE}" && -n "${CIX_UPSTREAM_VERSION}" ]] ||
+    source_package="$(dpkg-parsechangelog -l"${packaging_dir}/changelog" -S Source)"
+    debian_version="$(dpkg-parsechangelog -l"${packaging_dir}/changelog" -S Version)"
+    upstream_version="${debian_version#*:}"
+    upstream_version="${upstream_version%%-*}"
+    [[ -n "${source_package}" && -n "${upstream_version}" ]] ||
         cix_die "cannot determine Debian source package name and version"
+    printf '%s %s %s\n' "${source_package}" "${debian_version}" "${upstream_version}"
 }
 
 cix_create_orig_tar() {
-    local source_date_epoch="$1"
-    local source_tree="$2"
-    local work_root="$3"
-    local orig_tar="${work_root}/${CIX_SOURCE_PACKAGE}_${CIX_UPSTREAM_VERSION}.orig.tar.xz"
+    local source_package="$1"
+    local upstream_version="$2"
+    local source_date_epoch="$3"
+    local source_tree="$4"
+    local work_root="$5"
 
     tar --sort=name \
         --mtime="@${source_date_epoch}" \
         --owner=0 --group=0 --numeric-owner \
         -C "${work_root}" \
-        -cJf "${orig_tar}" \
+        -cJf "${work_root}/${source_package}_${upstream_version}.orig.tar.xz" \
         "$(basename "${source_tree}")"
 }
 
@@ -95,42 +59,59 @@ cix_create_quilt_dsc() {
 }
 
 cix_find_dsc() {
-    local work_root="$1"
+    local source_package="$1"
+    local work_root="$2"
     local -a dsc_files
 
     mapfile -d '' -t dsc_files < <(
         find "${work_root}" -maxdepth 1 -type f \
-            -name "${CIX_SOURCE_PACKAGE}_*.dsc" -print0
+            -name "${source_package}_*.dsc" -print0
     )
     ((${#dsc_files[@]} == 1)) ||
-        cix_die "expected one ${CIX_SOURCE_PACKAGE} dsc; found ${#dsc_files[@]}"
+        cix_die "expected one ${source_package} dsc; found ${#dsc_files[@]}"
     printf '%s\n' "${dsc_files[0]}"
 }
 
 cix_run_sbuild() {
     local dsc_file="$1"
     local source_date_epoch="$2"
+    local build_output="$3"
+    local build_jobs="$4"
+    local ccache_dir
+    local chroot
+    local config="${CIX_ROOT}/build-scripts/sbuild/config.pl"
+    local tmpdir_root="${CIX_SBUILD_TMPDIR_ROOT:-/var/tmp/cix-neo-sbuild}"
 
-    export SOURCE_DATE_EPOCH="${source_date_epoch}"
-    export CIX_SBUILD_CHROOT="${CIX_SBUILD_CHROOT_FILE}"
-    export CIX_SBUILD_DISTRIBUTION="${CIX_DISTRIBUTION}"
-    export CIX_SBUILD_CCACHE_DIR="${CIX_SBUILD_CCACHE}"
-    export CIX_SBUILD_OUTPUT_DIR="${CIX_ARTIFACTS_DIR}"
-    export CIX_SBUILD_TMPDIR_TEMPLATE="${CIX_SBUILD_TMP_TEMPLATE}"
-    cix_set_deb_parallel_jobs "${CIX_JOBS}"
-    export SBUILD_CONFIG="${CIX_SBUILD_CONFIG_FILE}"
+    chroot="${CIX_SBUILD_CHROOT:-${HOME}/.cache/sbuild/${CIX_SUITE}-arm64-sbuild.tar.zst}"
+    chroot="$(realpath -m -- "${chroot}")"
+    ccache_dir="${HOME}/.cache/cix-neo-sbuild/ccache"
 
-    cix_log "Build ${CIX_TARGET_DESCRIPTION} with sbuild"
-    sbuild \
-        --chroot-mode=unshare \
-        --dist="${CIX_DISTRIBUTION}" \
-        --arch=arm64 \
-        --build-dir="${CIX_ARTIFACTS_DIR}" \
-        "${dsc_file}"
+    [[ -f "${config}" ]] || cix_die "sbuild configuration is missing: ${config}"
+    [[ -s "${chroot}" ]] ||
+        cix_die "sbuild chroot is missing; run build-scripts/setup-sbuild: ${chroot}"
+    [[ -d "${ccache_dir}" ]] ||
+        cix_die "sbuild ccache is missing; run build-scripts/setup-sbuild: ${ccache_dir}"
+    [[ -d "${tmpdir_root}" ]] ||
+        cix_die "sbuild temporary directory is missing; run build-scripts/setup-sbuild"
+
+    cix_log "Build ${TARGET[description]} with sbuild"
+    SOURCE_DATE_EPOCH="${source_date_epoch}" \
+    CIX_SBUILD_TMPDIR_ROOT="${tmpdir_root}" \
+    SBUILD_CONFIG="${config}" \
+        sbuild \
+            --chroot-mode=unshare \
+            --chroot="${chroot}" \
+            --dist="${CIX_SUITE}" \
+            --arch=arm64 \
+            --jobs="${build_jobs}" \
+            --build-dir="${build_output}" \
+            "${dsc_file}"
 }
 
 cix_validate_dkms_source() {
     local source_dir="$1"
+    local source_package="$2"
+    local upstream_version="$3"
     local dkms_name
     local dkms_version
 
@@ -140,93 +121,108 @@ cix_validate_dkms_source() {
     dkms_version="$(sed -n 's/^PACKAGE_VERSION="\([^"]*\)"$/\1/p' "${source_dir}/dkms.conf" | head -n1)"
     [[ -n "${dkms_name}" && -n "${dkms_version}" ]] ||
         cix_die "cannot determine PACKAGE_NAME/PACKAGE_VERSION from dkms.conf"
-    [[ "${CIX_SOURCE_PACKAGE}" == "${dkms_name}" ]] ||
-        cix_die "Debian source name ${CIX_SOURCE_PACKAGE} does not match DKMS name ${dkms_name}"
-    [[ "${CIX_UPSTREAM_VERSION}" == "${dkms_version}" ]] ||
-        cix_die "Debian version ${CIX_UPSTREAM_VERSION} does not match DKMS version ${dkms_version}"
+    [[ "${source_package}" == "${dkms_name}" ]] ||
+        cix_die "Debian source name ${source_package} does not match DKMS name ${dkms_name}"
+    [[ "${upstream_version}" == "${dkms_version}" ]] ||
+        cix_die "Debian version ${upstream_version} does not match DKMS version ${dkms_version}"
 }
 
-cix_sbuild_quilt_package() {
-    local packaging_dir="$1"
-    local source_dir="${CIX_WORKSPACE_ROOT}/${CIX_TARGET_SOURCE}"
-    local source_git="${CIX_WORKSPACE_ROOT}/${CIX_TARGET_SOURCE_GIT}"
+cix_sbuild_quilt_package() (
+    local build_output="$1"
+    local build_jobs="$2"
+    local packaging_dir="${CIX_ROOT}/${TARGET[debian]}"
+    local source_dir="${CIX_ROOT}/${TARGET[source]}"
+    local quilt_git="${CIX_ROOT}/${TARGET[source_git]}"
     local dsc_file
     local source_date_epoch
+    local source_package
     local source_tree
+    local upstream_version
+    local work_root=
 
     cix_validate_packaging "${packaging_dir}" "3.0 (quilt)"
     [[ -d "${source_dir}" ]] || cix_die "source directory is missing: ${source_dir}"
-    git -C "${source_git}" rev-parse --is-inside-work-tree >/dev/null 2>&1 ||
-        cix_die "source is not a Git worktree: ${source_git}"
-    cix_read_debian_metadata "${packaging_dir}"
-    case "${CIX_TARGET_VALIDATE}" in
+    git -C "${quilt_git}" rev-parse --is-inside-work-tree >/dev/null 2>&1 ||
+        cix_die "source is not a Git worktree: ${quilt_git}"
+    read -r source_package _ upstream_version < <(
+        cix_debian_metadata "${packaging_dir}"
+    )
+    case "${TARGET[validate]}" in
         "") ;;
-        dkms) cix_validate_dkms_source "${source_dir}" ;;
-        *) cix_die "unsupported source validation: ${CIX_TARGET_VALIDATE}" ;;
+        dkms) cix_validate_dkms_source "${source_dir}" "${source_package}" "${upstream_version}" ;;
+        *) cix_die "unsupported source validation: ${TARGET[validate]}" ;;
     esac
 
-    mkdir -p -- "${CIX_ARTIFACTS_DIR}" "${CIX_OUTPUT_DIR}"
-    CIX_PACKAGE_WORK_ROOT="$(mktemp -d "${CIX_OUTPUT_DIR}/.${CIX_TARGET}.XXXXXXXXXX")"
-    trap cix_package_cleanup EXIT
-    source_tree="${CIX_PACKAGE_WORK_ROOT}/${CIX_SOURCE_PACKAGE}-${CIX_UPSTREAM_VERSION}"
-    cix_log "Assemble ${CIX_TARGET_DESCRIPTION} source package"
+    work_root="$(mktemp -d "${build_output}/.${TARGET[name]}.XXXXXXXXXX")"
+    trap 'rm -rf -- "${work_root}"' EXIT
+    source_tree="${work_root}/${source_package}-${upstream_version}"
+    cix_log "Assemble ${TARGET[description]} source package"
     mkdir -p -- "${source_tree}"
     rsync -a --exclude=.git --exclude=/debian/ "${source_dir}/" "${source_tree}/"
 
-    source_date_epoch="$(git -C "${source_git}" log -1 --format=%ct)"
-    cix_create_orig_tar "${source_date_epoch}" "${source_tree}" "${CIX_PACKAGE_WORK_ROOT}"
-    cix_create_quilt_dsc "${packaging_dir}" "${source_tree}" "${CIX_PACKAGE_WORK_ROOT}"
-    dsc_file="$(cix_find_dsc "${CIX_PACKAGE_WORK_ROOT}")"
-    cix_run_sbuild "${dsc_file}" "${source_date_epoch}"
-}
+    source_date_epoch="$(git -C "${quilt_git}" log -1 --format=%ct)"
+    cix_create_orig_tar \
+        "${source_package}" "${upstream_version}" "${source_date_epoch}" \
+        "${source_tree}" "${work_root}"
+    cix_create_quilt_dsc "${packaging_dir}" "${source_tree}" "${work_root}"
+    dsc_file="$(cix_find_dsc "${source_package}" "${work_root}")"
+    cix_run_sbuild "${dsc_file}" "${source_date_epoch}" "${build_output}" "${build_jobs}"
+)
 
-cix_sbuild_native_package() {
-    local packaging_dir="$1"
-    local source_git="${CIX_WORKSPACE_ROOT}/${CIX_TARGET_SOURCE_GIT}"
+cix_sbuild_native_package() (
+    local build_output="$1"
+    local build_jobs="$2"
+    local packaging_dir="${CIX_ROOT}/${TARGET[debian]}"
+    local native_git="${CIX_ROOT}/${TARGET[source_git]}"
+    local debian_version
     local dsc_file
     local source_date_epoch
+    local source_package
     local source_tree
     local tree_version
+    local work_root=
 
     cix_validate_packaging "${packaging_dir}" "3.0 (native)"
-    git -C "${source_git}" rev-parse --is-inside-work-tree >/dev/null 2>&1 ||
-        cix_die "source is not a Git worktree: ${source_git}"
-    cix_read_debian_metadata "${packaging_dir}"
-    tree_version="${CIX_DEBIAN_VERSION#*:}"
+    git -C "${native_git}" rev-parse --is-inside-work-tree >/dev/null 2>&1 ||
+        cix_die "source is not a Git worktree: ${native_git}"
+    read -r source_package debian_version _ < <(
+        cix_debian_metadata "${packaging_dir}"
+    )
+    tree_version="${debian_version#*:}"
 
-    mkdir -p -- "${CIX_ARTIFACTS_DIR}" "${CIX_OUTPUT_DIR}"
-    CIX_PACKAGE_WORK_ROOT="$(mktemp -d "${CIX_OUTPUT_DIR}/.${CIX_TARGET}.XXXXXXXXXX")"
-    trap cix_package_cleanup EXIT
-    source_tree="${CIX_PACKAGE_WORK_ROOT}/${CIX_SOURCE_PACKAGE}-${tree_version}"
-    cix_log "Assemble ${CIX_TARGET_DESCRIPTION} native source package"
+    work_root="$(mktemp -d "${build_output}/.${TARGET[name]}.XXXXXXXXXX")"
+    trap 'rm -rf -- "${work_root}"' EXIT
+    source_tree="${work_root}/${source_package}-${tree_version}"
+    cix_log "Assemble ${TARGET[description]} native source package"
     mkdir -p -- "${source_tree}/debian"
     rsync -a "${packaging_dir}/" "${source_tree}/debian/"
     (
-        cd "${CIX_PACKAGE_WORK_ROOT}" || exit
+        cd "${work_root}" || exit
         dpkg-source -b "$(basename "${source_tree}")"
     )
 
-    dsc_file="$(cix_find_dsc "${CIX_PACKAGE_WORK_ROOT}")"
-    source_date_epoch="$(git -C "${source_git}" log -1 --format=%ct)"
-    cix_run_sbuild "${dsc_file}" "${source_date_epoch}"
-}
+    dsc_file="$(cix_find_dsc "${source_package}" "${work_root}")"
+    source_date_epoch="$(git -C "${native_git}" log -1 --format=%ct)"
+    cix_run_sbuild "${dsc_file}" "${source_date_epoch}" "${build_output}" "${build_jobs}"
+)
 
 cix_sbuild_package() {
-    local packaging_dir="${CIX_WORKSPACE_ROOT}/${CIX_TARGET_DEBIAN}"
+    local build_action="$1"
+    local build_output="$2"
+    local build_jobs="$3"
 
-    cix_sbuild_init
-    if [[ "${CIX_ACTION}" == "clean" ]]; then
-        cix_clean_files "${CIX_ARTIFACTS_DIR}" "${CIX_TARGET_DESCRIPTION} artifacts"
+    if [[ "${build_action}" == "clean" ]]; then
+        cix_clean_artifacts "${build_output}"
         return 0
     fi
 
     cix_require_command dpkg-parsechangelog dpkg-source find git rsync sbuild tar
-    cix_sbuild_validate_environment
-    if [[ -n "${CIX_TARGET_SOURCE}" ]]; then
-        cix_sbuild_quilt_package "${packaging_dir}"
+    mkdir -p -- "${build_output}"
+    cix_clean_artifacts "${build_output}"
+    if [[ -n "${TARGET[source]}" ]]; then
+        cix_sbuild_quilt_package "${build_output}" "${build_jobs}"
     else
-        cix_sbuild_native_package "${packaging_dir}"
+        cix_sbuild_native_package "${build_output}" "${build_jobs}"
     fi
-    cix_log "${CIX_TARGET_DESCRIPTION} build complete"
-    cix_print_files "${CIX_ARTIFACTS_DIR}"
+    cix_log "${TARGET[description]} build complete"
 }

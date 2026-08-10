@@ -7,13 +7,13 @@ naming, or framework contract.
 Build the current CIX kernel, DKMS, and boot configuration packages:
 
 ```bash
-./build-scripts/cix-build kernel --nexus zj
-./build-scripts/cix-build stable-kernel --nexus zj
-./build-scripts/cix-build gpu-dkms --nexus zj
-./build-scripts/cix-build vpu-dkms --nexus zj
-./build-scripts/cix-build vpu-firmware --nexus zj
-./build-scripts/cix-build npu-dkms --nexus zj
-./build-scripts/cix-build grub-config --nexus zj
+./build-scripts/cix-build kernel
+./build-scripts/cix-build stable-kernel
+./build-scripts/cix-build gpu-dkms
+./build-scripts/cix-build vpu-dkms
+./build-scripts/cix-build vpu-firmware
+./build-scripts/cix-build npu-dkms
+./build-scripts/cix-build grub-config
 ```
 
 The supported build host baseline is native ARM64 Debian 13. Other Debian and
@@ -22,9 +22,9 @@ Ubuntu host releases are intentionally outside the current scope.
 There are two independent native kernel targets. `kernel` builds the CIX 6.6
 development kernel using its kernel-owned configuration fragments and the
 external temporary fix in `debian/kernel/patches/`. `stable-kernel` uses the
-`cix-linux-kernel` harness to build its currently supported upstream stable
-release (7.0.13 at the time of writing) with the patch set and defconfig from
-the separately manifest-managed `cix-linux-main` checkout. Both use
+`cix-linux-kernel` harness to build the upstream stable release selected by
+that repository, with the patch set and defconfig from the separately
+manifest-managed `cix-linux-main` checkout. Both use
 `make bindeb-pkg`; neither uses `sbuild`.
 The stable harness owns the selected kernel version and currently emits a
 `-cix` kernel release (for example, `7.0.13-cix`). The new system does not
@@ -42,17 +42,16 @@ rules. `cix-build` resolves its target from this file, and the CI planner reads
 the same data. Package names and source paths are therefore not duplicated in
 Shell dispatch tables.
 
-Defaults live in `cix-build.conf`. Environment variables can override the
-file, and command-line options override both. Pass an alternate file as the
-first option with `cix-build --config FILE TARGET`.
+All build paths use the host's full `nproc` value, including native kernel
+`make bindeb-pkg`, its nested `dpkg-buildpackage` invocation, sbuild packages,
+and DKMS compatibility tests.
+Target outputs are written to `output/TARGET`.
+Each build removes that target's previous top-level artifact files before
+starting, so a persistent Jenkins workspace cannot publish stale packages.
 
-Build parallelism defaults to the host's `nproc` value. `--jobs COUNT`
-overrides it consistently for native kernel `make bindeb-pkg`, its nested
-`dpkg-buildpackage` invocation, sbuild packages, and DKMS compatibility tests.
-
-The Nexus selector chooses an internal download endpoint for non-sbuild build
-flows that fetch private inputs. It is not an APT or sbuild setting and is not
-propagated into standard sbuild package builds.
+Both native kernel builders and sbuild use the compiler wrappers under
+`/usr/lib/ccache` and share the host cache at
+`~/.cache/cix-neo-sbuild/ccache`.
 
 The VPU DKMS package retains its runtime dependency on `cix-vpu-firmware`.
 The firmware target packages the 16 proprietary `.fwb` files from the
@@ -103,7 +102,7 @@ provisions dedicated temporary and ccache directories, and creates an sbuild
 unshare tarball with `mmdebstrap`. Therefore, running `setup-sbuild` alone on a
 new host installs the same complete dependency set before creating the chroot.
 
-Use `--help` to see distribution, mirror, tarball, and rebuild overrides.
+Use `--help` to see mirror, tarball, and rebuild overrides.
 
 ## DKMS compatibility tests
 

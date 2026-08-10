@@ -1,46 +1,69 @@
 #!/usr/bin/env bash
 # Kernel builders used by cix-build.
 
-CIX_KERNEL_WORKTREE_ROOT=
-CIX_KERNEL_WORKTREE_SOURCE=
-CIX_KERNEL_WORKTREE_REGISTERED=0
+cix_prepare_kernel_ccache() {
+    cix_require_command ccache
+    [[ -d /usr/lib/ccache ]] ||
+        cix_die "ccache compiler wrappers are missing: /usr/lib/ccache"
 
-cix_kernel_cleanup() {
-    local exit_status=$?
-
-    trap - EXIT
-    if ((CIX_KERNEL_WORKTREE_REGISTERED)); then
-        if ! git -C "${CIX_WORKSPACE_ROOT}/sources/linux" worktree remove --force \
-            "${CIX_KERNEL_WORKTREE_SOURCE}"; then
-            cix_log "Failed to remove temporary kernel worktree: ${CIX_KERNEL_WORKTREE_SOURCE}"
-            ((exit_status != 0)) || exit_status=1
-        fi
-    fi
-    if [[ -n "${CIX_KERNEL_WORKTREE_ROOT}" && -d "${CIX_KERNEL_WORKTREE_ROOT}" ]]; then
-        rmdir -- "${CIX_KERNEL_WORKTREE_ROOT}" 2>/dev/null || true
-    fi
-    exit "${exit_status}"
+    CCACHE_DIR="${HOME}/.cache/cix-neo-sbuild/ccache"
+    CCACHE_UMASK=000
+    PATH="/usr/lib/ccache:${PATH}"
+    export CCACHE_DIR CCACHE_UMASK PATH
+    mkdir -p -- "${CCACHE_DIR}"
+    cix_log "Use ccache at ${CCACHE_DIR}"
 }
 
-cix_kernel_build() {
-    local build_dir
+cix_kernel_build() (
+    local build_action="$1"
+    local build_output="$2"
+    local build_jobs="$3"
+    local build_dir="${build_output}/build"
     local config_target
     local kernel_commit
-    local kernel_patch_dir="${CIX_WORKSPACE_ROOT}/${CIX_TARGET_DEBIAN}/patches"
+    local kernel_patch_dir="${CIX_ROOT}/${TARGET[debian]}/patches"
     local kernel_patch_series="${kernel_patch_dir}/series"
-    local kernel_source="${CIX_WORKSPACE_ROOT}/${CIX_TARGET_SOURCE}"
+    local kernel_source="${CIX_ROOT}/${TARGET[source]}"
     local patch_count=0
     local patch_entry
     local patch_file
-    local -a config_targets
-    local -a package_args
+    local worktree_registered=0
+    local worktree_root=
+    local worktree_source=
+    local -a config_targets=(defconfig cix.config cix_docker.config)
+    local -a package_args=(
+        ARCH=arm64
+        "DPKG_FLAGS=--jobs=${build_jobs}"
+        LOCALVERSION=-generic
+        "KDEB_CHANGELOG_DIST=${CIX_SUITE}"
+        KDEB_SOURCENAME=cix-linux
+    )
 
-    build_dir="$(realpath -m -- "${CIX_OUTPUT_DIR}/build")"
+    # Invoked by the EXIT trap below.
+    # shellcheck disable=SC2317
+    cix_kernel_cleanup() {
+        local exit_status=$?
+
+        trap - EXIT
+        if ((worktree_registered)); then
+            if ! git -C "${kernel_source}" worktree remove --force \
+                "${worktree_source}"; then
+                cix_log "Failed to remove temporary kernel worktree: ${worktree_source}"
+                ((exit_status != 0)) || exit_status=1
+            fi
+        fi
+        if [[ -n "${worktree_root}" && -d "${worktree_root}" ]]; then
+            rmdir -- "${worktree_root}" 2>/dev/null || true
+        fi
+        exit "${exit_status}"
+    }
+
     [[ -f "${kernel_source}/Makefile" ]] ||
         cix_die "kernel source is missing: ${kernel_source}"
     cix_require_command dpkg-buildpackage fakeroot make
 
-    if [[ "${CIX_ACTION}" == "clean" ]]; then
+    if [[ "${build_action}" == "clean" ]]; then
+        cix_clean_artifacts "${build_output}"
         if [[ -d "${build_dir}" ]]; then
             cix_log "Clean kernel build directory ${build_dir}"
             make -C "${kernel_source}" O="${build_dir}" ARCH=arm64 clean
@@ -58,16 +81,17 @@ cix_kernel_build() {
     [[ -z "$(git -C "${kernel_source}" status --porcelain)" ]] ||
         cix_die "kernel source must be clean before creating the patched build worktree"
 
-    mkdir -p -- "${build_dir}" "${CIX_OUTPUT_DIR}"
-    CIX_KERNEL_WORKTREE_ROOT="$(mktemp -d "${CIX_OUTPUT_DIR}/.kernel-source.XXXXXXXXXX")"
-    CIX_KERNEL_WORKTREE_SOURCE="${CIX_KERNEL_WORKTREE_ROOT}/linux"
+    mkdir -p -- "${build_dir}"
+    cix_clean_artifacts "${build_output}"
+    worktree_root="$(mktemp -d "${build_output}/.kernel-source.XXXXXXXXXX")"
+    worktree_source="${worktree_root}/linux"
     trap cix_kernel_cleanup EXIT
 
     kernel_commit="$(git -C "${kernel_source}" rev-parse HEAD)"
     cix_log "Create patched kernel worktree at ${kernel_commit}"
     git -C "${kernel_source}" worktree add --quiet --detach \
-        "${CIX_KERNEL_WORKTREE_SOURCE}" "${kernel_commit}"
-    CIX_KERNEL_WORKTREE_REGISTERED=1
+        "${worktree_source}" "${kernel_commit}"
+    worktree_registered=1
 
     while IFS= read -r patch_entry || [[ -n "${patch_entry}" ]]; do
         patch_entry="${patch_entry%%#*}"
@@ -83,94 +107,72 @@ cix_kernel_build() {
         [[ -f "${patch_file}" ]] || cix_die "kernel patch is missing: ${patch_file}"
 
         cix_log "Apply kernel patch: ${patch_entry}"
-        git -C "${CIX_KERNEL_WORKTREE_SOURCE}" apply --check "${patch_file}"
-        git -C "${CIX_KERNEL_WORKTREE_SOURCE}" apply "${patch_file}"
+        git -C "${worktree_source}" apply --check "${patch_file}"
+        git -C "${worktree_source}" apply "${patch_file}"
         ((patch_count += 1))
     done < "${kernel_patch_series}"
     ((patch_count > 0)) || cix_die "kernel patch series is empty: ${kernel_patch_series}"
 
-    config_targets=(defconfig cix.config cix_docker.config)
-    case "${CIX_BOARD}" in
-        cloudbook|emu|fpga)
-            config_targets+=("cix_${CIX_BOARD}.config")
-            ;;
-    esac
-    [[ "${CIX_DOCKER_MODE}" != "docker" ]] || config_targets+=(cix_redroid.config)
-    [[ "${CIX_BUILD_MODE}" != "debug" ]] || config_targets+=(cix_debug.config)
-
     for config_target in "${config_targets[@]}"; do
-        [[ -f "${CIX_KERNEL_WORKTREE_SOURCE}/arch/arm64/configs/${config_target}" ]] ||
+        [[ -f "${worktree_source}/arch/arm64/configs/${config_target}" ]] ||
             cix_die "kernel-owned config is missing: ${config_target}"
     done
 
-    export CIX_NEXUS_SITE="${CIX_NEXUS}"
-    export CCACHE_DIR="${CIX_SBUILD_CCACHE_DIR:-${XDG_CACHE_HOME:-${HOME}/.cache}/cix-neo-sbuild/ccache}"
-    if command -v ccache >/dev/null && [[ -d /usr/lib/ccache ]]; then
-        export PATH="/usr/lib/ccache:${PATH}"
-    fi
-
+    cix_prepare_kernel_ccache
     cix_log "Configure kernel with: ${config_targets[*]}"
-    make -C "${CIX_KERNEL_WORKTREE_SOURCE}" \
+    make -C "${worktree_source}" \
         O="${build_dir}" \
         ARCH=arm64 \
-        -j"${CIX_JOBS}" \
+        -j"${build_jobs}" \
         "${config_targets[@]}"
 
-    package_args=(
-        ARCH=arm64
-        "DPKG_FLAGS=--jobs=${CIX_JOBS}"
-        LOCALVERSION=-generic
-        KDEB_CHANGELOG_DIST="${CIX_DISTRIBUTION}"
-        KDEB_SOURCENAME=cix-linux
-    )
-    [[ -z "${CIX_PACKAGE_VERSION}" ]] ||
-        package_args+=(KDEB_PKGVERSION="${CIX_PACKAGE_VERSION}")
-
-    cix_log "Build kernel Debian packages in ${CIX_OUTPUT_DIR}"
-    make -C "${CIX_KERNEL_WORKTREE_SOURCE}" \
+    cix_log "Build kernel Debian packages in ${build_output}"
+    make -C "${worktree_source}" \
         O="${build_dir}" \
-        -j"${CIX_JOBS}" \
+        -j"${build_jobs}" \
         "${package_args[@]}" \
         bindeb-pkg
 
     cix_log "Kernel package build complete"
-    find "${CIX_OUTPUT_DIR}" -maxdepth 1 -type f -name '*.deb' -printf '    %p\n' | sort
-}
+)
 
-cix_stable_kernel_build() {
-    local artifacts_dir="${CIX_OUTPUT_DIR}/artifacts"
+cix_stable_kernel_build() (
+    local build_action="$1"
+    local build_output="$2"
+    local build_jobs="$3"
     local patch_commit
-    local patch_remote
-    local patch_source="${CIX_WORKSPACE_ROOT}/${CIX_TARGET_PATCH_SOURCE}"
-    local stable_source="${CIX_WORKSPACE_ROOT}/${CIX_TARGET_SOURCE}"
+    local patch_remote="${build_output}/work/.cix-linux-main.git"
+    local patch_source="${CIX_ROOT}/${TARGET[patch_source]}"
+    local stable_source="${CIX_ROOT}/${TARGET[source]}"
     local upstream_builder="${stable_source}/native/build-kernel-native.sh"
-    local work_dir="${CIX_OUTPUT_DIR}/work"
+    local work_dir="${build_output}/work"
 
-    patch_remote="${work_dir}/.cix-linux-main.git"
     [[ -x "${upstream_builder}" ]] ||
         cix_die "stable kernel builder is missing: ${upstream_builder}"
     [[ -d "${patch_source}/.git" || -f "${patch_source}/.git" ]] ||
         cix_die "CIX stable kernel patch source is missing: ${patch_source}"
 
-    if [[ "${CIX_ACTION}" == "clean" ]]; then
-        cix_clean_files "${artifacts_dir}" "stable kernel artifacts"
+    if [[ "${build_action}" == "clean" ]]; then
+        cix_clean_artifacts "${build_output}"
         if [[ -d "${work_dir}" ]]; then
             cix_log "Remove generated stable kernel work files; preserve tarball cache"
             find "${work_dir}" -mindepth 1 -maxdepth 1 \
-                ! -name 'linux-*.tar.xz' -delete
+                ! -name 'linux-*.tar.xz' -exec rm -rf -- {} +
         fi
         return 0
     fi
 
     cix_require_command \
-        bc bison curl dpkg-buildpackage fakeroot flex gcc git make nproc openssl \
+        bc bison curl dpkg-buildpackage fakeroot flex gcc git make openssl \
         pahole realpath rsync tar xz
     [[ -z "$(git -C "${stable_source}" status --porcelain)" ]] ||
         cix_die "stable kernel build harness must be clean: ${stable_source}"
     [[ -z "$(git -C "${patch_source}" status --porcelain)" ]] ||
         cix_die "stable kernel patch source must be clean: ${patch_source}"
 
-    mkdir -p -- "${work_dir}" "${artifacts_dir}"
+    cix_prepare_kernel_ccache
+    mkdir -p -- "${work_dir}"
+    cix_clean_artifacts "${build_output}"
     patch_commit="$(git -C "${patch_source}" rev-parse HEAD)"
     if [[ ! -d "${patch_remote}" ]]; then
         git init --quiet --bare "${patch_remote}"
@@ -179,24 +181,14 @@ cix_stable_kernel_build() {
         "${patch_source}" "${patch_commit}"
     git -C "${patch_remote}" update-ref refs/heads/main "${patch_commit}"
 
-    export CIX_NEXUS_SITE="${CIX_NEXUS}"
-    export BUILD_JOBS="${CIX_JOBS}"
-    export KDEB_CHANGELOG_DIST="${CIX_DISTRIBUTION}"
-    export OMP_NUM_THREADS="${CIX_JOBS}"
-    export OMP_THREAD_LIMIT="${CIX_JOBS}"
-    export OUTPUT_DIR="${artifacts_dir}"
-    export PATCH_BRANCH=main
-    export PATCH_REMOTE="${patch_remote}"
-    export WORK_DIR="${work_dir}"
-    [[ -z "${CIX_KERNEL_VERSION}" ]] || export KERNEL_VERSION="${CIX_KERNEL_VERSION}"
-    [[ -z "${CIX_KERNEL_SERIES}" ]] || export KERNEL_SERIES="${CIX_KERNEL_SERIES}"
-    [[ -z "${CIX_KERNEL_TARBALL_URL}" ]] || export KERNEL_TARBALL_URL="${CIX_KERNEL_TARBALL_URL}"
-    [[ -z "${CIX_PACKAGE_VERSION}" ]] || export KDEB_PKGVERSION="${CIX_PACKAGE_VERSION}"
-
     cix_log "Build stable CIX kernel from ${stable_source}"
     cix_log "Use manifest-managed CIX patches at ${patch_commit}"
-    (
-        cd "${stable_source}/native" || exit
+    cd "${stable_source}/native" || exit
+    BUILD_JOBS="${build_jobs}" \
+    KDEB_CHANGELOG_DIST="${CIX_SUITE}" \
+    OUTPUT_DIR="${build_output}" \
+    PATCH_BRANCH=main \
+    PATCH_REMOTE="${patch_remote}" \
+    WORK_DIR="${work_dir}" \
         "${upstream_builder}"
-    )
-}
+)

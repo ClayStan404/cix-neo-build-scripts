@@ -76,16 +76,11 @@ readonly host_packages=(
     ccache
     cpio
     curl
-    debhelper
     debian-archive-keyring
-    devscripts
-    dh-dkms
     dkms
-    dpkg-dev
     dwarves
     fakeroot
     flex
-    gcc
     git
     git-lfs
     kmod
@@ -93,7 +88,6 @@ readonly host_packages=(
     libelf-dev
     libssl-dev
     lintian
-    make
     mmdebstrap
     openssl
     python3

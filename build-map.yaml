@@ -117,7 +117,7 @@ projects:
   cix-neo-build-scripts:
     path: build-scripts
     rules:
-      - paths: ["build-map.yaml", "cix-build", "cix-build.conf", "builders/common.sh"]
+      - paths: ["build-map.yaml", "cix-build", "builders/common.sh"]
         targets: [kernel, stable-kernel, gpu-dkms, vpu-dkms, vpu-firmware, npu-dkms, grub-config]
       - paths: ["builders/kernel.sh"]
         targets: [kernel, stable-kernel]

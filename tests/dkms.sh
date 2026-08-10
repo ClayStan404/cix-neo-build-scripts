@@ -2,16 +2,12 @@
 # Build a packaged CIX DKMS module against packaged CIX kernel headers.
 set -Eeuo pipefail
 
-TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-readonly TEST_DIR
 # shellcheck source=builders/common.sh
-source "${TEST_DIR}/../builders/common.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../builders/common.sh"
 
-target=
-jobs="${CIX_BUILD_JOBS:-$(cix_default_jobs)}"
+target_name=
 kernel_headers_deb=""
 dkms_deb=""
-output_dir=""
 
 usage() {
     cat <<'EOF'
@@ -24,8 +20,6 @@ build. All source, state, and module trees are temporary; the host /usr/src,
 Options:
   --kernel-headers PATH  CIX linux-headers deb; auto-detected if unambiguous
   --package PATH         DKMS deb; auto-detected if unambiguous
-  --jobs COUNT           Parallel DKMS build jobs
-  --output-dir PATH      Directory for the retained DKMS make log
   -h, --help             Show this help
 EOF
 }
@@ -43,7 +37,7 @@ case "${1:-}" in
         cix_die "TARGET must be the first argument"
         ;;
     *)
-        target="$1"
+        target_name="$1"
         shift
         ;;
 esac
@@ -58,16 +52,6 @@ while (($#)); do
         --package)
             (($# >= 2)) || cix_die "$1 requires a value"
             dkms_deb="$2"
-            shift 2
-            ;;
-        --jobs)
-            (($# >= 2)) || cix_die "$1 requires a value"
-            jobs="$2"
-            shift 2
-            ;;
-        --output-dir)
-            (($# >= 2)) || cix_die "$1 requires a value"
-            output_dir="$2"
             shift 2
             ;;
         -h|--help)
@@ -99,67 +83,55 @@ select_single_artifact() {
 }
 
 cix_validate_host
-cix_validate_positive_integer "jobs" "${jobs}"
-cix_require_command awk dpkg-deb find mktemp python3 realpath sort uname
+cix_require_command awk dpkg-deb find mktemp nproc python3 realpath sort uname
+build_jobs="$(nproc)"
 
-target_definition="$(
-    "${CIX_SCRIPTS_DIR}/ci/plan.py" \
-        --map "${CIX_SCRIPTS_DIR}/build-map.yaml" \
-        --workspace "${CIX_WORKSPACE_ROOT}" \
-        --target "${target}" \
+declare -A TARGET=()
+# plan.py emits fixed keys and shell-quotes every YAML value.
+eval "$(
+    "${CIX_ROOT}/build-scripts/ci/plan.py" \
+        --target "${target_name}" \
         --format shell
 )"
-# plan.py emits fixed variable names and shell-quotes every YAML value.
-eval "${target_definition}"
-[[ "${CIX_TARGET_BUILDER}" == "sbuild" && "${CIX_TARGET_VALIDATE}" == "dkms" ]] ||
-    cix_die "target is not a mapped DKMS package: ${target}"
+[[ "${TARGET[builder]}" == "sbuild" && "${TARGET[validate]}" == "dkms" ]] ||
+    cix_die "target is not a mapped DKMS package: ${target_name}"
 
-control_file="${CIX_WORKSPACE_ROOT}/${CIX_TARGET_DEBIAN}/control"
+control_file="${CIX_ROOT}/${TARGET[debian]}/control"
 mapfile -t target_binaries < <(
     awk '/^Package:[[:space:]]+/ { print $2 }' "${control_file}"
 )
 ((${#target_binaries[@]} == 1)) ||
     cix_die "DKMS test requires one binary package in ${control_file}; found ${#target_binaries[@]}"
 test_binary="${target_binaries[0]}"
-artifact_glob="${test_binary}_*_all.deb"
-label="${target}"
-output_dir="${output_dir:-${CIX_OUTPUT_ROOT:-${CIX_WORKSPACE_ROOT}/output}/${target}/tests}"
-readonly target test_binary artifact_glob label
+output_dir="${CIX_ROOT}/output/${target_name}/tests"
 
 if command -v dkms >/dev/null; then
     dkms_command="$(command -v dkms)"
 elif [[ -x /usr/sbin/dkms ]]; then
     dkms_command=/usr/sbin/dkms
 else
-    cix_die "dkms is unavailable; run ${CIX_SCRIPTS_DIR}/setup-host first"
+    cix_die "dkms is unavailable; run build-scripts/setup-host first"
 fi
-readonly dkms_command
-
 if command -v modinfo >/dev/null; then
     modinfo_command="$(command -v modinfo)"
 elif [[ -x /usr/sbin/modinfo ]]; then
     modinfo_command=/usr/sbin/modinfo
 else
-    cix_die "modinfo is unavailable; run ${CIX_SCRIPTS_DIR}/setup-host first"
+    cix_die "modinfo is unavailable; run build-scripts/setup-host first"
 fi
-readonly modinfo_command
-
 if [[ -z "${kernel_headers_deb}" ]]; then
     kernel_headers_deb="$(select_single_artifact \
-        "${CIX_WORKSPACE_ROOT}/output/kernel" \
+        "${CIX_ROOT}/output/kernel" \
         'linux-headers-*_arm64.deb' 'CIX kernel headers package')"
 fi
 if [[ -z "${dkms_deb}" ]]; then
     dkms_deb="$(select_single_artifact \
-        "${CIX_WORKSPACE_ROOT}/output/${target}/artifacts" \
-        "${artifact_glob}" "${label} DKMS package")"
+        "${CIX_ROOT}/output/${target_name}" \
+        "${test_binary}_*_all.deb" "${target_name} DKMS package")"
 fi
 
 kernel_headers_deb="$(realpath -e -- "${kernel_headers_deb}")"
 dkms_deb="$(realpath -e -- "${dkms_deb}")"
-output_dir="$(realpath -m -- "${output_dir}")"
-readonly kernel_headers_deb dkms_deb output_dir
-
 header_package="$(dpkg-deb -f "${kernel_headers_deb}" Package)"
 header_architecture="$(dpkg-deb -f "${kernel_headers_deb}" Architecture)"
 binary_package="$(dpkg-deb -f "${dkms_deb}" Package)"
@@ -173,9 +145,9 @@ kernel_release="${header_package#linux-headers-}"
 [[ "${header_architecture}" == "arm64" ]] ||
     cix_die "CIX kernel headers must be arm64: ${header_architecture}"
 [[ "${binary_package}" == "${test_binary}" ]] ||
-    cix_die "unexpected ${label} package: ${binary_package}"
+    cix_die "unexpected ${target_name} package: ${binary_package}"
 [[ "${binary_architecture}" == "all" ]] ||
-    cix_die "${label} DKMS package must be architecture all: ${binary_architecture}"
+    cix_die "${target_name} DKMS package must be architecture all: ${binary_architecture}"
 
 kernel_architecture="$(uname -m)"
 [[ "${kernel_architecture}" == "aarch64" ]] ||
@@ -210,7 +182,7 @@ trap cleanup EXIT
 mkdir -p -- "${package_root}" "${dkms_tree}" "${install_tree}"
 cix_log "Extract CIX kernel headers: ${kernel_headers_deb}"
 dpkg-deb -x "${kernel_headers_deb}" "${package_root}"
-cix_log "Extract ${label} DKMS package: ${dkms_deb}"
+cix_log "Extract ${target_name} DKMS package: ${dkms_deb}"
 dpkg-deb -x "${dkms_deb}" "${package_root}"
 
 header_dir="${source_tree}/${header_package}"
@@ -252,7 +224,7 @@ cix_log "Register ${module_name}/${module_version} in the isolated DKMS tree"
     -v "${module_version}" \
     "${common_dkms_args[@]}"
 
-cix_log "Build ${label} modules for CIX kernel ${kernel_release}"
+cix_log "Build ${target_name} modules for CIX kernel ${kernel_release}"
 "${dkms_command}" build \
     -m "${module_name}" \
     -v "${module_version}" \
@@ -260,7 +232,7 @@ cix_log "Build ${label} modules for CIX kernel ${kernel_release}"
     -a "${kernel_architecture}" \
     --kernelsourcedir "${header_dir}" \
     --no-depmod \
-    -j "${jobs}" \
+    -j "${build_jobs}" \
     "${common_dkms_args[@]}"
 
 build_log_source="${dkms_tree}/${module_name}/${module_version}/${kernel_release}/${kernel_architecture}/log/make.log"
@@ -276,4 +248,4 @@ for expected_module in "${expected_modules[@]}"; do
 done
 
 "${dkms_command}" status "${common_dkms_args[@]}"
-cix_log "${label} DKMS compatibility test passed; build log: ${result_log}"
+cix_log "${target_name} DKMS compatibility test passed; build log: ${result_log}"

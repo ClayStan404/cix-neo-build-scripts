@@ -55,13 +55,13 @@ is confirmed.
   required host tools and provision a clean sbuild environment directly.
 - Use an unprivileged `sbuild` unshare backend with a build chroot tarball
   created by `mmdebstrap`.
-- Use `trixie` as the default build distribution. Never derive the build
-  distribution from the host OS release.
-- Keep compiler caches user-scoped under the user's XDG cache directory by
-  default.
-- Treat the Nexus selector as an internal download-endpoint choice for
-  non-sbuild projects that fetch private inputs. It is not an APT mirror or an
-  sbuild setting and must not be propagated into standard sbuild builds.
+- Use `trixie` as the fixed build distribution. Do not derive the build
+  distribution from the host OS release or expose an unused suite selector.
+- Keep compiler caches at the fixed user-scoped path
+  `~/.cache/cix-neo-sbuild/ccache`.
+- Introduce a Nexus selector only when a non-sbuild project needs to fetch
+  private inputs. It is not an APT mirror or an sbuild setting and must not be
+  propagated into standard sbuild builds.
 - Validate GPU, VPU, and NPU DKMS packages by compiling their modules against
   the headers package produced by the CIX kernel build. Generic upstream
   kernel headers are not a supported test target.
@@ -142,9 +142,6 @@ is confirmed.
 
 ### Configuration
 
-- The build system must support explicit configuration.
-- Target build logic must be able to select different execution paths based on
-  the resolved configuration.
 - Expose one public command: `build-scripts/cix-build TARGET`. Do not create
   legacy-style per-target `build-*.sh` entry points.
 - Keep `build-scripts/build-map.yaml` as the single registry for target names,
@@ -154,17 +151,30 @@ is confirmed.
   Adding another conventional native or quilt source package must require only
   its Debian metadata and declarative mapping entries, not a new build script or
   Shell function.
-- Keep defaults in the flat `build-scripts/cix-build.conf` file. Environment
-  variables override that file and command-line options override both.
-- Default build parallelism to the host's `nproc` value. A resolved
-  `--jobs COUNT` must control every nested build layer, including native
-  kernel `bindeb-pkg`, `dpkg-buildpackage`, sbuild, and DKMS validation. Pass
-  native kernel jobs through `DPKG_FLAGS=--jobs=COUNT` so they override the
-  upstream packaging rule's internal `dpkg-buildpackage -j1`.
-- Declare and resolve common settings only once. Target implementations contain
-  only build-type behavior; shared engines are not standalone targets and must
-  not encode package dependency relationships.
-- The baseline configuration includes a Nexus site selector with these values:
+- Keep current defaults in `cix-build`: use all host CPUs and write under
+  `output/TARGET`. Do not maintain a separate configuration file until a
+  concrete target needs configuration-driven behavior.
+- Replace a target's previous top-level artifact files when starting a build
+  so persistent CI workspaces cannot publish stale packages.
+- Always use the host's full `nproc` value for every nested build layer,
+  including native kernel `bindeb-pkg`, `dpkg-buildpackage`, sbuild, and DKMS
+  validation. Do not expose a build-job override. Pass the resolved value to
+  native kernel packaging through `DPKG_FLAGS=--jobs=COUNT` so it overrides
+  the upstream packaging rule's internal `dpkg-buildpackage -j1`.
+- Always enable ccache by prepending Debian's `/usr/lib/ccache` compiler
+  wrappers. Native kernel and sbuild builds share the fixed host cache at
+  `~/.cache/cix-neo-sbuild/ccache`.
+- Do not declare configuration variables or CLI options until a concrete target
+  consumes them.
+- Derive one workspace-root path directly from the checked-out layout. Do not
+  layer script-directory, workspace-directory, or exported path aliases.
+- Group mapped target metadata in one structure and pass action, output, and
+  job values to builders explicitly. Keep temporary build state local to the
+  builder that owns it.
+- Target implementations contain only build-type behavior; shared engines are
+  not standalone targets and must not encode package dependency relationships.
+- When the first Nexus-consuming target is introduced, support these site
+  selector values:
   - `sh`: Shanghai
   - `zj`: Zhangjiang
   - `wuh`: Wuhan
@@ -231,6 +241,6 @@ only those Git LFS objects when assembling the firmware source package.
 
 ## Decisions Still To Be Made
 
-- Output repository/layout and artifact naming conventions.
+- Artifact publishing, retention, and signing requirements.
 - Container, CI, caching, signing, and publishing requirements.
 - Nexus URL mapping, authentication, and access policy for each site selector.

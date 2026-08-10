@@ -7,18 +7,14 @@
 # an unshare chroot tarball with mmdebstrap.
 set -Eeuo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-readonly SCRIPT_DIR
-readonly SBUILD_CONFIG="${SCRIPT_DIR}/sbuild/config.pl"
-readonly SETUP_HOST="${SCRIPT_DIR}/setup-host"
+script_dir="$(realpath "$(dirname "${BASH_SOURCE[0]}")")"
+readonly script_dir
 
-distribution="${CIX_SBUILD_DISTRIBUTION:-trixie}"
+readonly suite=trixie
 mirror="${CIX_SBUILD_MIRROR:-https://mirrors.ustc.edu.cn/debian}"
-architecture=""
 tarball="${CIX_SBUILD_CHROOT:-}"
 tmpdir_root="${CIX_SBUILD_TMPDIR_ROOT:-/var/tmp/cix-neo-sbuild}"
-cache_home="${XDG_CACHE_HOME:-${HOME}/.cache}"
-ccache_dir="${CIX_SBUILD_CCACHE_DIR:-${cache_home}/cix-neo-sbuild/ccache}"
+readonly ccache_dir="${HOME}/.cache/cix-neo-sbuild/ccache"
 force=0
 install_host_packages=1
 dry_run=0
@@ -32,22 +28,18 @@ Usage: setup-sbuild [OPTIONS]
 Create the native ARM64 sbuild unshare environment for CIX Neo.
 
 Options:
-  --distribution SUITE    Distribution suite to create (default: trixie)
   --mirror URL            Debian mirror URL
   --tarball PATH          Chroot tarball output path
   --tmpdir PATH           Host directory for unpacked build chroots
-  --ccache-dir PATH       Host ccache directory mounted into builds
   --force                 Atomically replace an existing chroot tarball
   --skip-host-packages    Do not install missing host packages
   --dry-run               Print mutating commands without running them
   -h, --help              Show this help
 
 Environment equivalents:
-  CIX_SBUILD_DISTRIBUTION
   CIX_SBUILD_MIRROR
   CIX_SBUILD_CHROOT
   CIX_SBUILD_TMPDIR_ROOT
-  CIX_SBUILD_CCACHE_DIR
 EOF
 }
 
@@ -78,27 +70,22 @@ prepare_ccache_dir() {
     local current
     local parent_dirs=()
 
-    if [[ "${ccache_dir}" == "${HOME}/"* ]]; then
-        run mkdir -p -- "${ccache_dir}"
-        current="${ccache_dir}"
-        while [[ "${current}" != "${HOME}" ]]; do
-            parent_dirs+=("${current}")
-            current="$(dirname "${current}")"
-        done
-        parent_dirs+=("${HOME}")
+    run mkdir -p -- "${ccache_dir}"
+    current="${ccache_dir}"
+    while [[ "${current}" != "${HOME}" ]]; do
+        parent_dirs+=("${current}")
+        current="$(dirname "${current}")"
+    done
+    parent_dirs+=("${HOME}")
 
-        # The unshare build user is mapped to a subordinate UID. It needs
-        # traversal permission on the path and read/write access to the cache
-        # root. Do not chmod recursively: cache entries created in a previous
-        # unshare build are owned by the subordinate UID and cannot be chmod'ed
-        # by the host user. CCACHE_UMASK=000 in sbuild/config.pl makes new cache
-        # entries shared and writable.
-        run chmod a+X -- "${parent_dirs[@]}"
-        run chmod a+rwx -- "${ccache_dir}"
-    else
-        run_as_root mkdir -p -- "${ccache_dir}"
-        run_as_root chmod 1777 -- "${ccache_dir}"
-    fi
+    # The unshare build user is mapped to a subordinate UID. It needs
+    # traversal permission on the path and read/write access to the cache
+    # root. Do not chmod recursively: cache entries created in a previous
+    # unshare build are owned by the subordinate UID and cannot be chmod'ed
+    # by the host user. CCACHE_UMASK=000 in sbuild/config.pl makes new cache
+    # entries shared and writable.
+    run chmod a+X -- "${parent_dirs[@]}"
+    run chmod a+rwx -- "${ccache_dir}"
 }
 
 cleanup() {
@@ -113,11 +100,6 @@ trap cleanup EXIT
 
 while (($#)); do
     case "$1" in
-        --distribution)
-            (($# >= 2)) || die "$1 requires a value"
-            distribution="$2"
-            shift 2
-            ;;
         --mirror)
             (($# >= 2)) || die "$1 requires a value"
             mirror="$2"
@@ -131,11 +113,6 @@ while (($#)); do
         --tmpdir)
             (($# >= 2)) || die "$1 requires a value"
             tmpdir_root="$2"
-            shift 2
-            ;;
-        --ccache-dir)
-            (($# >= 2)) || die "$1 requires a value"
-            ccache_dir="$2"
             shift 2
             ;;
         --force)
@@ -173,16 +150,13 @@ architecture="$(dpkg --print-architecture)"
 [[ "${architecture}" == "arm64" ]] ||
     die "native ARM64 host required; detected ${architecture}"
 
-[[ "${distribution}" =~ ^[a-zA-Z0-9][a-zA-Z0-9.+_-]*$ ]] ||
-    die "invalid Debian distribution: ${distribution}"
 [[ "${mirror}" != *[[:space:]]* ]] || die "mirror URL must not contain whitespace"
 
 if [[ -z "${tarball}" ]]; then
-    tarball="${HOME}/.cache/sbuild/${distribution}-${architecture}-sbuild.tar.zst"
+    tarball="${HOME}/.cache/sbuild/${suite}-${architecture}-sbuild.tar.zst"
 fi
 
 tmpdir_root="$(realpath -m -- "${tmpdir_root}")"
-ccache_dir="$(realpath -m -- "${ccache_dir}")"
 tarball="$(realpath -m -- "${tarball}")"
 
 for setup_dir in "${tmpdir_root}" "${ccache_dir}"; do
@@ -197,16 +171,20 @@ done
 
 [[ "${tarball}" == *.tar.zst ]] || die "tarball path must end in .tar.zst"
 [[ ! -L "${tarball}" ]] || die "tarball path must not be a symlink: ${tarball}"
-[[ -r "${SBUILD_CONFIG}" ]] || die "missing sbuild config: ${SBUILD_CONFIG}"
-[[ -x "${SETUP_HOST}" ]] || die "missing host setup command: ${SETUP_HOST}"
+[[ -r "${script_dir}/sbuild/config.pl" ]] ||
+    die "missing sbuild config: ${script_dir}/sbuild/config.pl"
+[[ -x "${script_dir}/setup-host" ]] ||
+    die "missing host setup command: ${script_dir}/setup-host"
 command -v sudo >/dev/null || die "sudo is required"
 
 if ((install_host_packages)); then
-    setup_host_args=()
-    ((dry_run)) && setup_host_args+=(--dry-run)
-    "${SETUP_HOST}" "${setup_host_args[@]}"
+    if ((dry_run)); then
+        "${script_dir}/setup-host" --dry-run
+    else
+        "${script_dir}/setup-host"
+    fi
 else
-    "${SETUP_HOST}" --check
+    "${script_dir}/setup-host" --check
 fi
 
 if ((!dry_run)); then
@@ -225,7 +203,7 @@ if ((!dry_run)); then
         die "$(id -un) has no subordinate GID range in /etc/subgid"
     unshare --user --map-auto true ||
         die "unprivileged user namespaces or subordinate ID mappings are unavailable"
-    perl -c "${SBUILD_CONFIG}" >/dev/null
+    perl -c "${script_dir}/sbuild/config.pl" >/dev/null
 fi
 
 log "Provision dedicated sbuild directories"
@@ -236,22 +214,22 @@ run mkdir -p -- "$(dirname "${tarball}")"
 
 echo
 echo "sbuild environment:"
-echo "  distribution: ${distribution}"
+echo "  distribution: ${suite}"
 echo "  architecture: ${architecture}"
 echo "  mirror:       ${mirror}"
 echo "  tarball:      ${tarball}"
 echo "  tmpdir:       ${tmpdir_root}"
 echo "  ccache:       ${ccache_dir}"
-echo "  config:       ${SBUILD_CONFIG}"
+echo "  config:       ${script_dir}/sbuild/config.pl"
 echo
 
 if [[ -f "${tarball}" && ${force} -eq 0 ]]; then
     [[ -s "${tarball}" ]] || die "existing tarball is empty: ${tarball}"
     log "Existing chroot tarball retained; use --force to rebuild it"
 else
-    log "Create ${distribution}/${architecture} chroot tarball"
+    log "Create ${suite}/${architecture} chroot tarball"
     if ((dry_run)); then
-        echo "+ mmdebstrap --mode=unshare --architectures=${architecture} ... ${distribution} ${tarball} ${mirror}"
+        echo "+ mmdebstrap --mode=unshare --architectures=${architecture} ... ${suite} ${tarball} ${mirror}"
     else
         staging_dir="$(mktemp -d "$(dirname "${tarball}")/.setup-sbuild.XXXXXXXXXX")"
         staging_tarball="${staging_dir}/$(basename "${tarball}")"
@@ -265,7 +243,7 @@ else
             --aptopt='Acquire::Languages "none"' \
             --customize-hook="chroot \"\$1\" update-ccache-symlinks" \
             --skip=output/dev \
-            "${distribution}" \
+            "${suite}" \
             "${staging_tarball}" \
             "${mirror}"
 
@@ -278,9 +256,6 @@ else
 fi
 
 echo
-echo "sbuild setup complete. cix-build uses these defaults and overrides:"
-printf '  SBUILD_CONFIG=%q\n' "${SBUILD_CONFIG}"
-printf '  CIX_SBUILD_DISTRIBUTION=%q\n' "${distribution}"
+echo "sbuild setup complete."
 printf '  CIX_SBUILD_CHROOT=%q\n' "${tarball}"
-printf '  CIX_SBUILD_CCACHE_DIR=%q\n' "${ccache_dir}"
-printf '  CIX_SBUILD_TMPDIR_TEMPLATE=%q\n' "${tmpdir_root}/tmp.sbuild.XXXXXXXXXX"
+printf '  CIX_SBUILD_TMPDIR_ROOT=%q\n' "${tmpdir_root}"

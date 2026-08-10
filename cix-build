@@ -2,42 +2,19 @@
 # CIX Neo build command.
 set -Eeuo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-readonly SCRIPT_DIR
-readonly BUILD_MAP="${SCRIPT_DIR}/build-map.yaml"
 # shellcheck source=builders/common.sh
-source "${SCRIPT_DIR}/builders/common.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/builders/common.sh"
 
 list_targets() {
-    "${SCRIPT_DIR}/ci/plan.py" \
-        --map "${BUILD_MAP}" \
-        --workspace "${CIX_WORKSPACE_ROOT}" \
-        --list-targets \
-        --format text
+    "${CIX_ROOT}/build-scripts/ci/plan.py" --list-targets --format text
 }
 
 usage() {
     cat <<'EOF'
-Usage: cix-build [--config FILE] TARGET [build|clean] [OPTIONS]
+Usage: cix-build TARGET [build|clean]
        cix-build --list
 
-Common options:
-  --nexus SITE           sh, zj, wuh, szv, ksh, wux, release, or public
-  --distribution SUITE  Debian distribution (default: trixie)
-  --jobs COUNT           Parallel build jobs
-  --output-dir PATH      Output directory for this target
-
-Kernel options:
-  --board NAME           Development-kernel board selector
-  --build-mode MODE      release or debug
-  --docker-mode MODE     none or docker
-  --package-version VER  Explicit Debian kernel package version
-  --kernel-version VER   Stable kernel version
-  --kernel-series VER    Stable patch/kernel series
-  --tarball-url URL      Upstream kernel tarball URL
-
-Other options:
-  --config FILE          Configuration file; must be the first option
+Options:
   --list                 List build targets
   -h, --help             Show this help
 
@@ -48,130 +25,76 @@ EOF
     done
 }
 
-default_config="${SCRIPT_DIR}/cix-build.conf"
-config_file="${CIX_CONFIG:-${default_config}}"
-if [[ "${1:-}" == "--config" ]]; then
-    (($# >= 2)) || cix_die "--config requires a value"
-    config_file="$2"
-    shift 2
-fi
-[[ -r "${default_config}" ]] ||
-    cix_die "default configuration is not readable: ${default_config}"
-# shellcheck disable=SC1090
-source "${default_config}"
-[[ -r "${config_file}" ]] ||
-    cix_die "configuration file is not readable: ${config_file}"
-# shellcheck disable=SC1090
-[[ "${config_file}" == "${default_config}" ]] || source "${config_file}"
+case "${1:-}" in
+    --list)
+        (($# == 1)) || cix_die "--list does not accept arguments"
+        list_targets
+        exit 0
+        ;;
+    -h|--help)
+        (($# == 1)) || cix_die "$1 does not accept arguments"
+        usage
+        exit 0
+        ;;
+    "")
+        usage >&2
+        exit 2
+        ;;
+    --*)
+        cix_die "unknown option: $1"
+        ;;
+    *)
+        target_name="$1"
+        shift
+        ;;
+esac
 
-CIX_JOBS="${CIX_JOBS:-$(cix_default_jobs)}"
-CIX_OUTPUT_ROOT="${CIX_OUTPUT_ROOT:-${CIX_WORKSPACE_ROOT}/output}"
-CIX_ACTION=build
-CIX_TARGET=
-CIX_OUTPUT_DIR=
+action="${1:-build}"
+case "${action}" in
+    build|clean) ;;
+    --*) cix_die "unknown option: ${action}" ;;
+    *) cix_die "action must be build or clean: ${action}" ;;
+esac
+(($# <= 1)) || cix_die "unexpected argument: $2"
 
-while (($#)); do
-    case "$1" in
-        build|clean)
-            CIX_ACTION="$1"
-            shift
-            ;;
-        --nexus|--distribution|--jobs|--output-dir|--board|--build-mode|--docker-mode|--package-version|--kernel-version|--kernel-series|--tarball-url)
-            (($# >= 2)) || cix_die "$1 requires a value"
-            case "$1" in
-                --nexus) CIX_NEXUS="$2" ;;
-                --distribution) CIX_DISTRIBUTION="$2" ;;
-                --jobs) CIX_JOBS="$2" ;;
-                --output-dir) CIX_OUTPUT_DIR="$2" ;;
-                --board) CIX_BOARD="$2" ;;
-                --build-mode) CIX_BUILD_MODE="$2" ;;
-                --docker-mode) CIX_DOCKER_MODE="$2" ;;
-                --package-version) CIX_PACKAGE_VERSION="$2" ;;
-                --kernel-version) CIX_KERNEL_VERSION="$2" ;;
-                --kernel-series) CIX_KERNEL_SERIES="$2" ;;
-                --tarball-url) CIX_KERNEL_TARBALL_URL="$2" ;;
-            esac
-            shift 2
-            ;;
-        --list)
-            list_targets
-            exit 0
-            ;;
-        -h|--help)
-            usage
-            exit 0
-            ;;
-        --*)
-            cix_die "unknown option: $1"
-            ;;
-        *)
-            [[ -z "${CIX_TARGET}" ]] || cix_die "unexpected argument: $1"
-            CIX_TARGET="$1"
-            shift
-            ;;
-    esac
-done
-
-[[ -n "${CIX_TARGET}" ]] || {
-    usage >&2
-    exit 2
-}
-
-cix_require_command python3 realpath
-target_definition="$(
-    "${SCRIPT_DIR}/ci/plan.py" \
-        --map "${BUILD_MAP}" \
-        --workspace "${CIX_WORKSPACE_ROOT}" \
-        --target "${CIX_TARGET}" \
+cix_require_command nproc python3 realpath
+parallel_jobs="$(nproc)"
+declare -A TARGET=()
+# plan.py emits fixed keys and shell-quotes every YAML value.
+eval "$(
+    "${CIX_ROOT}/build-scripts/ci/plan.py" \
+        --target "${target_name}" \
         --format shell
 )"
-# plan.py emits fixed variable names and shell-quotes every YAML value.
-eval "${target_definition}"
 
-CIX_OUTPUT_DIR="${CIX_OUTPUT_DIR:-${CIX_OUTPUT_ROOT}/${CIX_TARGET}}"
-CIX_OUTPUT_DIR="$(realpath -m -- "${CIX_OUTPUT_DIR}")"
-if [[ -n "${CIX_KERNEL_VERSION}" && -z "${CIX_KERNEL_SERIES}" ]]; then
-    CIX_KERNEL_SERIES="${CIX_KERNEL_VERSION%.*}"
-fi
-
-readonly CIX_ACTION CIX_TARGET CIX_OUTPUT_DIR
-readonly CIX_NEXUS CIX_DISTRIBUTION CIX_JOBS
-readonly CIX_BOARD CIX_BUILD_MODE CIX_DOCKER_MODE
-readonly CIX_PACKAGE_VERSION CIX_KERNEL_VERSION CIX_KERNEL_SERIES
-readonly CIX_KERNEL_TARBALL_URL
-readonly CIX_TARGET_BUILDER CIX_TARGET_DESCRIPTION CIX_TARGET_SOURCE
-readonly CIX_TARGET_SOURCE_GIT CIX_TARGET_DEBIAN CIX_TARGET_PATCH_SOURCE
-readonly CIX_TARGET_VALIDATE CIX_TARGET_PAYLOAD_DIR CIX_TARGET_LFS
-readonly -a CIX_TARGET_FILES CIX_TARGET_REQUIRED_FILES
-export CIX_NEXUS CIX_DISTRIBUTION CIX_JOBS
+output_dir="${CIX_ROOT}/output/${target_name}"
 
 cix_validate_host
-cix_validate_config
 
-case "${CIX_TARGET_BUILDER}" in
+case "${TARGET[builder]}" in
     kernel)
         # shellcheck source=builders/kernel.sh
-        source "${SCRIPT_DIR}/builders/kernel.sh"
-        cix_kernel_build
+        source "${CIX_ROOT}/build-scripts/builders/kernel.sh"
+        cix_kernel_build "${action}" "${output_dir}" "${parallel_jobs}"
         ;;
     stable-kernel)
         # shellcheck source=builders/kernel.sh
-        source "${SCRIPT_DIR}/builders/kernel.sh"
-        cix_stable_kernel_build
+        source "${CIX_ROOT}/build-scripts/builders/kernel.sh"
+        cix_stable_kernel_build "${action}" "${output_dir}" "${parallel_jobs}"
         ;;
     sbuild)
         # shellcheck source=builders/debian.sh
-        source "${SCRIPT_DIR}/builders/debian.sh"
-        cix_sbuild_package
+        source "${CIX_ROOT}/build-scripts/builders/debian.sh"
+        cix_sbuild_package "${action}" "${output_dir}" "${parallel_jobs}"
         ;;
     firmware)
         # shellcheck source=builders/debian.sh
-        source "${SCRIPT_DIR}/builders/debian.sh"
+        source "${CIX_ROOT}/build-scripts/builders/debian.sh"
         # shellcheck source=builders/firmware.sh
-        source "${SCRIPT_DIR}/builders/firmware.sh"
-        cix_firmware_package
+        source "${CIX_ROOT}/build-scripts/builders/firmware.sh"
+        cix_firmware_package "${action}" "${output_dir}" "${parallel_jobs}"
         ;;
     *)
-        cix_die "unsupported build engine: ${CIX_TARGET_BUILDER}"
+        cix_die "unsupported build engine: ${TARGET[builder]}"
         ;;
 esac

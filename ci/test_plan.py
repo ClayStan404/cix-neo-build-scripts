@@ -141,8 +141,8 @@ Description: package B runtime
         self.assertEqual(target.source, "sources/a")
         self.assertEqual(target.control, "debian/a/control")
         shell = plan.target_shell(target)
-        self.assertIn("CIX_TARGET_BUILDER=sbuild", shell)
-        self.assertIn("CIX_TARGET_SOURCE=sources/a", shell)
+        self.assertIn("TARGET[builder]=sbuild", shell)
+        self.assertIn("TARGET[source]=sources/a", shell)
 
     def test_workspace_path_maps_to_project(self) -> None:
         build_map = self._dependency_fixture()

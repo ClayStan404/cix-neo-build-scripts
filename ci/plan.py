@@ -282,6 +282,11 @@ def load_build_map(
     for project_name, value in project_data.items():
         name = _string(project_name, "project name")
         entry = _mapping(value, f"project {name}")
+        unknown = sorted(set(entry) - {"path", "rules", "ignore"})
+        if unknown:
+            raise PlanError(
+                f"project {name} has unknown fields: {', '.join(unknown)}"
+            )
         path = _relative_path(entry.get("path"), f"project {name} path")
         if path in project_paths:
             raise PlanError(
@@ -295,6 +300,12 @@ def load_build_map(
         rules: list[Rule] = []
         for index, rule_value in enumerate(raw_rules):
             rule_data = _mapping(rule_value, f"project {name} rule {index}")
+            unknown = sorted(set(rule_data) - {"paths", "targets"})
+            if unknown:
+                raise PlanError(
+                    f"project {name} rule {index} has unknown fields: "
+                    + ", ".join(unknown)
+                )
             patterns = _string_list(
                 rule_data.get("paths"), f"project {name} rule {index} paths"
             )
@@ -385,20 +396,23 @@ def target_dict(target: Target) -> dict:
 
 def target_shell(target: Target) -> str:
     values = {
-        "CIX_TARGET_BUILDER": target.builder,
-        "CIX_TARGET_DESCRIPTION": target.description,
-        "CIX_TARGET_SOURCE": target.source or "",
-        "CIX_TARGET_SOURCE_GIT": target.source_git or "",
-        "CIX_TARGET_DEBIAN": target.debian or "",
-        "CIX_TARGET_PATCH_SOURCE": target.patch_source or "",
-        "CIX_TARGET_VALIDATE": target.validate or "",
-        "CIX_TARGET_PAYLOAD_DIR": target.payload_dir or "",
-        "CIX_TARGET_LFS": "1" if target.lfs else "0",
+        "name": target.name,
+        "builder": target.builder,
+        "description": target.description,
+        "source": target.source or "",
+        "source_git": target.source_git or "",
+        "debian": target.debian or "",
+        "patch_source": target.patch_source or "",
+        "validate": target.validate or "",
+        "payload_dir": target.payload_dir or "",
+        "lfs": "1" if target.lfs else "0",
     }
-    lines = [f"{name}={shlex.quote(value)}" for name, value in values.items()]
+    lines = [
+        f"TARGET[{name}]={shlex.quote(value)}" for name, value in values.items()
+    ]
     for name, items in (
-        ("CIX_TARGET_FILES", target.files),
-        ("CIX_TARGET_REQUIRED_FILES", target.required_files),
+        ("TARGET_FILES", target.files),
+        ("TARGET_REQUIRED_FILES", target.required_files),
     ):
         quoted = " ".join(shlex.quote(item) for item in items)
         lines.append(f"{name}=({quoted})")
@@ -469,7 +483,6 @@ def _parse_control(control_path: Path) -> tuple[set[str], set[str]]:
 
 
 def build_dependency_graph(build_map: BuildMap) -> DependencyGraph:
-    produced_by_target: dict[str, set[str]] = defaultdict(set)
     dependencies_by_target: dict[str, set[str]] = defaultdict(set)
     provider: dict[str, str] = {}
 
@@ -478,7 +491,6 @@ def build_dependency_graph(build_map: BuildMap) -> DependencyGraph:
             continue
         control_path = build_map.workspace / target.control
         produced, dependencies = _parse_control(control_path)
-        produced_by_target[target.name].update(produced)
         dependencies_by_target[target.name].update(dependencies)
         for package in produced:
             previous = provider.get(package)
@@ -731,6 +743,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if (args.target or args.list_targets) and (args.check or args.changes):
             raise PlanError("target inspection cannot be combined with changes or --check")
+        if args.check and args.changes:
+            raise PlanError("--check does not accept changes")
         if args.format == "shell" and not args.target:
             raise PlanError("shell output requires --target")
 
@@ -754,8 +768,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             validate_target_paths(target, build_map.workspace)
             result = target_dict(target)
         else:
-            graph = build_dependency_graph(build_map)
-            if args.check and not args.changes:
+            if args.check:
+                graph = build_dependency_graph(build_map)
                 result = {
                     "status": "ok",
                     "projects": sorted(build_map.projects),
