@@ -43,9 +43,16 @@ is confirmed.
 - Keep temporary downstream kernel fixes under `debian/kernel/patches/` and
   apply them to a disposable Git worktree. Do not modify the manifest-managed
   kernel checkout during a build.
+- Maintain the complete Debian 13 ARM64 host dependency list in the executable
+  `build-scripts/setup-host`. A newly installed build machine must be able to
+  install all repository, native kernel, sbuild, DKMS test, and CI validation
+  tools by running that command once.
+- Keep `build-scripts/setup-host` idempotent and make
+  `build-scripts/setup-sbuild` reuse it rather than maintaining a second host
+  package list.
 - Provide a self-contained environment setup script at
-  `build-scripts/setup-sbuild` so a new ARM64 Debian host can provision the
-  required host tools and clean sbuild environment directly.
+  `build-scripts/setup-sbuild` so a new ARM64 Debian host can install the
+  required host tools and provision a clean sbuild environment directly.
 - Use an unprivileged `sbuild` unshare backend with a build chroot tarball
   created by `mmdebstrap`.
 - Use `trixie` as the default build distribution. Never derive the build

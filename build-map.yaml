@@ -127,7 +127,7 @@ projects:
         targets: [vpu-firmware]
       - paths: ["ci/plan.py"]
         targets: [kernel, stable-kernel, gpu-dkms, vpu-dkms, vpu-firmware, npu-dkms, grub-config]
-      - paths: ["sbuild/**", "setup-sbuild"]
+      - paths: ["sbuild/**", "setup-host", "setup-sbuild"]
         targets: [kernel, stable-kernel, gpu-dkms, vpu-dkms, vpu-firmware, npu-dkms, grub-config]
       - paths: ["tests/**"]
         targets: [kernel, gpu-dkms, vpu-dkms, npu-dkms]

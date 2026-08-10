@@ -1,0 +1,183 @@
+#!/usr/bin/env bash
+# Install the Debian 13 ARM64 host dependencies used by CIX Neo.
+set -Eeuo pipefail
+
+check_only=0
+dry_run=0
+list_packages=0
+
+usage() {
+    cat <<'EOF'
+Usage: setup-host [OPTIONS]
+
+Install all host packages required to sync, build, validate, and package the
+CIX Neo workspace on native ARM64 Debian 13.
+
+Options:
+  --check          Report missing packages without installing them
+  --list-packages  Print the canonical package list and exit
+  --dry-run        Print mutating commands without running them
+  -h, --help       Show this help
+EOF
+}
+
+die() {
+    echo "ERROR: $*" >&2
+    exit 1
+}
+
+log() {
+    echo ">>> $*"
+}
+
+run() {
+    if ((dry_run)); then
+        printf '+'
+        printf ' %q' "$@"
+        printf '\n'
+        return 0
+    fi
+    "$@"
+}
+
+run_as_root() {
+    run sudo -- "$@"
+}
+
+apt_as_root() {
+    local env_args=(DEBIAN_FRONTEND=noninteractive)
+    local variable
+
+    for variable in \
+        http_proxy https_proxy no_proxy \
+        HTTP_PROXY HTTPS_PROXY NO_PROXY; do
+        if [[ -n "${!variable:-}" ]]; then
+            env_args+=("${variable}=${!variable}")
+        fi
+    done
+
+    run_as_root env "${env_args[@]}" apt-get "$@"
+}
+
+command_is_available() {
+    local command_name="$1"
+
+    command -v "${command_name}" >/dev/null 2>&1 ||
+        [[ -x "/usr/sbin/${command_name}" || -x "/sbin/${command_name}" ]]
+}
+
+# Keep this as the single host-package list for the project. setup-sbuild
+# invokes this script instead of maintaining another copy.
+readonly host_packages=(
+    bc
+    bison
+    build-essential
+    ca-certificates
+    ccache
+    cpio
+    curl
+    debhelper
+    debian-archive-keyring
+    devscripts
+    dh-dkms
+    dkms
+    dpkg-dev
+    dwarves
+    fakeroot
+    flex
+    gcc
+    git
+    git-lfs
+    kmod
+    libelf-dev
+    libssl-dev
+    lintian
+    make
+    mmdebstrap
+    openssl
+    python3
+    python3-debian
+    python3-yaml
+    repo
+    rsync
+    sbuild
+    shellcheck
+    uidmap
+    xz-utils
+    zstd
+)
+
+while (($#)); do
+    case "$1" in
+        --check)
+            check_only=1
+            shift
+            ;;
+        --list-packages)
+            list_packages=1
+            shift
+            ;;
+        --dry-run)
+            dry_run=1
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            die "unknown option: $1"
+            ;;
+    esac
+done
+
+if ((list_packages)); then
+    printf '%s\n' "${host_packages[@]}"
+    exit 0
+fi
+
+[[ ${EUID} -ne 0 ]] || die "run this script as a regular user, not as root"
+[[ -r /etc/os-release ]] || die "/etc/os-release is missing"
+
+# shellcheck disable=SC1091
+source /etc/os-release
+[[ "${ID:-}" == "debian" && "${VERSION_ID:-}" == "13" ]] ||
+    die "unsupported host OS: ${ID:-unknown} ${VERSION_ID:-unknown}; Debian 13 is required"
+
+command -v dpkg >/dev/null || die "dpkg is required"
+architecture="$(dpkg --print-architecture)"
+[[ "${architecture}" == "arm64" ]] ||
+    die "native ARM64 host required; detected ${architecture}"
+
+missing_packages=()
+for package in "${host_packages[@]}"; do
+    if ! dpkg-query -W -f='${db:Status-Status}\n' "${package}" 2>/dev/null |
+        grep -qx 'installed'; then
+        missing_packages+=("${package}")
+    fi
+done
+
+if ((${#missing_packages[@]})); then
+    if ((check_only)); then
+        die "missing host packages: ${missing_packages[*]}"
+    fi
+    command -v sudo >/dev/null || die "sudo is required to install host packages"
+    log "Install missing host packages: ${missing_packages[*]}"
+    apt_as_root update
+    apt_as_root install -y --no-install-recommends "${missing_packages[@]}"
+else
+    log "All CIX Neo host packages are installed"
+fi
+
+if ((!dry_run)); then
+    for command_name in \
+        bc bison ccache cpio curl dkms dpkg-buildpackage fakeroot flex gcc git \
+        git-lfs make mmdebstrap modinfo openssl pahole python3 repo rsync sbuild \
+        shellcheck unshare xz zstd; do
+        command_is_available "${command_name}" ||
+            die "required command is unavailable after package setup: ${command_name}"
+    done
+    git lfs version >/dev/null 2>&1 || die "Git LFS is unavailable after package setup"
+fi
+
+log "CIX Neo host dependency setup complete"

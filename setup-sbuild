@@ -2,14 +2,15 @@
 # Provision the native ARM64 sbuild environment used by CIX Neo.
 #
 # Run this script as a regular user with sudo access on an ARM64 Debian host.
-# It installs missing host prerequisites, validates unprivileged user
-# namespaces, creates dedicated temporary/cache directories, and builds an
-# unshare chroot tarball with mmdebstrap.
+# It installs host prerequisites through setup-host, validates unprivileged
+# user namespaces, creates dedicated temporary/cache directories, and builds
+# an unshare chroot tarball with mmdebstrap.
 set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly SCRIPT_DIR
 readonly SBUILD_CONFIG="${SCRIPT_DIR}/sbuild/config.pl"
+readonly SETUP_HOST="${SCRIPT_DIR}/setup-host"
 
 distribution="${CIX_SBUILD_DISTRIBUTION:-trixie}"
 mirror="${CIX_SBUILD_MIRROR:-https://mirrors.ustc.edu.cn/debian}"
@@ -98,21 +99,6 @@ prepare_ccache_dir() {
         run_as_root mkdir -p -- "${ccache_dir}"
         run_as_root chmod 1777 -- "${ccache_dir}"
     fi
-}
-
-apt_as_root() {
-    local env_args=(DEBIAN_FRONTEND=noninteractive)
-    local variable
-
-    for variable in \
-        http_proxy https_proxy no_proxy \
-        HTTP_PROXY HTTPS_PROXY NO_PROXY; do
-        if [[ -n "${!variable:-}" ]]; then
-            env_args+=("${variable}=${!variable}")
-        fi
-    done
-
-    run_as_root env "${env_args[@]}" apt-get "$@"
 }
 
 cleanup() {
@@ -212,54 +198,15 @@ done
 [[ "${tarball}" == *.tar.zst ]] || die "tarball path must end in .tar.zst"
 [[ ! -L "${tarball}" ]] || die "tarball path must not be a symlink: ${tarball}"
 [[ -r "${SBUILD_CONFIG}" ]] || die "missing sbuild config: ${SBUILD_CONFIG}"
+[[ -x "${SETUP_HOST}" ]] || die "missing host setup command: ${SETUP_HOST}"
 command -v sudo >/dev/null || die "sudo is required"
 
-readonly host_packages=(
-    bc
-    bison
-    ca-certificates
-    ccache
-    cpio
-    debian-archive-keyring
-    debhelper
-    devscripts
-    dh-dkms
-    dkms
-    dpkg-dev
-    dwarves
-    fakeroot
-    flex
-    kmod
-    libelf-dev
-    libssl-dev
-    lintian
-    mmdebstrap
-    python3
-    python3-debian
-    python3-yaml
-    rsync
-    sbuild
-    uidmap
-    zstd
-)
-
-missing_packages=()
-for package in "${host_packages[@]}"; do
-    if ! dpkg-query -W -f='${db:Status-Status}\n' "${package}" 2>/dev/null |
-        grep -qx 'installed'; then
-        missing_packages+=("${package}")
-    fi
-done
-
-if ((${#missing_packages[@]})); then
-    ((install_host_packages)) ||
-        die "missing host packages: ${missing_packages[*]}"
-    log "Install missing host packages: ${missing_packages[*]}"
-    apt_as_root update
-    apt_as_root install -y \
-        --no-install-recommends "${missing_packages[@]}"
+if ((install_host_packages)); then
+    setup_host_args=()
+    ((dry_run)) && setup_host_args+=(--dry-run)
+    "${SETUP_HOST}" "${setup_host_args[@]}"
 else
-    log "Host packages are already installed"
+    "${SETUP_HOST}" --check
 fi
 
 if ((!dry_run)); then

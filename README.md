@@ -69,17 +69,35 @@ package. A new engine is justified only when a package cannot be represented by
 an existing build type. Package build dependencies remain exclusively in
 `debian/control`.
 
-## sbuild Environment
+## Build host dependencies
 
-Run the setup script on ARM64 Debian 13 as a regular user with sudo access:
+On a newly installed native ARM64 Debian 13 host, install the complete project
+toolchain as a regular user with sudo access:
+
+```bash
+./build-scripts/setup-host
+```
+
+This is the canonical host-package list for repository synchronization, both
+native kernel builders, sbuild package builds, DKMS compatibility tests, and
+CI planning/static validation. The command is idempotent: it installs only
+missing packages. Use `--check` for a read-only readiness check,
+`--list-packages` to print the maintained Debian package list, or `--dry-run`
+to show installation commands without executing them.
+
+## sbuild environment
+
+After cloning or syncing the workspace, create the unprivileged sbuild
+environment:
 
 ```bash
 ./build-scripts/setup-sbuild
 ```
 
-The script installs missing host prerequisites, validates native ARM64 user
-namespace support, provisions dedicated temporary and ccache directories, and
-creates an sbuild unshare tarball with `mmdebstrap`.
+The script invokes `setup-host`, validates native ARM64 user namespace support,
+provisions dedicated temporary and ccache directories, and creates an sbuild
+unshare tarball with `mmdebstrap`. Therefore, running `setup-sbuild` alone on a
+new host installs the same complete dependency set before creating the chroot.
 
 Use `--help` to see distribution, mirror, tarball, and rebuild overrides.
 

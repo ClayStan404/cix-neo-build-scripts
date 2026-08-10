@@ -131,7 +131,7 @@ if command -v dkms >/dev/null; then
 elif [[ -x /usr/sbin/dkms ]]; then
     dkms_command=/usr/sbin/dkms
 else
-    cix_die "dkms is unavailable; run ${CIX_SCRIPTS_DIR}/setup-sbuild first"
+    cix_die "dkms is unavailable; run ${CIX_SCRIPTS_DIR}/setup-host first"
 fi
 readonly dkms_command
 
@@ -140,7 +140,7 @@ if command -v modinfo >/dev/null; then
 elif [[ -x /usr/sbin/modinfo ]]; then
     modinfo_command=/usr/sbin/modinfo
 else
-    cix_die "modinfo is unavailable; run ${CIX_SCRIPTS_DIR}/setup-sbuild first"
+    cix_die "modinfo is unavailable; run ${CIX_SCRIPTS_DIR}/setup-host first"
 fi
 readonly modinfo_command
 
