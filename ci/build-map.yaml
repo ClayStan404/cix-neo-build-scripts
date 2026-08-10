@@ -15,6 +15,10 @@ targets:
     script: build-scripts/build-vpu-dkms.sh
     control: debian/vpu-dkms/control
 
+  vpu-firmware:
+    script: build-scripts/build-vpu-firmware.sh
+    control: debian/vpu-firmware/control
+
   npu-dkms:
     script: build-scripts/build-npu-dkms.sh
     control: debian/npu-dkms/control
@@ -54,6 +58,12 @@ projects:
       - paths: ["**"]
         targets: [vpu-dkms]
 
+  cix_proprietary/cix_proprietary:
+    path: sources/cix-proprietary
+    rules:
+      - paths: ["**"]
+        targets: [vpu-firmware]
+
   cix_opensource/npu_driver:
     path: sources/npu-driver
     rules:
@@ -71,6 +81,8 @@ projects:
         targets: [gpu-dkms]
       - paths: ["build-vpu-dkms.sh"]
         targets: [vpu-dkms]
+      - paths: ["build-vpu-firmware.sh"]
+        targets: [vpu-firmware]
       - paths: ["build-npu-dkms.sh"]
         targets: [npu-dkms]
       - paths: ["build-dkms-package.sh"]
@@ -78,9 +90,9 @@ projects:
       - paths: ["build-grub-config.sh", "build-native-package.sh"]
         targets: [grub-config]
       - paths: ["sbuild/**"]
-        targets: [gpu-dkms, vpu-dkms, npu-dkms, grub-config]
+        targets: [gpu-dkms, vpu-dkms, vpu-firmware, npu-dkms, grub-config]
       - paths: ["setup-sbuild.sh"]
-        targets: [kernel, gpu-dkms, vpu-dkms, npu-dkms, grub-config]
+        targets: [kernel, gpu-dkms, vpu-dkms, vpu-firmware, npu-dkms, grub-config]
       - paths: ["test-gpu-dkms.sh"]
         targets: [kernel, gpu-dkms]
       - paths: ["test-vpu-dkms.sh"]
@@ -90,7 +102,7 @@ projects:
       - paths: ["test-dkms-package.sh"]
         targets: [kernel, gpu-dkms, vpu-dkms, npu-dkms]
       - paths: ["framework.sh"]
-        targets: [kernel, kernel-stable, gpu-dkms, vpu-dkms, npu-dkms, grub-config]
+        targets: [kernel, kernel-stable, gpu-dkms, vpu-dkms, vpu-firmware, npu-dkms, grub-config]
     ignore:
       - ".gitignore"
       - "README.md"
@@ -106,6 +118,8 @@ projects:
         targets: [gpu-dkms]
       - paths: ["vpu-dkms/**"]
         targets: [vpu-dkms]
+      - paths: ["vpu-firmware/**"]
+        targets: [vpu-firmware]
       - paths: ["npu-dkms/**"]
         targets: [npu-dkms]
       - paths: ["grub-config/**"]

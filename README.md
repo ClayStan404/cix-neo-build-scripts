@@ -11,6 +11,7 @@ Build the current CIX kernel, DKMS, and boot configuration packages:
 ./build-scripts/build-kernel-stable.sh --nexus zj build
 ./build-scripts/build-gpu-dkms.sh --nexus zj build
 ./build-scripts/build-vpu-dkms.sh --nexus zj build
+./build-scripts/build-vpu-firmware.sh --nexus zj build
 ./build-scripts/build-npu-dkms.sh --nexus zj build
 ./build-scripts/build-grub-config.sh --nexus zj build
 ```
@@ -36,8 +37,10 @@ independent build targets. `cix-grub-config` is a native package owned entirely
 by the Debian metadata repository.
 
 The VPU DKMS package retains its runtime dependency on `cix-vpu-firmware`.
-That firmware is not present in the open-source VPU driver repository and must
-be supplied by a future firmware package source.
+The firmware target packages the 16 proprietary `.fwb` files from the
+manifest-managed `cix_proprietary/cix_proprietary` repository. It fetches only
+that path's Git LFS objects when `repo sync` leaves pointer files in the
+checkout; it does not materialize every LFS object in the proprietary repo.
 
 ## sbuild Environment
 
@@ -89,6 +92,8 @@ Generate a plan from a changed project or path:
 ./build-scripts/ci/plan.py cix_opensource/linux
 ./build-scripts/ci/plan.py cix-linux-kernel
 ./build-scripts/ci/plan.py cix-linux-main
+./build-scripts/ci/plan.py \
+  cix_proprietary/cix_proprietary:cix_proprietary-debs/cix-vpu-umd/usr/lib/firmware/h264dec.fwb
 ./build-scripts/ci/plan.py \
   cix_opensource/gpu_kernel:drivers/gpu/arm/midgard/mali_kbase_core_linux.c
 ```

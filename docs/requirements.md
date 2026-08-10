@@ -56,8 +56,8 @@ is confirmed.
   the headers package produced by the CIX kernel build. Generic upstream
   kernel headers are not a supported test target.
 - Use external `3.0 (quilt)` Debian metadata for upstream DKMS source projects
-  and use `3.0 (native)` for packages whose source is owned by the Debian
-  metadata repository.
+  and proprietary firmware payloads. Use `3.0 (native)` for packages whose
+  source is owned by the Debian metadata repository.
 
 ### Source Management
 
@@ -96,13 +96,17 @@ is confirmed.
   `sources/gpu-kernel`.
 - Track `cix_opensource/vpu_driver` at branch `cix_vpu_dev` under
   `sources/vpu-driver`.
+- Track `cix_proprietary/cix_proprietary` at branch `cix_master_linux_lfs`
+  under `sources/cix-proprietary` for the proprietary VPU firmware payload.
+  Keep this source on the internal server; do not mirror its binaries to the
+  temporary GitHub repositories.
 - Track `cix_opensource/npu_driver` at branch `cix_x2_r2p1_dev` under
   `sources/npu-driver`.
 - Track the private GitHub repository `ClayStan404/cix-neo-build-scripts` at
   branch `master` under `build-scripts`.
 - Track the private GitHub repository `ClayStan404/cix-neo-debian` at branch
   `master` under `debian`.
-- The current manifest contains exactly eight projects: six source and build
+- The current manifest contains exactly nine projects: seven source and build
   input repositories, the build scripts, and the Debian packaging metadata.
 
 ### Project Layout
@@ -170,13 +174,15 @@ The current build system contains these build modules:
 2. CIX-patched latest stable Linux kernel
 3. GPU DKMS package
 4. VPU DKMS package
-5. NPU DKMS package
-6. CIX GRUB configuration package
+5. VPU firmware package
+6. NPU DKMS package
+7. CIX GRUB configuration package
 
 The VPU DKMS package must retain its runtime dependency on
-`cix-vpu-firmware`. The open-source VPU driver repository does not contain the
-firmware payload, so a separate firmware package source must be introduced
-before the complete driver set is installable from a self-contained archive.
+`cix-vpu-firmware`. Its 16 proprietary `.fwb` files come from the
+`cix-vpu-umd/usr/lib/firmware` staging directory in
+`cix_proprietary/cix_proprietary`, not from the open-source VPU driver. Fetch
+only those Git LFS objects when assembling the firmware source package.
 
 ## Legacy Reference
 
