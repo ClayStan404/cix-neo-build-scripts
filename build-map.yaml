@@ -1,22 +1,25 @@
-version: 3
+version: 4
 executor: build-scripts/cix-build
 
 targets:
   kernel:
     description: CIX 6.6 development kernel
     builder: kernel
+    flow: patched-worktree
     source: sources/linux
     debian: debian/kernel
 
   stable-kernel:
     description: Latest stable kernel with CIX patches
-    builder: stable-kernel
-    source: sources/linux-stable
+    builder: kernel
+    flow: stable-tarball
+    version: 7.0.13
     patch_source: sources/linux-main
 
   gpu-dkms:
     description: GPU DKMS package
     builder: sbuild
+    flow: quilt
     source: sources/gpu-kernel
     source_git: sources/gpu-kernel
     debian: debian/gpu-dkms
@@ -25,6 +28,7 @@ targets:
   vpu-dkms:
     description: VPU DKMS package
     builder: sbuild
+    flow: quilt
     source: sources/vpu-driver
     source_git: sources/vpu-driver
     debian: debian/vpu-dkms
@@ -32,7 +36,8 @@ targets:
 
   vpu-firmware:
     description: Proprietary VPU firmware package
-    builder: firmware
+    builder: sbuild
+    flow: firmware
     source: sources/cix-proprietary/cix_proprietary-debs/cix-vpu-umd/usr/lib/firmware
     source_git: sources/cix-proprietary
     debian: debian/vpu-firmware
@@ -60,6 +65,7 @@ targets:
   npu-dkms:
     description: NPU DKMS package
     builder: sbuild
+    flow: quilt
     source: sources/npu-driver/driver
     source_git: sources/npu-driver
     debian: debian/npu-dkms
@@ -68,6 +74,7 @@ targets:
   grub-config:
     description: CIX GRUB configuration package
     builder: sbuild
+    flow: native
     source_git: debian
     debian: debian/grub-config
 
@@ -77,12 +84,6 @@ projects:
     rules:
       - paths: ["**"]
         targets: [kernel]
-
-  cix-linux-kernel:
-    path: sources/linux-stable
-    rules:
-      - paths: ["**"]
-        targets: [stable-kernel]
 
   cix-linux-main:
     path: sources/linux-main
@@ -121,7 +122,7 @@ projects:
         targets: [kernel, stable-kernel, gpu-dkms, vpu-dkms, vpu-firmware, npu-dkms, grub-config]
       - paths: ["builders/kernel.sh"]
         targets: [kernel, stable-kernel]
-      - paths: ["builders/debian.sh"]
+      - paths: ["builders/sbuild.sh"]
         targets: [gpu-dkms, vpu-dkms, vpu-firmware, npu-dkms, grub-config]
       - paths: ["builders/firmware.sh"]
         targets: [vpu-firmware]

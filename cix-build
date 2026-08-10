@@ -75,24 +75,14 @@ case "${TARGET[builder]}" in
     kernel)
         # shellcheck source=builders/kernel.sh
         source "${CIX_ROOT}/build-scripts/builders/kernel.sh"
-        cix_kernel_build "${action}" "${output_dir}" "${parallel_jobs}"
-        ;;
-    stable-kernel)
-        # shellcheck source=builders/kernel.sh
-        source "${CIX_ROOT}/build-scripts/builders/kernel.sh"
-        cix_stable_kernel_build "${action}" "${output_dir}" "${parallel_jobs}"
+        cix_kernel_package "${action}" "${output_dir}" "${parallel_jobs}"
         ;;
     sbuild)
-        # shellcheck source=builders/debian.sh
-        source "${CIX_ROOT}/build-scripts/builders/debian.sh"
-        cix_sbuild_package "${action}" "${output_dir}" "${parallel_jobs}"
-        ;;
-    firmware)
-        # shellcheck source=builders/debian.sh
-        source "${CIX_ROOT}/build-scripts/builders/debian.sh"
+        # shellcheck source=builders/sbuild.sh
+        source "${CIX_ROOT}/build-scripts/builders/sbuild.sh"
         # shellcheck source=builders/firmware.sh
         source "${CIX_ROOT}/build-scripts/builders/firmware.sh"
-        cix_firmware_package "${action}" "${output_dir}" "${parallel_jobs}"
+        cix_sbuild_package "${action}" "${output_dir}" "${parallel_jobs}"
         ;;
     *)
         cix_die "unsupported build engine: ${TARGET[builder]}"

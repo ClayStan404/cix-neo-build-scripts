@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Generic firmware payload builder used by cix-build.
+# Firmware source-package assembly for the sbuild builder.
 
 cix_is_lfs_pointer() {
     local file="$1"
@@ -44,10 +44,9 @@ cix_validate_firmware_files() {
     done
 }
 
-cix_firmware_package() (
-    local build_action="$1"
-    local build_output="$2"
-    local build_jobs="$3"
+cix_sbuild_firmware_package() (
+    local build_output="$1"
+    local build_jobs="$2"
     local packaging_dir="${CIX_ROOT}/${TARGET[debian]}"
     local source_dir="${CIX_ROOT}/${TARGET[source]}"
     local source_git="${CIX_ROOT}/${TARGET[source_git]}"
@@ -60,12 +59,6 @@ cix_firmware_package() (
     local work_root=
     local -a rsync_args=(-a)
 
-    if [[ "${build_action}" == "clean" ]]; then
-        cix_clean_artifacts "${build_output}"
-        return 0
-    fi
-
-    cix_require_command dpkg-parsechangelog dpkg-source find git grep realpath rsync sbuild tar
     cix_validate_packaging "${packaging_dir}" "3.0 (quilt)"
     [[ -d "${source_dir}" ]] || cix_die "firmware source is missing: ${source_dir}"
     git -C "${source_git}" rev-parse --is-inside-work-tree >/dev/null 2>&1 ||
@@ -79,8 +72,6 @@ cix_firmware_package() (
     read -r source_package _ upstream_version < <(
         cix_debian_metadata "${packaging_dir}"
     )
-    mkdir -p -- "${build_output}"
-    cix_clean_artifacts "${build_output}"
     work_root="$(mktemp -d "${build_output}/.${TARGET[name]}.XXXXXXXXXX")"
     trap 'rm -rf -- "${work_root}"' EXIT
     source_tree="${work_root}/${source_package}-${upstream_version}"
@@ -101,5 +92,4 @@ cix_firmware_package() (
     cix_create_quilt_dsc "${packaging_dir}" "${source_tree}" "${work_root}"
     dsc_file="$(cix_find_dsc "${source_package}" "${work_root}")"
     cix_run_sbuild "${dsc_file}" "${source_date_epoch}" "${build_output}" "${build_jobs}"
-    cix_log "${TARGET[description]} build complete"
 )

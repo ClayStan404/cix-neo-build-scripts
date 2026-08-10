@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Kernel builders used by cix-build.
+# Native kernel build flows used by the kernel builder.
 
 cix_prepare_kernel_ccache() {
     cix_require_command ccache
@@ -14,7 +14,7 @@ cix_prepare_kernel_ccache() {
     cix_log "Use ccache at ${CCACHE_DIR}"
 }
 
-cix_kernel_build() (
+cix_kernel_patched_worktree() (
     local build_action="$1"
     local build_output="$2"
     local build_jobs="$3"
@@ -136,21 +136,35 @@ cix_kernel_build() (
     cix_log "Kernel package build complete"
 )
 
-cix_stable_kernel_build() (
+cix_kernel_stable_tarball() (
     local build_action="$1"
     local build_output="$2"
     local build_jobs="$3"
+    local kernel_dir
+    local kernel_series
+    local kernel_tarball
+    local kernel_url
+    local major_version
     local patch_commit
-    local patch_remote="${build_output}/work/.cix-linux-main.git"
     local patch_source="${CIX_ROOT}/${TARGET[patch_source]}"
-    local stable_source="${CIX_ROOT}/${TARGET[source]}"
-    local upstream_builder="${stable_source}/native/build-kernel-native.sh"
+    local patchset_dir
+    local stable_defconfig
+    local stable_version="${TARGET[version]}"
+    local tarball_tmp
     local work_dir="${build_output}/work"
+    local artifact
+    local deb_count=0
+    local -a artifacts=()
+    local -a patches=()
 
-    [[ -x "${upstream_builder}" ]] ||
-        cix_die "stable kernel builder is missing: ${upstream_builder}"
-    [[ -d "${patch_source}/.git" || -f "${patch_source}/.git" ]] ||
-        cix_die "CIX stable kernel patch source is missing: ${patch_source}"
+    kernel_series="${stable_version%.*}"
+    major_version="${stable_version%%.*}"
+    kernel_tarball="${work_dir}/linux-${stable_version}.tar.xz"
+    tarball_tmp="${kernel_tarball}.tmp"
+    kernel_dir="${work_dir}/linux-${stable_version}"
+    kernel_url="https://cdn.kernel.org/pub/linux/kernel/v${major_version}.x/linux-${stable_version}.tar.xz"
+    patchset_dir="${patch_source}/patches-${kernel_series}"
+    stable_defconfig="${patch_source}/config/config-${kernel_series}.defconfig"
 
     if [[ "${build_action}" == "clean" ]]; then
         cix_clean_artifacts "${build_output}"
@@ -163,32 +177,110 @@ cix_stable_kernel_build() (
     fi
 
     cix_require_command \
-        bc bison curl dpkg-buildpackage fakeroot flex gcc git make openssl \
-        pahole realpath rsync tar xz
-    [[ -z "$(git -C "${stable_source}" status --porcelain)" ]] ||
-        cix_die "stable kernel build harness must be clean: ${stable_source}"
+        bc bison curl dpkg-buildpackage fakeroot find flex gcc git make openssl \
+        pahole sort sync tar xz
+    git -C "${patch_source}" rev-parse --is-inside-work-tree >/dev/null 2>&1 ||
+        cix_die "CIX stable kernel patch source is missing: ${patch_source}"
     [[ -z "$(git -C "${patch_source}" status --porcelain)" ]] ||
         cix_die "stable kernel patch source must be clean: ${patch_source}"
+    [[ -d "${patchset_dir}" ]] ||
+        cix_die "CIX patch set is missing for Linux ${kernel_series}: ${patchset_dir}"
+    [[ -f "${stable_defconfig}" ]] ||
+        cix_die "CIX defconfig is missing: ${stable_defconfig}"
+    mapfile -d '' -t patches < <(
+        find "${patchset_dir}" -maxdepth 1 -type f -name '*.patch' -print0 |
+            LC_ALL=C sort -z
+    )
+    ((${#patches[@]} > 0)) || cix_die "CIX patch set is empty: ${patchset_dir}"
 
     cix_prepare_kernel_ccache
-    mkdir -p -- "${work_dir}"
+    mkdir -p -- "${work_dir}" "${build_output}"
     cix_clean_artifacts "${build_output}"
     patch_commit="$(git -C "${patch_source}" rev-parse HEAD)"
-    if [[ ! -d "${patch_remote}" ]]; then
-        git init --quiet --bare "${patch_remote}"
-    fi
-    git -C "${patch_remote}" fetch --quiet --force --no-tags \
-        "${patch_source}" "${patch_commit}"
-    git -C "${patch_remote}" update-ref refs/heads/main "${patch_commit}"
 
-    cix_log "Build stable CIX kernel from ${stable_source}"
-    cix_log "Use manifest-managed CIX patches at ${patch_commit}"
-    cd "${stable_source}/native" || exit
-    BUILD_JOBS="${build_jobs}" \
-    KDEB_CHANGELOG_DIST="${CIX_SUITE}" \
-    OUTPUT_DIR="${build_output}" \
-    PATCH_BRANCH=main \
-    PATCH_REMOTE="${patch_remote}" \
-    WORK_DIR="${work_dir}" \
-        "${upstream_builder}"
+    if [[ -f "${kernel_tarball}" ]]; then
+        cix_log "Use cached Linux tarball: ${kernel_tarball}"
+    else
+        trap 'rm -f -- "${tarball_tmp}"' EXIT
+        cix_log "Download ${kernel_url}"
+        curl -fL --retry 3 -o "${tarball_tmp}" "${kernel_url}"
+        sync "${tarball_tmp}"
+        xz -t "${tarball_tmp}"
+        mv -- "${tarball_tmp}" "${kernel_tarball}"
+        trap - EXIT
+    fi
+    xz -t "${kernel_tarball}"
+
+    if [[ -d "${kernel_dir}" ]]; then
+        cix_log "Replace previous stable kernel source: ${kernel_dir}"
+        rm -rf -- "${kernel_dir}"
+    fi
+    cix_log "Extract Linux ${stable_version}"
+    tar -xf "${kernel_tarball}" -C "${work_dir}"
+    [[ -f "${kernel_dir}/Makefile" ]] ||
+        cix_die "extracted Linux source is missing: ${kernel_dir}"
+
+    cix_log "Apply ${#patches[@]} CIX patches from ${patch_commit}"
+    git -C "${kernel_dir}" init --quiet
+    git -C "${kernel_dir}" \
+        -c user.name=build \
+        -c user.email=build@localhost \
+        -c commit.gpgsign=false \
+        add -A
+    git -C "${kernel_dir}" \
+        -c user.name=build \
+        -c user.email=build@localhost \
+        -c commit.gpgsign=false \
+        commit --quiet -m "import linux-${stable_version}"
+    git -C "${kernel_dir}" \
+        -c user.name=build \
+        -c user.email=build@localhost \
+        -c commit.gpgsign=false \
+        am --whitespace=nowarn "${patches[@]}"
+
+    cp -- "${stable_defconfig}" "${kernel_dir}/.config"
+    cix_log "Configure Linux ${stable_version} with CIX ${kernel_series} defconfig"
+    make -C "${kernel_dir}" ARCH=arm64 olddefconfig
+
+    cix_log "Build stable kernel Debian packages with ${build_jobs} jobs"
+    make -C "${kernel_dir}" \
+        -j"${build_jobs}" \
+        ARCH=arm64 \
+        "DPKG_FLAGS=--jobs=${build_jobs}" \
+        "KDEB_CHANGELOG_DIST=${CIX_SUITE}" \
+        LOCALVERSION=-cix \
+        bindeb-pkg
+
+    shopt -s nullglob
+    artifacts=(
+        "${work_dir}"/linux-*.deb
+        "${work_dir}"/linux-*.buildinfo
+        "${work_dir}"/linux-*.changes
+    )
+    for artifact in "${artifacts[@]}"; do
+        [[ "${artifact}" == *.deb ]] && ((deb_count += 1))
+    done
+    ((deb_count > 0)) || cix_die "stable kernel build produced no Debian packages"
+    mv -f -- "${artifacts[@]}" "${build_output}/"
+    cix_log "Stable kernel package build complete"
 )
+
+cix_kernel_package() {
+    local build_action="$1"
+    local build_output="$2"
+    local build_jobs="$3"
+
+    case "${TARGET[flow]}" in
+        patched-worktree)
+            cix_kernel_patched_worktree \
+                "${build_action}" "${build_output}" "${build_jobs}"
+            ;;
+        stable-tarball)
+            cix_kernel_stable_tarball \
+                "${build_action}" "${build_output}" "${build_jobs}"
+            ;;
+        *)
+            cix_die "unsupported kernel flow: ${TARGET[flow]}"
+            ;;
+    esac
+}

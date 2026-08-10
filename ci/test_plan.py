@@ -79,12 +79,13 @@ Description: package B runtime
         )
         return self.fixture.mapping(
             {
-                "version": 3,
+                "version": 4,
                 "executor": "scripts/cix-build",
                 "targets": {
                     "package-a": {
                         "description": "package A",
                         "builder": "sbuild",
+                        "flow": "quilt",
                         "source": "sources/a",
                         "source_git": "sources/a",
                         "debian": "debian/a",
@@ -92,6 +93,7 @@ Description: package B runtime
                     "package-b": {
                         "description": "package B",
                         "builder": "sbuild",
+                        "flow": "quilt",
                         "source": "sources/b",
                         "source_git": "sources/b",
                         "debian": "debian/b",
@@ -138,11 +140,42 @@ Description: package B runtime
         target = build_map.targets["package-a"]
 
         self.assertEqual(target.builder, "sbuild")
+        self.assertEqual(target.flow, "quilt")
         self.assertEqual(target.source, "sources/a")
         self.assertEqual(target.control, "debian/a/control")
         shell = plan.target_shell(target)
         self.assertIn("TARGET[builder]=sbuild", shell)
+        self.assertIn("TARGET[flow]=quilt", shell)
         self.assertIn("TARGET[source]=sources/a", shell)
+
+    def test_stable_kernel_is_a_kernel_flow(self) -> None:
+        target = plan._target_from_mapping(
+            "stable-kernel",
+            {
+                "description": "stable kernel",
+                "builder": "kernel",
+                "flow": "stable-tarball",
+                "version": "7.0.13",
+                "patch_source": "sources/linux-main",
+            },
+        )
+
+        self.assertEqual(target.builder, "kernel")
+        self.assertEqual(target.flow, "stable-tarball")
+        self.assertEqual(target.version, "7.0.13")
+        self.assertIsNone(target.control)
+        self.assertIn("TARGET[version]=7.0.13", plan.target_shell(target))
+
+    def test_package_names_are_not_builder_types(self) -> None:
+        with self.assertRaisesRegex(plan.PlanError, "unsupported builder/flow"):
+            plan._target_from_mapping(
+                "firmware",
+                {
+                    "description": "firmware",
+                    "builder": "firmware",
+                    "flow": "firmware",
+                },
+            )
 
     def test_workspace_path_maps_to_project(self) -> None:
         build_map = self._dependency_fixture()

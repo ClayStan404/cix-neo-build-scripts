@@ -43,6 +43,8 @@ class Target:
     name: str
     description: str
     builder: str
+    flow: str
+    version: str | None
     source: str | None
     source_git: str | None
     debian: str | None
@@ -55,7 +57,7 @@ class Target:
 
     @property
     def control(self) -> str | None:
-        if self.builder not in {"sbuild", "firmware"} or self.debian is None:
+        if self.builder != "sbuild" or self.debian is None:
             return None
         return f"{self.debian}/control"
 
@@ -131,6 +133,7 @@ def _target_from_mapping(name: str, entry: dict) -> Target:
         "debian",
         "description",
         "files",
+        "flow",
         "lfs",
         "patch_source",
         "payload_dir",
@@ -138,6 +141,7 @@ def _target_from_mapping(name: str, entry: dict) -> Target:
         "source",
         "source_git",
         "validate",
+        "version",
     }
     unknown = sorted(set(entry) - allowed)
     if unknown:
@@ -147,6 +151,8 @@ def _target_from_mapping(name: str, entry: dict) -> Target:
         raise PlanError(f"invalid target name: {name}")
     description = _string(entry.get("description"), f"{context} description")
     builder = _string(entry.get("builder"), f"{context} builder")
+    flow = _string(entry.get("flow"), f"{context} flow")
+    version = _optional_string(entry.get("version"), f"{context} version")
     source = _optional_relative_path(entry.get("source"), f"{context} source")
     source_git = _optional_relative_path(
         entry.get("source_git"), f"{context} source_git"
@@ -178,59 +184,87 @@ def _target_from_mapping(name: str, entry: dict) -> Target:
     if not isinstance(lfs, bool):
         raise PlanError(f"{context} lfs must be a boolean")
 
-    if builder == "kernel":
-        if source is None or debian is None:
-            raise PlanError(f"{context} requires source and debian")
-        unexpected = (
-            source_git
-            or patch_source
-            or validate
-            or payload_dir
-            or files
-            or required_files
-            or lfs
+    schemas = {
+        ("kernel", "patched-worktree"): (
+            {"source", "debian"},
+            {"source", "debian"},
+        ),
+        ("kernel", "stable-tarball"): (
+            {"version", "patch_source"},
+            {"version", "patch_source"},
+        ),
+        ("sbuild", "quilt"): (
+            {"source", "source_git", "debian"},
+            {"source", "source_git", "debian", "validate"},
+        ),
+        ("sbuild", "native"): (
+            {"source_git", "debian"},
+            {"source_git", "debian"},
+        ),
+        ("sbuild", "firmware"): (
+            {
+                "source",
+                "source_git",
+                "debian",
+                "payload_dir",
+                "files",
+                "required_files",
+            },
+            {
+                "source",
+                "source_git",
+                "debian",
+                "payload_dir",
+                "files",
+                "required_files",
+                "lfs",
+            },
+        ),
+    }
+    schema = schemas.get((builder, flow))
+    if schema is None:
+        raise PlanError(f"{context} has unsupported builder/flow: {builder}/{flow}")
+    required, flow_fields = schema
+    parsed_fields = {
+        "source": source,
+        "source_git": source_git,
+        "debian": debian,
+        "version": version,
+        "patch_source": patch_source,
+        "validate": validate,
+        "payload_dir": payload_dir,
+        "files": files,
+        "required_files": required_files,
+        "lfs": lfs,
+    }
+    missing = sorted(
+        field
+        for field in required
+        if field not in entry or parsed_fields[field] in {None, (), ""}
+    )
+    if missing:
+        raise PlanError(f"{context} requires fields: {', '.join(missing)}")
+    unsupported = sorted(
+        set(entry) - {"description", "builder", "flow"} - flow_fields
+    )
+    if unsupported:
+        raise PlanError(
+            f"{context} {builder}/{flow} does not support fields: "
+            + ", ".join(unsupported)
         )
-        if unexpected:
-            raise PlanError(f"{context} contains fields unsupported by builder kernel")
-    elif builder == "stable-kernel":
-        if source is None or patch_source is None:
-            raise PlanError(f"{context} requires source and patch_source")
-        unexpected = (
-            source_git
-            or debian
-            or validate
-            or payload_dir
-            or files
-            or required_files
-            or lfs
-        )
-        if unexpected:
-            raise PlanError(
-                f"{context} contains fields unsupported by builder stable-kernel"
-            )
-    elif builder == "sbuild":
-        if source_git is None or debian is None:
-            raise PlanError(f"{context} requires source_git and debian")
-        if validate not in {None, "dkms"}:
-            raise PlanError(f"{context} has unsupported validation: {validate}")
-        if patch_source or payload_dir or files or required_files or lfs:
-            raise PlanError(f"{context} contains fields unsupported by builder sbuild")
-    elif builder == "firmware":
-        if None in {source, source_git, debian, payload_dir}:
-            raise PlanError(
-                f"{context} requires source, source_git, debian, and payload_dir"
-            )
-        if not files or not required_files:
-            raise PlanError(f"{context} requires files and required_files")
-        if patch_source or validate:
-            raise PlanError(f"{context} contains fields unsupported by builder firmware")
-    else:
-        raise PlanError(f"{context} has unsupported builder: {builder}")
+    if validate not in {None, "dkms"}:
+        raise PlanError(f"{context} has unsupported validation: {validate}")
+    if version is not None and not re.fullmatch(
+        r"[0-9]+\.[0-9]+\.[0-9]+", version
+    ):
+        raise PlanError(f"{context} version must use X.Y.Z: {version}")
 
     return Target(
         name=name,
         description=description,
         builder=builder,
+        flow=flow,
+        version=version,
         source=source,
         source_git=source_git,
         debian=debian,
@@ -259,8 +293,8 @@ def load_build_map(
     )
     if unknown_root:
         raise PlanError(f"mapping root has unknown fields: {', '.join(unknown_root)}")
-    if root.get("version") != 3:
-        raise PlanError("mapping version must be 3")
+    if root.get("version") != 4:
+        raise PlanError("mapping version must be 4")
 
     executor = _relative_path(root.get("executor"), "executor")
 
@@ -382,6 +416,8 @@ def target_dict(target: Target) -> dict:
         "name": target.name,
         "description": target.description,
         "builder": target.builder,
+        "flow": target.flow,
+        "version": target.version,
         "source": target.source,
         "source_git": target.source_git,
         "debian": target.debian,
@@ -398,6 +434,8 @@ def target_shell(target: Target) -> str:
     values = {
         "name": target.name,
         "builder": target.builder,
+        "flow": target.flow,
+        "version": target.version or "",
         "description": target.description,
         "source": target.source or "",
         "source_git": target.source_git or "",

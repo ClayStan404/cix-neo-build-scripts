@@ -29,13 +29,13 @@ is confirmed.
 - Build the Linux kernel natively with its own `bindeb-pkg` make target rather
   than running the kernel build through `sbuild`.
 - Maintain two independent kernel targets: the CIX 6.6 development kernel and
-  the newest stable kernel release supported by `cix-linux-kernel`.
-- Build the stable kernel through the native flow owned by
-  `cix-linux-kernel`, using the CIX defconfig and patch series from the
-  manifest-managed `cix-linux-main` checkout. Do not fetch an untracked patch
-  branch during the build.
-- Follow the stable harness's currently supported kernel version and `-cix`
-  kernel release identifier. Do not preserve the legacy fixed
+  a pinned upstream stable kernel release.
+- Keep the stable-kernel download, patch application, configuration, and
+  `bindeb-pkg` flow in `build-scripts`. Use the CIX defconfig and patch series
+  from the manifest-managed `cix-linux-main` checkout; do not require a
+  separate build-harness repository or fetch an untracked patch branch.
+- Pin the stable kernel version declaratively in `build-map.yaml` and use the
+  `-cix` kernel release identifier. Do not preserve the legacy fixed
   `7.0.0-generic` binary package name in the greenfield build system.
 - Compose the kernel configuration from the configuration targets stored in
   the kernel source tree. Do not maintain copied kernel configuration files in
@@ -104,8 +104,6 @@ is confirmed.
 - Keep upstream source checkouts in a dedicated source directory.
 - Track `cix_opensource/linux` at branch `cix_6.6_master_dev` under
   `sources/linux`.
-- Track `cix-oss/cix-linux-kernel` at branch `master` under
-  `sources/linux-stable`.
 - Track `cixtech/cix-linux-main` at branch `main` under
   `sources/linux-main`.
 - Track `cix_opensource/gpu_kernel` at branch `cix_r54p1-11eac0_dev` under
@@ -122,8 +120,8 @@ is confirmed.
   branch `master` under `build-scripts`.
 - Track the private GitHub repository `ClayStan404/cix-neo-debian` at branch
   `master` under `debian`.
-- The current manifest contains exactly nine projects: seven source and build
-  input repositories, the build scripts, and the Debian packaging metadata.
+- The current manifest contains exactly eight projects: six source input
+  repositories, the build scripts, and the Debian packaging metadata.
 
 ### Project Layout
 
@@ -147,6 +145,10 @@ is confirmed.
 - Keep `build-scripts/build-map.yaml` as the single registry for target names,
   build types, source locations, Debian metadata locations, and CI repository
   impact rules. Local builds and CI planning must read the same registry.
+- Expose only two execution builders: `kernel` for native `bindeb-pkg` builds
+  and `sbuild` for standard Debian source-package builds. Select source
+  preparation explicitly with a target flow instead of creating package-like
+  builder categories.
 - Implement reusable build types rather than package-specific Shell dispatch.
   Adding another conventional native or quilt source package must require only
   its Debian metadata and declarative mapping entries, not a new build script or

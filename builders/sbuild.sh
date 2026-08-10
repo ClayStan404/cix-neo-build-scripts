@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Generic Debian source-package builder used by cix-build.
+# Standard Debian source-package builder backed by sbuild.
 
 cix_validate_packaging() {
     local packaging_dir="$1"
@@ -216,13 +216,23 @@ cix_sbuild_package() {
         return 0
     fi
 
-    cix_require_command dpkg-parsechangelog dpkg-source find git rsync sbuild tar
+    cix_require_command \
+        dpkg-parsechangelog dpkg-source find git grep realpath rsync sbuild tar
     mkdir -p -- "${build_output}"
     cix_clean_artifacts "${build_output}"
-    if [[ -n "${TARGET[source]}" ]]; then
-        cix_sbuild_quilt_package "${build_output}" "${build_jobs}"
-    else
-        cix_sbuild_native_package "${build_output}" "${build_jobs}"
-    fi
+    case "${TARGET[flow]}" in
+        quilt)
+            cix_sbuild_quilt_package "${build_output}" "${build_jobs}"
+            ;;
+        native)
+            cix_sbuild_native_package "${build_output}" "${build_jobs}"
+            ;;
+        firmware)
+            cix_sbuild_firmware_package "${build_output}" "${build_jobs}"
+            ;;
+        *)
+            cix_die "unsupported sbuild flow: ${TARGET[flow]}"
+            ;;
+    esac
     cix_log "${TARGET[description]} build complete"
 }

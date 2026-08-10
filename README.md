@@ -21,26 +21,27 @@ Ubuntu host releases are intentionally outside the current scope.
 
 There are two independent native kernel targets. `kernel` builds the CIX 6.6
 development kernel using its kernel-owned configuration fragments and the
-external temporary fix in `debian/kernel/patches/`. `stable-kernel` uses the
-`cix-linux-kernel` harness to build the upstream stable release selected by
-that repository, with the patch set and defconfig from the separately
-manifest-managed `cix-linux-main` checkout. Both use
-`make bindeb-pkg`; neither uses `sbuild`.
-The stable harness owns the selected kernel version and currently emits a
-`-cix` kernel release (for example, `7.0.13-cix`). The new system does not
-retain the legacy fixed `7.0.0-generic` package name.
+external temporary fix in `debian/kernel/patches/`. `stable-kernel` downloads
+the upstream release pinned in `build-map.yaml`, then applies the patch set and
+defconfig from the manifest-managed `cix-linux-main` checkout. Both use the
+shared `kernel` builder and `make bindeb-pkg`; neither uses `sbuild`. The stable
+target emits a `-cix` kernel release (for example, `7.0.13-cix`). The new system
+does not retain the legacy fixed `7.0.0-generic` package name.
 
-GPU, VPU, and NPU create standard Debian source packages and build them with
-`sbuild`. All targets use the single `cix-build` entry point. Files under
-`builders/` implement reusable build types, not package lists or independent
-commands. `cix-grub-config` is a native package owned entirely by the Debian
-metadata repository.
+GPU, VPU, NPU, firmware, and boot configuration targets create standard Debian
+source packages and build them with the shared `sbuild` builder. All targets
+use the single `cix-build` entry point. Files under `builders/` implement the
+two reusable execution backends and their source-assembly flows, not package
+lists or independent commands. `cix-grub-config` is a native package owned
+entirely by the Debian metadata repository.
 
 `build-map.yaml` is the single target registry. It declares each target's
-builder, source checkout, Debian metadata directory, and repository/path impact
-rules. `cix-build` resolves its target from this file, and the CI planner reads
-the same data. Package names and source paths are therefore not duplicated in
-Shell dispatch tables.
+builder, source preparation flow, source checkout, Debian metadata directory,
+and repository/path impact rules. The only builders are `kernel` and `sbuild`.
+Kernel flows are `patched-worktree` and `stable-tarball`; sbuild flows are
+`quilt`, `native`, and `firmware`. `cix-build` resolves its target from this
+file, and the CI planner reads the same data. Package names and source paths are
+therefore not duplicated in Shell dispatch tables.
 
 All build paths use the host's full `nproc` value, including native kernel
 `make bindeb-pkg`, its nested `dpkg-buildpackage` invocation, sbuild packages,
@@ -49,7 +50,7 @@ Target outputs are written to `output/TARGET`.
 Each build removes that target's previous top-level artifact files before
 starting, so a persistent Jenkins workspace cannot publish stale packages.
 
-Both native kernel builders and sbuild use the compiler wrappers under
+Both native kernel flows and sbuild use the compiler wrappers under
 `/usr/lib/ccache` and share the host cache at
 `~/.cache/cix-neo-sbuild/ccache`.
 
@@ -63,8 +64,8 @@ checkout; it does not materialize every LFS object in the proprietary repo.
 
 For a conventional native or quilt source package, add its packaging metadata
 under `debian/` and add one target plus the relevant project/path rule to
-`build-map.yaml`. Select the generic `sbuild` builder, set `source_git` and
-`debian`, and set `source` for a quilt source package. DKMS packages may add
+`build-map.yaml`. Select the `sbuild` builder and its `native` or `quilt` flow,
+then set the fields required by that flow. DKMS packages may add
 `validate: dkms` to check the source name and version against `dkms.conf`.
 
 No Shell function or per-package script is needed for another conventional
@@ -82,7 +83,7 @@ toolchain as a regular user with sudo access:
 ```
 
 This is the canonical host-package list for repository synchronization, both
-native kernel builders, sbuild package builds, DKMS compatibility tests, and
+native kernel targets, sbuild package builds, DKMS compatibility tests, and
 CI planning/static validation. The command is idempotent: it installs only
 missing packages. Use `--check` for a read-only readiness check,
 `--list-packages` to print the maintained Debian package list, or `--dry-run`
@@ -140,7 +141,6 @@ Generate a plan from a changed project or path:
 
 ```bash
 ./build-scripts/ci/plan.py cix_opensource/linux
-./build-scripts/ci/plan.py cix-linux-kernel
 ./build-scripts/ci/plan.py cix-linux-main
 ./build-scripts/ci/plan.py \
   cix_proprietary/cix_proprietary:cix_proprietary-debs/cix-vpu-umd/usr/lib/firmware/h264dec.fwb
