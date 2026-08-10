@@ -26,7 +26,7 @@ staging_tarball=""
 
 usage() {
     cat <<'EOF'
-Usage: setup-sbuild.sh [OPTIONS]
+Usage: setup-sbuild [OPTIONS]
 
 Create the native ARM64 sbuild unshare environment for CIX Neo.
 
@@ -331,7 +331,7 @@ else
 fi
 
 echo
-echo "sbuild setup complete. Build scripts should export:"
+echo "sbuild setup complete. cix-build uses these defaults and overrides:"
 printf '  SBUILD_CONFIG=%q\n' "${SBUILD_CONFIG}"
 printf '  CIX_SBUILD_DISTRIBUTION=%q\n' "${distribution}"
 printf '  CIX_SBUILD_CHROOT=%q\n' "${tarball}"

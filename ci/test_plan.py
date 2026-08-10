@@ -46,8 +46,7 @@ class BuildPlannerTests(unittest.TestCase):
         self.fixture.close()
 
     def _dependency_fixture(self) -> plan.BuildMap:
-        self.fixture.write("scripts/build-a.sh", "#!/bin/sh\n", executable=True)
-        self.fixture.write("scripts/build-b.sh", "#!/bin/sh\n", executable=True)
+        self.fixture.write("scripts/cix-build", "#!/bin/sh\n", executable=True)
         self.fixture.mkdir("sources/a")
         self.fixture.mkdir("sources/b")
         self.fixture.write(
@@ -80,15 +79,22 @@ Description: package B runtime
         )
         return self.fixture.mapping(
             {
-                "version": 1,
+                "version": 3,
+                "executor": "scripts/cix-build",
                 "targets": {
                     "package-a": {
-                        "script": "scripts/build-a.sh",
-                        "control": "debian/a/control",
+                        "description": "package A",
+                        "builder": "sbuild",
+                        "source": "sources/a",
+                        "source_git": "sources/a",
+                        "debian": "debian/a",
                     },
                     "package-b": {
-                        "script": "scripts/build-b.sh",
-                        "control": "debian/b/control",
+                        "description": "package B",
+                        "builder": "sbuild",
+                        "source": "sources/b",
+                        "source_git": "sources/b",
+                        "debian": "debian/b",
                     },
                 },
                 "projects": {
@@ -111,6 +117,10 @@ Description: package B runtime
         self.assertEqual(result["seeds"], ["package-b"])
         self.assertEqual(result["affected"], ["package-a", "package-b"])
         self.assertEqual(result["order"], ["package-b", "package-a"])
+        self.assertEqual(
+            result["commands"],
+            ["scripts/cix-build package-b", "scripts/cix-build package-a"],
+        )
         self.assertIn(
             "reverse Build-Depends of package-b via package-b-dev",
             result["reasons"]["package-a"],
@@ -122,6 +132,17 @@ Description: package B runtime
 
         self.assertEqual(graph.forward["package-a"], frozenset({"package-b"}))
         self.assertNotIn("package-b-runtime", graph.edge_packages[("package-a", "package-b")])
+
+    def test_target_definition_is_data_driven(self) -> None:
+        build_map = self._dependency_fixture()
+        target = build_map.targets["package-a"]
+
+        self.assertEqual(target.builder, "sbuild")
+        self.assertEqual(target.source, "sources/a")
+        self.assertEqual(target.control, "debian/a/control")
+        shell = plan.target_shell(target)
+        self.assertIn("CIX_TARGET_BUILDER=sbuild", shell)
+        self.assertIn("CIX_TARGET_SOURCE=sources/a", shell)
 
     def test_workspace_path_maps_to_project(self) -> None:
         build_map = self._dependency_fixture()
@@ -153,6 +174,7 @@ Description: package B runtime
         )
         modified = plan.BuildMap(
             workspace=build_map.workspace,
+            executor=build_map.executor,
             targets=build_map.targets,
             projects={**build_map.projects, "repo/a": replaced},
         )

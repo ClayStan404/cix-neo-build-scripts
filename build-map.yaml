@@ -1,0 +1,156 @@
+version: 3
+executor: build-scripts/cix-build
+
+targets:
+  kernel:
+    description: CIX 6.6 development kernel
+    builder: kernel
+    source: sources/linux
+    debian: debian/kernel
+
+  stable-kernel:
+    description: Latest stable kernel with CIX patches
+    builder: stable-kernel
+    source: sources/linux-stable
+    patch_source: sources/linux-main
+
+  gpu-dkms:
+    description: GPU DKMS package
+    builder: sbuild
+    source: sources/gpu-kernel
+    source_git: sources/gpu-kernel
+    debian: debian/gpu-dkms
+    validate: dkms
+
+  vpu-dkms:
+    description: VPU DKMS package
+    builder: sbuild
+    source: sources/vpu-driver
+    source_git: sources/vpu-driver
+    debian: debian/vpu-dkms
+    validate: dkms
+
+  vpu-firmware:
+    description: Proprietary VPU firmware package
+    builder: firmware
+    source: sources/cix-proprietary/cix_proprietary-debs/cix-vpu-umd/usr/lib/firmware
+    source_git: sources/cix-proprietary
+    debian: debian/vpu-firmware
+    payload_dir: firmware
+    files: ["*.fwb"]
+    required_files:
+      - av1dec.fwb
+      - avs2dec.fwb
+      - avsdec.fwb
+      - h264dec.fwb
+      - h264enc.fwb
+      - hevcdec.fwb
+      - hevcenc.fwb
+      - jpegdec.fwb
+      - jpegenc.fwb
+      - mpeg2dec.fwb
+      - mpeg4dec.fwb
+      - vc1dec.fwb
+      - vp8dec.fwb
+      - vp8enc.fwb
+      - vp9dec.fwb
+      - vp9enc.fwb
+    lfs: true
+
+  npu-dkms:
+    description: NPU DKMS package
+    builder: sbuild
+    source: sources/npu-driver/driver
+    source_git: sources/npu-driver
+    debian: debian/npu-dkms
+    validate: dkms
+
+  grub-config:
+    description: CIX GRUB configuration package
+    builder: sbuild
+    source_git: debian
+    debian: debian/grub-config
+
+projects:
+  cix_opensource/linux:
+    path: sources/linux
+    rules:
+      - paths: ["**"]
+        targets: [kernel]
+
+  cix-linux-kernel:
+    path: sources/linux-stable
+    rules:
+      - paths: ["**"]
+        targets: [stable-kernel]
+
+  cix-linux-main:
+    path: sources/linux-main
+    rules:
+      - paths: ["**"]
+        targets: [stable-kernel]
+
+  cix_opensource/gpu_kernel:
+    path: sources/gpu-kernel
+    rules:
+      - paths: ["**"]
+        targets: [gpu-dkms]
+
+  cix_opensource/vpu_driver:
+    path: sources/vpu-driver
+    rules:
+      - paths: ["**"]
+        targets: [vpu-dkms]
+
+  cix_proprietary/cix_proprietary:
+    path: sources/cix-proprietary
+    rules:
+      - paths: ["**"]
+        targets: [vpu-firmware]
+
+  cix_opensource/npu_driver:
+    path: sources/npu-driver
+    rules:
+      - paths: ["**"]
+        targets: [npu-dkms]
+
+  cix-neo-build-scripts:
+    path: build-scripts
+    rules:
+      - paths: ["build-map.yaml", "cix-build", "cix-build.conf", "builders/common.sh"]
+        targets: [kernel, stable-kernel, gpu-dkms, vpu-dkms, vpu-firmware, npu-dkms, grub-config]
+      - paths: ["builders/kernel.sh"]
+        targets: [kernel, stable-kernel]
+      - paths: ["builders/debian.sh"]
+        targets: [gpu-dkms, vpu-dkms, vpu-firmware, npu-dkms, grub-config]
+      - paths: ["builders/firmware.sh"]
+        targets: [vpu-firmware]
+      - paths: ["ci/plan.py"]
+        targets: [kernel, stable-kernel, gpu-dkms, vpu-dkms, vpu-firmware, npu-dkms, grub-config]
+      - paths: ["sbuild/**", "setup-sbuild"]
+        targets: [kernel, stable-kernel, gpu-dkms, vpu-dkms, vpu-firmware, npu-dkms, grub-config]
+      - paths: ["tests/**"]
+        targets: [kernel, gpu-dkms, vpu-dkms, npu-dkms]
+    ignore:
+      - ".gitignore"
+      - "README.md"
+      - "ci/test_plan.py"
+      - "docs/**"
+
+  cix-neo-debian:
+    path: debian
+    rules:
+      - paths: ["kernel/**"]
+        targets: [kernel]
+      - paths: ["gpu-dkms/**"]
+        targets: [gpu-dkms]
+      - paths: ["vpu-dkms/**"]
+        targets: [vpu-dkms]
+      - paths: ["vpu-firmware/**"]
+        targets: [vpu-firmware]
+      - paths: ["npu-dkms/**"]
+        targets: [npu-dkms]
+      - paths: ["grub-config/**"]
+        targets: [grub-config]
+    ignore:
+      - "README.md"

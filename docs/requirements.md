@@ -44,7 +44,7 @@ is confirmed.
   apply them to a disposable Git worktree. Do not modify the manifest-managed
   kernel checkout during a build.
 - Provide a self-contained environment setup script at
-  `build-scripts/setup-sbuild.sh` so a new ARM64 Debian host can provision the
+  `build-scripts/setup-sbuild` so a new ARM64 Debian host can provision the
   required host tools and clean sbuild environment directly.
 - Use an unprivileged `sbuild` unshare backend with a build chroot tarball
   created by `mmdebstrap`.
@@ -52,6 +52,9 @@ is confirmed.
   distribution from the host OS release.
 - Keep compiler caches user-scoped under the user's XDG cache directory by
   default.
+- Treat the Nexus selector as an internal download-endpoint choice for
+  non-sbuild projects that fetch private inputs. It is not an APT mirror or an
+  sbuild setting and must not be propagated into standard sbuild builds.
 - Validate GPU, VPU, and NPU DKMS packages by compiling their modules against
   the headers package produced by the CIX kernel build. Generic upstream
   kernel headers are not a supported test target.
@@ -116,17 +119,33 @@ is confirmed.
 - `sources/`: upstream source checkouts managed by the root repo client.
 - `debian/`: repo-managed Debian packaging metadata, kept separate from
   upstream sources.
-- `build-scripts/`: repo-managed new build-system implementation and module
-  scripts.
+- `build-scripts/`: repo-managed single build command and its shared build
+  engines.
+- `build-scripts/builders/`: internal, reusable build-type implementations;
+  adding a conventional package must not add a builder file.
+- `build-scripts/tests/`: executable build-output compatibility tests. Keep a
+  single parameterized DKMS test command rather than per-package wrappers, and
+  do not place `test-*` scripts at the build-scripts root.
 
 ### Configuration
 
 - The build system must support explicit configuration.
-- Module build logic must be able to select different execution paths based on
+- Target build logic must be able to select different execution paths based on
   the resolved configuration.
-- Give each build target a flat, executable `build-*.sh` CI entry point. Shared
-  helpers may implement common mechanics, but they are not standalone build
-  targets and must not encode package dependency relationships.
+- Expose one public command: `build-scripts/cix-build TARGET`. Do not create
+  legacy-style per-target `build-*.sh` entry points.
+- Keep `build-scripts/build-map.yaml` as the single registry for target names,
+  build types, source locations, Debian metadata locations, and CI repository
+  impact rules. Local builds and CI planning must read the same registry.
+- Implement reusable build types rather than package-specific Shell dispatch.
+  Adding another conventional native or quilt source package must require only
+  its Debian metadata and declarative mapping entries, not a new build script or
+  Shell function.
+- Keep defaults in the flat `build-scripts/cix-build.conf` file. Environment
+  variables override that file and command-line options override both.
+- Declare and resolve common settings only once. Target implementations contain
+  only build-type behavior; shared engines are not standalone targets and must
+  not encode package dependency relationships.
 - The baseline configuration includes a Nexus site selector with these values:
   - `sh`: Shanghai
   - `zj`: Zhangjiang
@@ -140,20 +159,21 @@ is confirmed.
 ### CI Change Impact and Dependencies
 
 - Maintain a machine-readable mapping from each manifest project and relevant
-  changed path to one or more build targets and their build scripts.
+  changed path to one or more targets executed through `cix-build`.
 - Keep repository/path impact mapping separate from package dependency data.
 - Derive internal package build edges from the source stanza fields
   `Build-Depends`, `Build-Depends-Arch`, and `Build-Depends-Indep` in each
   target's Debian control file.
-- Do not declare dependencies between module build scripts, and do not let one
-  module build script invoke another module build script.
+- Do not declare dependencies in target implementations, and do not let one
+  build target invoke another build target.
 - When a changed target provides a package used by another target's build
   dependencies, include all transitive reverse build dependencies in the CI
   plan.
 - Execute selected targets in deterministic topological order, with
   dependencies before dependents.
-- Treat unmapped non-ignored paths, missing scripts or control files, duplicate
-  internal package providers, and dependency cycles as CI planning errors.
+- Treat unmapped non-ignored paths, a missing build executor or control file,
+  duplicate internal package providers, and dependency cycles as CI planning
+  errors.
 - Do not interpret binary package `Depends` as a rebuild edge. Express
   compatibility test triggers through Debian test metadata instead of fake
   build dependencies.
@@ -193,7 +213,6 @@ only those Git LFS objects when assembling the firmware source package.
 
 ## Decisions Still To Be Made
 
-- User-facing CLI and configuration format.
 - Output repository/layout and artifact naming conventions.
 - Container, CI, caching, signing, and publishing requirements.
 - Nexus URL mapping, authentication, and access policy for each site selector.

@@ -17,6 +17,8 @@ import argparse
 import fnmatch
 import json
 import os
+import re
+import shlex
 import sys
 from collections import defaultdict, deque
 from dataclasses import dataclass
@@ -25,11 +27,9 @@ from typing import Iterable, Mapping, Sequence
 
 try:
     import yaml
-    from debian.deb822 import Deb822, PkgRelation
 except ImportError as exc:  # pragma: no cover - exercised by host setup checks
     sys.stderr.write(
-        "ERROR: plan.py requires the Debian packages python3-yaml and "
-        f"python3-debian: {exc}\n"
+        f"ERROR: plan.py requires the Debian package python3-yaml: {exc}\n"
     )
     raise SystemExit(2) from exc
 
@@ -41,8 +41,23 @@ class PlanError(RuntimeError):
 @dataclass(frozen=True)
 class Target:
     name: str
-    script: str
-    control: str | None
+    description: str
+    builder: str
+    source: str | None
+    source_git: str | None
+    debian: str | None
+    patch_source: str | None
+    validate: str | None
+    payload_dir: str | None
+    files: tuple[str, ...]
+    required_files: tuple[str, ...]
+    lfs: bool
+
+    @property
+    def control(self) -> str | None:
+        if self.builder not in {"sbuild", "firmware"} or self.debian is None:
+            return None
+        return f"{self.debian}/control"
 
 
 @dataclass(frozen=True)
@@ -62,6 +77,7 @@ class Project:
 @dataclass(frozen=True)
 class BuildMap:
     workspace: Path
+    executor: str
     targets: Mapping[str, Target]
     projects: Mapping[str, Project]
 
@@ -92,6 +108,10 @@ def _string_list(value: object, context: str) -> tuple[str, ...]:
     return tuple(_string(item, f"{context} entry") for item in value)
 
 
+def _optional_string(value: object, context: str) -> str | None:
+    return None if value is None else _string(value, context)
+
+
 def _relative_path(value: object, context: str) -> str:
     raw = _string(value, context)
     path = PurePosixPath(raw)
@@ -100,7 +120,132 @@ def _relative_path(value: object, context: str) -> str:
     return path.as_posix().rstrip("/")
 
 
-def load_build_map(map_path: Path, workspace: Path, check_paths: bool = True) -> BuildMap:
+def _optional_relative_path(value: object, context: str) -> str | None:
+    return None if value is None else _relative_path(value, context)
+
+
+def _target_from_mapping(name: str, entry: dict) -> Target:
+    context = f"target {name}"
+    allowed = {
+        "builder",
+        "debian",
+        "description",
+        "files",
+        "lfs",
+        "patch_source",
+        "payload_dir",
+        "required_files",
+        "source",
+        "source_git",
+        "validate",
+    }
+    unknown = sorted(set(entry) - allowed)
+    if unknown:
+        raise PlanError(f"{context} has unknown fields: {', '.join(unknown)}")
+
+    if not re.fullmatch(r"[a-z0-9][a-z0-9+.-]*", name):
+        raise PlanError(f"invalid target name: {name}")
+    description = _string(entry.get("description"), f"{context} description")
+    builder = _string(entry.get("builder"), f"{context} builder")
+    source = _optional_relative_path(entry.get("source"), f"{context} source")
+    source_git = _optional_relative_path(
+        entry.get("source_git"), f"{context} source_git"
+    )
+    debian = _optional_relative_path(entry.get("debian"), f"{context} debian")
+    patch_source = _optional_relative_path(
+        entry.get("patch_source"), f"{context} patch_source"
+    )
+    validate = _optional_string(entry.get("validate"), f"{context} validate")
+    payload_dir = _optional_relative_path(
+        entry.get("payload_dir"), f"{context} payload_dir"
+    )
+    files = (
+        _string_list(entry["files"], f"{context} files")
+        if "files" in entry
+        else ()
+    )
+    required_files = (
+        tuple(
+            _relative_path(item, f"{context} required_files entry")
+            for item in _string_list(
+                entry["required_files"], f"{context} required_files"
+            )
+        )
+        if "required_files" in entry
+        else ()
+    )
+    lfs = entry.get("lfs", False)
+    if not isinstance(lfs, bool):
+        raise PlanError(f"{context} lfs must be a boolean")
+
+    if builder == "kernel":
+        if source is None or debian is None:
+            raise PlanError(f"{context} requires source and debian")
+        unexpected = (
+            source_git
+            or patch_source
+            or validate
+            or payload_dir
+            or files
+            or required_files
+            or lfs
+        )
+        if unexpected:
+            raise PlanError(f"{context} contains fields unsupported by builder kernel")
+    elif builder == "stable-kernel":
+        if source is None or patch_source is None:
+            raise PlanError(f"{context} requires source and patch_source")
+        unexpected = (
+            source_git
+            or debian
+            or validate
+            or payload_dir
+            or files
+            or required_files
+            or lfs
+        )
+        if unexpected:
+            raise PlanError(
+                f"{context} contains fields unsupported by builder stable-kernel"
+            )
+    elif builder == "sbuild":
+        if source_git is None or debian is None:
+            raise PlanError(f"{context} requires source_git and debian")
+        if validate not in {None, "dkms"}:
+            raise PlanError(f"{context} has unsupported validation: {validate}")
+        if patch_source or payload_dir or files or required_files or lfs:
+            raise PlanError(f"{context} contains fields unsupported by builder sbuild")
+    elif builder == "firmware":
+        if None in {source, source_git, debian, payload_dir}:
+            raise PlanError(
+                f"{context} requires source, source_git, debian, and payload_dir"
+            )
+        if not files or not required_files:
+            raise PlanError(f"{context} requires files and required_files")
+        if patch_source or validate:
+            raise PlanError(f"{context} contains fields unsupported by builder firmware")
+    else:
+        raise PlanError(f"{context} has unsupported builder: {builder}")
+
+    return Target(
+        name=name,
+        description=description,
+        builder=builder,
+        source=source,
+        source_git=source_git,
+        debian=debian,
+        patch_source=patch_source,
+        validate=validate,
+        payload_dir=payload_dir,
+        files=files,
+        required_files=required_files,
+        lfs=lfs,
+    )
+
+
+def load_build_map(
+    map_path: Path, workspace: Path, check_paths: bool = True
+) -> BuildMap:
     try:
         raw = yaml.safe_load(map_path.read_text(encoding="utf-8"))
     except OSError as exc:
@@ -109,22 +254,22 @@ def load_build_map(map_path: Path, workspace: Path, check_paths: bool = True) ->
         raise PlanError(f"invalid YAML in {map_path}: {exc}") from exc
 
     root = _mapping(raw, "mapping root")
-    if root.get("version") != 1:
-        raise PlanError("mapping version must be 1")
+    unknown_root = sorted(
+        set(root) - {"version", "executor", "targets", "projects"}
+    )
+    if unknown_root:
+        raise PlanError(f"mapping root has unknown fields: {', '.join(unknown_root)}")
+    if root.get("version") != 3:
+        raise PlanError("mapping version must be 3")
+
+    executor = _relative_path(root.get("executor"), "executor")
 
     target_data = _mapping(root.get("targets"), "targets")
     targets: dict[str, Target] = {}
     for target_name, value in target_data.items():
         name = _string(target_name, "target name")
         entry = _mapping(value, f"target {name}")
-        script = _relative_path(entry.get("script"), f"target {name} script")
-        control_value = entry.get("control")
-        control = (
-            _relative_path(control_value, f"target {name} control")
-            if control_value is not None
-            else None
-        )
-        targets[name] = Target(name=name, script=script, control=control)
+        targets[name] = _target_from_mapping(name, entry)
 
     if not targets:
         raise PlanError("targets must not be empty")
@@ -173,7 +318,9 @@ def load_build_map(map_path: Path, workspace: Path, check_paths: bool = True) ->
         )
         if not rules and not ignore:
             raise PlanError(f"project {name} must have rules or explicit ignore entries")
-        projects[name] = Project(name=name, path=path, rules=tuple(rules), ignore=ignore)
+        projects[name] = Project(
+            name=name, path=path, rules=tuple(rules), ignore=ignore
+        )
 
     unmapped = sorted(set(targets) - mapped_targets)
     if unmapped:
@@ -181,24 +328,81 @@ def load_build_map(map_path: Path, workspace: Path, check_paths: bool = True) ->
 
     workspace = workspace.resolve()
     if check_paths:
+        executor_path = workspace / executor
+        if not executor_path.is_file():
+            raise PlanError(f"build executor does not exist: {executor_path}")
+        if not os.access(executor_path, os.X_OK):
+            raise PlanError(f"build executor is not executable: {executor_path}")
         for target in targets.values():
-            script_path = workspace / target.script
-            if not script_path.is_file():
-                raise PlanError(f"target {target.name} script does not exist: {script_path}")
-            if not os.access(script_path, os.X_OK):
-                raise PlanError(f"target {target.name} script is not executable: {script_path}")
-            if target.control:
-                control_path = workspace / target.control
-                if not control_path.is_file():
-                    raise PlanError(
-                        f"target {target.name} control does not exist: {control_path}"
-                    )
+            validate_target_paths(target, workspace)
         for project in projects.values():
             project_path = workspace / project.path
             if not project_path.is_dir():
                 raise PlanError(f"project path does not exist: {project_path}")
 
-    return BuildMap(workspace=workspace, targets=targets, projects=projects)
+    return BuildMap(
+        workspace=workspace,
+        executor=executor,
+        targets=targets,
+        projects=projects,
+    )
+
+
+def validate_target_paths(target: Target, workspace: Path) -> None:
+    for field_name in ("source", "source_git", "debian", "patch_source"):
+        relative = getattr(target, field_name)
+        if relative is None:
+            continue
+        path = workspace / relative
+        if not path.is_dir():
+            raise PlanError(
+                f"target {target.name} {field_name} directory does not exist: {path}"
+            )
+    if target.control:
+        control_path = workspace / target.control
+        if not control_path.is_file():
+            raise PlanError(
+                f"target {target.name} control does not exist: {control_path}"
+            )
+
+
+def target_dict(target: Target) -> dict:
+    return {
+        "name": target.name,
+        "description": target.description,
+        "builder": target.builder,
+        "source": target.source,
+        "source_git": target.source_git,
+        "debian": target.debian,
+        "patch_source": target.patch_source,
+        "validate": target.validate,
+        "payload_dir": target.payload_dir,
+        "files": list(target.files),
+        "required_files": list(target.required_files),
+        "lfs": target.lfs,
+    }
+
+
+def target_shell(target: Target) -> str:
+    values = {
+        "CIX_TARGET_BUILDER": target.builder,
+        "CIX_TARGET_DESCRIPTION": target.description,
+        "CIX_TARGET_SOURCE": target.source or "",
+        "CIX_TARGET_SOURCE_GIT": target.source_git or "",
+        "CIX_TARGET_DEBIAN": target.debian or "",
+        "CIX_TARGET_PATCH_SOURCE": target.patch_source or "",
+        "CIX_TARGET_VALIDATE": target.validate or "",
+        "CIX_TARGET_PAYLOAD_DIR": target.payload_dir or "",
+        "CIX_TARGET_LFS": "1" if target.lfs else "0",
+    }
+    lines = [f"{name}={shlex.quote(value)}" for name, value in values.items()]
+    for name, items in (
+        ("CIX_TARGET_FILES", target.files),
+        ("CIX_TARGET_REQUIRED_FILES", target.required_files),
+    ):
+        quoted = " ".join(shlex.quote(item) for item in items)
+        lines.append(f"{name}=({quoted})")
+    return "\n".join(lines)
 
 
 def _relation_names(value: str, context: str) -> set[str]:
@@ -208,7 +412,13 @@ def _relation_names(value: str, context: str) -> set[str]:
     if not value:
         return set()
     try:
+        from debian.deb822 import PkgRelation
+
         relations = PkgRelation.parse_relations(value)
+    except ImportError as exc:
+        raise PlanError(
+            "CI dependency planning requires the Debian package python3-debian"
+        ) from exc
     except Exception as exc:
         raise PlanError(f"cannot parse {context}: {exc}") from exc
     return {
@@ -221,8 +431,14 @@ def _relation_names(value: str, context: str) -> set[str]:
 
 def _parse_control(control_path: Path) -> tuple[set[str], set[str]]:
     try:
+        from debian.deb822 import Deb822
+
         with control_path.open(encoding="utf-8") as stream:
             paragraphs = list(Deb822.iter_paragraphs(stream))
+    except ImportError as exc:
+        raise PlanError(
+            "CI dependency planning requires the Debian package python3-debian"
+        ) from exc
     except OSError as exc:
         raise PlanError(f"cannot read Debian control {control_path}: {exc}") from exc
 
@@ -450,7 +666,9 @@ def create_plan(changes: Iterable[str], build_map: BuildMap) -> dict:
         "seeds": sorted(seeds),
         "affected": sorted(affected),
         "order": order,
-        "scripts": [build_map.targets[target].script for target in order],
+        "commands": [
+            shlex.join((build_map.executor, target)) for target in order
+        ],
         "reasons": {target: reasons[target] for target in sorted(reasons)},
     }
 
@@ -468,7 +686,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--map",
         dest="map_path",
         type=Path,
-        default=script_path.with_name("build-map.yaml"),
+        default=script_path.parent.parent / "build-map.yaml",
         help="mapping YAML path",
     )
     parser.add_argument(
@@ -480,14 +698,28 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--check",
         action="store_true",
-        help="validate the mapping, scripts, controls, and dependency graph",
+        help="validate the mapping, executor, controls, and dependency graph",
+    )
+    selection = parser.add_mutually_exclusive_group()
+    selection.add_argument(
+        "--target",
+        metavar="NAME",
+        help="read one target definition for the build command",
+    )
+    selection.add_argument(
+        "--list-targets",
+        action="store_true",
+        help="list target names and descriptions",
     )
     parser.add_argument(
-        "--format", choices=("json", "text"), default="json", help="output format"
+        "--format",
+        choices=("json", "text", "shell"),
+        default="json",
+        help="output format; shell is valid only with --target",
     )
     parser.add_argument(
         "--mode",
-        choices=("seeds", "affected", "order", "scripts"),
+        choices=("seeds", "affected", "order", "commands"),
         default="order",
         help="list printed by text output",
     )
@@ -497,23 +729,55 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_args(argv)
     try:
-        build_map = load_build_map(args.map_path.resolve(), args.workspace.resolve())
-        graph = build_dependency_graph(build_map)
-        if args.check and not args.changes:
+        if (args.target or args.list_targets) and (args.check or args.changes):
+            raise PlanError("target inspection cannot be combined with changes or --check")
+        if args.format == "shell" and not args.target:
+            raise PlanError("shell output requires --target")
+
+        inspect_only = bool(args.target or args.list_targets)
+        build_map = load_build_map(
+            args.map_path.resolve(),
+            args.workspace.resolve(),
+            check_paths=not inspect_only,
+        )
+        if args.list_targets:
             result = {
-                "status": "ok",
-                "projects": sorted(build_map.projects),
-                "targets": sorted(build_map.targets),
-                "internal_packages": dict(sorted(graph.produced_packages.items())),
+                "targets": [
+                    target_dict(build_map.targets[name])
+                    for name in sorted(build_map.targets)
+                ]
             }
+        elif args.target:
+            target = build_map.targets.get(args.target)
+            if target is None:
+                raise PlanError(f"unknown build target: {args.target}")
+            validate_target_paths(target, build_map.workspace)
+            result = target_dict(target)
         else:
-            changes = args.changes if args.changes else list(sys.stdin)
-            result = create_plan(changes, build_map)
+            graph = build_dependency_graph(build_map)
+            if args.check and not args.changes:
+                result = {
+                    "status": "ok",
+                    "projects": sorted(build_map.projects),
+                    "targets": sorted(build_map.targets),
+                    "internal_packages": dict(sorted(graph.produced_packages.items())),
+                }
+            else:
+                changes = args.changes if args.changes else list(sys.stdin)
+                result = create_plan(changes, build_map)
     except PlanError as exc:
         sys.stderr.write(f"ERROR: {exc}\n")
         return 1
 
-    if args.format == "text":
+    if args.format == "shell":
+        print(target_shell(build_map.targets[args.target]))
+    elif args.format == "text" and args.list_targets:
+        for target in result["targets"]:
+            print(f"{target['name']}\t{target['description']}")
+    elif args.format == "text" and args.target:
+        for key, value in result.items():
+            print(f"{key}: {value}")
+    elif args.format == "text":
         values = result.get(args.mode)
         if values is None:
             sys.stderr.write(f"ERROR: output mode {args.mode} is unavailable with --check\n")
