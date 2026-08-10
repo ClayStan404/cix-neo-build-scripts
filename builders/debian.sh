@@ -117,7 +117,7 @@ cix_run_sbuild() {
     export CIX_SBUILD_CCACHE_DIR="${CIX_SBUILD_CCACHE}"
     export CIX_SBUILD_OUTPUT_DIR="${CIX_ARTIFACTS_DIR}"
     export CIX_SBUILD_TMPDIR_TEMPLATE="${CIX_SBUILD_TMP_TEMPLATE}"
-    export DEB_BUILD_OPTIONS="parallel=${CIX_JOBS}${DEB_BUILD_OPTIONS:+ ${DEB_BUILD_OPTIONS}}"
+    cix_set_deb_parallel_jobs "${CIX_JOBS}"
     export SBUILD_CONFIG="${CIX_SBUILD_CONFIG_FILE}"
 
     cix_log "Build ${CIX_TARGET_DESCRIPTION} with sbuild"

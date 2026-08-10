@@ -73,6 +73,12 @@ is confirmed.
 
 - Continue to support the Android `repo` tool and repo manifest format for
   managing the multi-repository source workspace.
+- Use Debian's package-managed `/usr/bin/repo` launcher. Configure `REPO_URL`
+  as `ssh://git@gitmirror.cixcomputing.com/android_repo/git-repo` and
+  `REPO_REV` as `stable` so the upstream Repo implementation is fetched from
+  the internal mirror without adding options to every `repo init` command.
+- Do not use or vendor the legacy CIX launcher or the `cix-stable` Repo branch;
+  their Nexus and smart-cache extensions are outside the rewritten system.
 - Host the new minimal manifest in the private GitHub repository
   `https://github.com/ClayStan404/cix-neo-manifest.git` on branch `master`.
 - Keep the existing internal Linux and GPU source repository URLs and source
@@ -86,7 +92,7 @@ is confirmed.
 
   ```bash
   repo init -u git@github.com:ClayStan404/cix-neo-manifest.git -b master
-  repo sync --current-branch --no-tags
+  repo sync
   ```
 
 - Let `repo init` manage the manifest checkout under `.repo/manifests/`; do not
@@ -150,6 +156,11 @@ is confirmed.
   Shell function.
 - Keep defaults in the flat `build-scripts/cix-build.conf` file. Environment
   variables override that file and command-line options override both.
+- Default build parallelism to the host's `nproc` value. A resolved
+  `--jobs COUNT` must control every nested build layer, including native
+  kernel `bindeb-pkg`, `dpkg-buildpackage`, sbuild, and DKMS validation. Pass
+  native kernel jobs through `DPKG_FLAGS=--jobs=COUNT` so they override the
+  upstream packaging rule's internal `dpkg-buildpackage -j1`.
 - Declare and resolve common settings only once. Target implementations contain
   only build-type behavior; shared engines are not standalone targets and must
   not encode package dependency relationships.

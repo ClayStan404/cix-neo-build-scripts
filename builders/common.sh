@@ -43,6 +43,24 @@ cix_validate_positive_integer() {
         cix_die "$1 must be a positive integer: $2"
 }
 
+cix_set_deb_parallel_jobs() {
+    local jobs="$1"
+    local option
+    local -a current_options=()
+    local -a resolved_options=("parallel=${jobs}")
+
+    cix_validate_positive_integer jobs "${jobs}"
+    if [[ -n "${DEB_BUILD_OPTIONS:-}" ]]; then
+        read -r -a current_options <<< "${DEB_BUILD_OPTIONS}"
+    fi
+    for option in "${current_options[@]}"; do
+        [[ "${option}" == parallel=* ]] || resolved_options+=("${option}")
+    done
+
+    DEB_BUILD_OPTIONS="${resolved_options[*]}"
+    export DEB_BUILD_OPTIONS
+}
+
 cix_validate_host() {
     local architecture
     local ID

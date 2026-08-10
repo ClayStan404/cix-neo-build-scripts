@@ -89,6 +89,7 @@ readonly host_packages=(
     git
     git-lfs
     kmod
+    libdw-dev
     libelf-dev
     libssl-dev
     lintian

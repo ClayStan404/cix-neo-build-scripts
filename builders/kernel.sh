@@ -118,6 +118,7 @@ cix_kernel_build() {
 
     package_args=(
         ARCH=arm64
+        "DPKG_FLAGS=--jobs=${CIX_JOBS}"
         LOCALVERSION=-generic
         KDEB_CHANGELOG_DIST="${CIX_DISTRIBUTION}"
         KDEB_SOURCENAME=cix-linux
@@ -179,6 +180,7 @@ cix_stable_kernel_build() {
     git -C "${patch_remote}" update-ref refs/heads/main "${patch_commit}"
 
     export CIX_NEXUS_SITE="${CIX_NEXUS}"
+    export BUILD_JOBS="${CIX_JOBS}"
     export KDEB_CHANGELOG_DIST="${CIX_DISTRIBUTION}"
     export OMP_NUM_THREADS="${CIX_JOBS}"
     export OMP_THREAD_LIMIT="${CIX_JOBS}"

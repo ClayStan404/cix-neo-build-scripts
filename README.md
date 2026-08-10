@@ -46,6 +46,10 @@ Defaults live in `cix-build.conf`. Environment variables can override the
 file, and command-line options override both. Pass an alternate file as the
 first option with `cix-build --config FILE TARGET`.
 
+Build parallelism defaults to the host's `nproc` value. `--jobs COUNT`
+overrides it consistently for native kernel `make bindeb-pkg`, its nested
+`dpkg-buildpackage` invocation, sbuild packages, and DKMS compatibility tests.
+
 The Nexus selector chooses an internal download endpoint for non-sbuild build
 flows that fetch private inputs. It is not an APT or sbuild setting and is not
 propagated into standard sbuild package builds.
