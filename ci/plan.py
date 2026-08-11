@@ -57,7 +57,7 @@ class Target:
 
     @property
     def control(self) -> str | None:
-        if self.builder != "sbuild" or self.debian is None:
+        if self.builder != "debian" or self.debian is None:
             return None
         return f"{self.debian}/control"
 
@@ -185,23 +185,23 @@ def _target_from_mapping(name: str, entry: dict) -> Target:
         raise PlanError(f"{context} lfs must be a boolean")
 
     schemas = {
-        ("kernel", "patched-worktree"): (
+        ("direct", "kernel-worktree"): (
             {"source", "debian"},
             {"source", "debian"},
         ),
-        ("kernel", "stable-tarball"): (
+        ("direct", "kernel-stable-tarball"): (
             {"version", "patch_source"},
             {"version", "patch_source"},
         ),
-        ("sbuild", "quilt"): (
+        ("debian", "quilt"): (
             {"source", "source_git", "debian"},
             {"source", "source_git", "debian", "validate"},
         ),
-        ("sbuild", "native"): (
+        ("debian", "native"): (
             {"source_git", "debian"},
             {"source_git", "debian"},
         ),
-        ("sbuild", "firmware"): (
+        ("debian", "firmware"): (
             {
                 "source",
                 "source_git",
@@ -293,8 +293,8 @@ def load_build_map(
     )
     if unknown_root:
         raise PlanError(f"mapping root has unknown fields: {', '.join(unknown_root)}")
-    if root.get("version") != 4:
-        raise PlanError("mapping version must be 4")
+    if root.get("version") != 5:
+        raise PlanError("mapping version must be 5")
 
     executor = _relative_path(root.get("executor"), "executor")
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Firmware source-package assembly for the sbuild builder.
+# Firmware source-package assembly for the Debian builder.
 
 cix_is_lfs_pointer() {
     local file="$1"
@@ -44,13 +44,13 @@ cix_validate_firmware_files() {
     done
 }
 
-cix_sbuild_firmware_package() (
-    local build_output="$1"
-    local build_jobs="$2"
+cix_debian_firmware_package() (
+    local firmware_output="$1"
+    local firmware_jobs="$2"
+    local firmware_backend="$3"
     local packaging_dir="${CIX_ROOT}/${TARGET[debian]}"
     local source_dir="${CIX_ROOT}/${TARGET[source]}"
     local source_git="${CIX_ROOT}/${TARGET[source_git]}"
-    local dsc_file
     local pattern
     local source_date_epoch
     local source_package
@@ -72,7 +72,7 @@ cix_sbuild_firmware_package() (
     read -r source_package _ upstream_version < <(
         cix_debian_metadata "${packaging_dir}"
     )
-    work_root="$(mktemp -d "${build_output}/.${TARGET[name]}.XXXXXXXXXX")"
+    work_root="$(mktemp -d "${firmware_output}/.${TARGET[name]}.XXXXXXXXXX")"
     trap 'rm -rf -- "${work_root}"' EXIT
     source_tree="${work_root}/${source_package}-${upstream_version}"
     cix_log "Assemble ${TARGET[description]} source package"
@@ -89,7 +89,9 @@ cix_sbuild_firmware_package() (
     cix_create_orig_tar \
         "${source_package}" "${upstream_version}" "${source_date_epoch}" \
         "${source_tree}" "${work_root}"
-    cix_create_quilt_dsc "${packaging_dir}" "${source_tree}" "${work_root}"
-    dsc_file="$(cix_find_dsc "${source_package}" "${work_root}")"
-    cix_run_sbuild "${dsc_file}" "${source_date_epoch}" "${build_output}" "${build_jobs}"
+    cix_add_debian_metadata "${packaging_dir}" "${source_tree}"
+    cix_run_debian_backend \
+        "${firmware_backend}" "${source_package}" "${source_tree}" \
+        "${source_date_epoch}" "${work_root}" "${firmware_output}" \
+        "${firmware_jobs}"
 )

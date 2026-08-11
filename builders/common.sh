@@ -42,6 +42,19 @@ cix_validate_host() {
         cix_die "native ARM64 host required; detected ${architecture}"
 }
 
+cix_prepare_host_ccache() {
+    cix_require_command ccache
+    [[ -d /usr/lib/ccache ]] ||
+        cix_die "ccache compiler wrappers are missing: /usr/lib/ccache"
+
+    CCACHE_DIR="${HOME}/.cache/cix-neo-sbuild/ccache"
+    CCACHE_UMASK=000
+    PATH="/usr/lib/ccache:${PATH}"
+    export CCACHE_DIR CCACHE_UMASK PATH
+    mkdir -p -- "${CCACHE_DIR}"
+    cix_log "Use ccache at ${CCACHE_DIR}"
+}
+
 cix_clean_artifacts() {
     local directory="$1"
 

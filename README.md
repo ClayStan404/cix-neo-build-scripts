@@ -24,34 +24,47 @@ development kernel using its kernel-owned configuration fragments and the
 external temporary fix in `debian/kernel/patches/`. `stable-kernel` downloads
 the upstream release pinned in `build-map.yaml`, then applies the patch set and
 defconfig from the manifest-managed `cix-linux-main` checkout. Both use the
-shared `kernel` builder and `make bindeb-pkg`; neither uses `sbuild`. The stable
-target emits a `-cix` kernel release (for example, `7.0.13-cix`). The new system
-does not retain the legacy fixed `7.0.0-generic` package name.
+`direct` builder and `make bindeb-pkg`; neither uses the Debian package backend.
+The stable target emits a `-cix` kernel release (for example, `7.0.13-cix`). The
+new system does not retain the legacy fixed `7.0.0-generic` package name.
 
 GPU, VPU, NPU, firmware, and boot configuration targets create standard Debian
-source packages and build them with the shared `sbuild` builder. All targets
-use the single `cix-build` entry point. Files under `builders/` implement the
-two reusable execution backends and their source-assembly flows, not package
-lists or independent commands. `cix-grub-config` is a native package owned
-entirely by the Debian metadata repository.
+source trees with the shared `debian` builder. Its default backend is `sbuild`;
+pass `--backend local` to run `dpkg-buildpackage` directly on the host instead.
+All targets use the single `cix-build` entry point. Files under `builders/`
+implement reusable build models and source-assembly flows, not package lists or
+independent commands. `cix-grub-config` is a native package owned entirely by
+the Debian metadata repository.
+
+```bash
+./build-scripts/cix-build gpu-dkms                 # isolated sbuild
+./build-scripts/cix-build gpu-dkms --backend local # host dpkg-buildpackage
+```
+
+The local backend requires the package's `Build-Depends` to already be
+installed on the host. The sbuild backend resolves them inside its clean build
+environment. `--backend` is rejected for `direct` targets because those flows
+already define their own host build commands.
 
 `build-map.yaml` is the single target registry. It declares each target's
 builder, source preparation flow, source checkout, Debian metadata directory,
-and repository/path impact rules. The only builders are `kernel` and `sbuild`.
-Kernel flows are `patched-worktree` and `stable-tarball`; sbuild flows are
-`quilt`, `native`, and `firmware`. `cix-build` resolves its target from this
-file, and the CI planner reads the same data. Package names and source paths are
-therefore not duplicated in Shell dispatch tables.
+and repository/path impact rules. The only builders are `direct` and `debian`.
+Direct flows run project-specific tools on the native host; the current kernel
+flows are `kernel-worktree` and `kernel-stable-tarball`. Debian source flows are
+`quilt`, `native`, and `firmware`, independently of the selected sbuild/local
+backend. `cix-build` resolves its target from this file, and the CI planner
+reads the same data. Package names and source paths are therefore not duplicated
+in Shell dispatch tables.
 
 All build paths use the host's full `nproc` value, including native kernel
-`make bindeb-pkg`, its nested `dpkg-buildpackage` invocation, sbuild packages,
-and DKMS compatibility tests.
+`make bindeb-pkg`, its nested `dpkg-buildpackage` invocation, Debian package
+backends, and DKMS compatibility tests.
 Target outputs are written to `output/TARGET`.
 Each build removes that target's previous top-level artifact files before
 starting, so a persistent Jenkins workspace cannot publish stale packages.
 
-Both native kernel flows and sbuild use the compiler wrappers under
-`/usr/lib/ccache` and share the host cache at
+Direct kernel flows, local `dpkg-buildpackage`, and sbuild use compiler wrappers
+and share the host cache at
 `~/.cache/cix-neo-sbuild/ccache`.
 
 The VPU DKMS package retains its runtime dependency on `cix-vpu-firmware`.
@@ -64,13 +77,14 @@ checkout; it does not materialize every LFS object in the proprietary repo.
 
 For a conventional native or quilt source package, add its packaging metadata
 under `debian/` and add one target plus the relevant project/path rule to
-`build-map.yaml`. Select the `sbuild` builder and its `native` or `quilt` flow,
+`build-map.yaml`. Select the `debian` builder and its `native` or `quilt` flow,
 then set the fields required by that flow. DKMS packages may add
 `validate: dkms` to check the source name and version against `dkms.conf`.
 
 No Shell function or per-package script is needed for another conventional
-package. A new engine is justified only when a package cannot be represented by
-an existing build type. Package build dependencies remain exclusively in
+package. A project that cannot use standard Debian packaging uses the `direct`
+builder and a focused flow implementation, such as the current kernel flow or a
+future board-firmware flow. Package build dependencies remain exclusively in
 `debian/control`.
 
 ## Build host dependencies
@@ -82,10 +96,10 @@ toolchain as a regular user with sudo access:
 ./build-scripts/setup-host
 ```
 
-This is the canonical host-package list for repository synchronization, both
-native kernel targets, sbuild package builds, DKMS compatibility tests, and
-CI planning/static validation. The command is idempotent: it installs only
-missing packages. Use `--check` for a read-only readiness check,
+This is the canonical host-package list for repository synchronization, direct
+builds, local and sbuild Debian package builds, DKMS compatibility tests, and CI
+planning/static validation. The command is idempotent: it installs only missing
+packages. Use `--check` for a read-only readiness check,
 `--list-packages` to print the maintained Debian package list, or `--dry-run`
 to show installation commands without executing them.
 

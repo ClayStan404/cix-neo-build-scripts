@@ -1,18 +1,5 @@
 #!/usr/bin/env bash
-# Native kernel build flows used by the kernel builder.
-
-cix_prepare_kernel_ccache() {
-    cix_require_command ccache
-    [[ -d /usr/lib/ccache ]] ||
-        cix_die "ccache compiler wrappers are missing: /usr/lib/ccache"
-
-    CCACHE_DIR="${HOME}/.cache/cix-neo-sbuild/ccache"
-    CCACHE_UMASK=000
-    PATH="/usr/lib/ccache:${PATH}"
-    export CCACHE_DIR CCACHE_UMASK PATH
-    mkdir -p -- "${CCACHE_DIR}"
-    cix_log "Use ccache at ${CCACHE_DIR}"
-}
+# Native kernel flows used by the direct builder.
 
 cix_kernel_patched_worktree() (
     local build_action="$1"
@@ -118,7 +105,7 @@ cix_kernel_patched_worktree() (
             cix_die "kernel-owned config is missing: ${config_target}"
     done
 
-    cix_prepare_kernel_ccache
+    cix_prepare_host_ccache
     cix_log "Configure kernel with: ${config_targets[*]}"
     make -C "${worktree_source}" \
         O="${build_dir}" \
@@ -193,7 +180,7 @@ cix_kernel_stable_tarball() (
     )
     ((${#patches[@]} > 0)) || cix_die "CIX patch set is empty: ${patchset_dir}"
 
-    cix_prepare_kernel_ccache
+    cix_prepare_host_ccache
     mkdir -p -- "${work_dir}" "${build_output}"
     cix_clean_artifacts "${build_output}"
     patch_commit="$(git -C "${patch_source}" rev-parse HEAD)"
@@ -265,17 +252,17 @@ cix_kernel_stable_tarball() (
     cix_log "Stable kernel package build complete"
 )
 
-cix_kernel_package() {
+cix_direct_kernel_build() {
     local build_action="$1"
     local build_output="$2"
     local build_jobs="$3"
 
     case "${TARGET[flow]}" in
-        patched-worktree)
+        kernel-worktree)
             cix_kernel_patched_worktree \
                 "${build_action}" "${build_output}" "${build_jobs}"
             ;;
-        stable-tarball)
+        kernel-stable-tarball)
             cix_kernel_stable_tarball \
                 "${build_action}" "${build_output}" "${build_jobs}"
             ;;

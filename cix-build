@@ -11,10 +11,11 @@ list_targets() {
 
 usage() {
     cat <<'EOF'
-Usage: cix-build TARGET [build|clean]
+Usage: cix-build TARGET [build|clean] [--backend sbuild|local]
        cix-build --list
 
 Options:
+  --backend BACKEND      Debian build backend (default: sbuild)
   --list                 List build targets
   -h, --help             Show this help
 
@@ -49,13 +50,39 @@ case "${1:-}" in
         ;;
 esac
 
-action="${1:-build}"
-case "${action}" in
-    build|clean) ;;
-    --*) cix_die "unknown option: ${action}" ;;
-    *) cix_die "action must be build or clean: ${action}" ;;
+action=build
+if [[ "${1:-}" == "build" || "${1:-}" == "clean" ]]; then
+    action="$1"
+    shift
+fi
+
+debian_backend=sbuild
+backend_selected=0
+while (($#)); do
+    case "$1" in
+        --backend)
+            (($# >= 2)) || cix_die "--backend requires a value"
+            debian_backend="$2"
+            backend_selected=1
+            shift 2
+            ;;
+        --backend=*)
+            debian_backend="${1#*=}"
+            backend_selected=1
+            shift
+            ;;
+        --*)
+            cix_die "unknown option: $1"
+            ;;
+        *)
+            cix_die "unexpected argument: $1"
+            ;;
+    esac
+done
+case "${debian_backend}" in
+    sbuild|local) ;;
+    *) cix_die "Debian backend must be sbuild or local: ${debian_backend}" ;;
 esac
-(($# <= 1)) || cix_die "unexpected argument: $2"
 
 cix_require_command nproc python3 realpath
 parallel_jobs="$(nproc)"
@@ -72,17 +99,18 @@ output_dir="${CIX_ROOT}/output/${target_name}"
 cix_validate_host
 
 case "${TARGET[builder]}" in
-    kernel)
-        # shellcheck source=builders/kernel.sh
-        source "${CIX_ROOT}/build-scripts/builders/kernel.sh"
-        cix_kernel_package "${action}" "${output_dir}" "${parallel_jobs}"
+    direct)
+        ((backend_selected == 0)) ||
+            cix_die "--backend applies only to Debian package targets"
+        # shellcheck source=builders/direct.sh
+        source "${CIX_ROOT}/build-scripts/builders/direct.sh"
+        cix_direct_build "${action}" "${output_dir}" "${parallel_jobs}"
         ;;
-    sbuild)
-        # shellcheck source=builders/sbuild.sh
-        source "${CIX_ROOT}/build-scripts/builders/sbuild.sh"
-        # shellcheck source=builders/firmware.sh
-        source "${CIX_ROOT}/build-scripts/builders/firmware.sh"
-        cix_sbuild_package "${action}" "${output_dir}" "${parallel_jobs}"
+    debian)
+        # shellcheck source=builders/debian.sh
+        source "${CIX_ROOT}/build-scripts/builders/debian.sh"
+        cix_debian_build \
+            "${action}" "${output_dir}" "${parallel_jobs}" "${debian_backend}"
         ;;
     *)
         cix_die "unsupported build engine: ${TARGET[builder]}"

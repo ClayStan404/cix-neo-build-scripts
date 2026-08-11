@@ -77,6 +77,8 @@ readonly host_packages=(
     cpio
     curl
     debian-archive-keyring
+    debhelper
+    dh-dkms
     dkms
     dwarves
     fakeroot
@@ -166,9 +168,9 @@ fi
 
 if ((!dry_run)); then
     for command_name in \
-        bc bison ccache cpio curl dkms dpkg-buildpackage fakeroot flex gcc git \
-        git-lfs make mmdebstrap modinfo openssl pahole python3 repo rsync sbuild \
-        shellcheck unshare xz zstd; do
+        bc bison ccache cpio curl dh dh_dkms dkms dpkg-buildpackage fakeroot \
+        flex gcc git git-lfs make mmdebstrap modinfo openssl pahole python3 \
+        repo rsync sbuild shellcheck unshare xz zstd; do
         command_is_available "${command_name}" ||
             die "required command is unavailable after package setup: ${command_name}"
     done

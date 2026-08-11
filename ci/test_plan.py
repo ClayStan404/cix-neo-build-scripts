@@ -79,12 +79,12 @@ Description: package B runtime
         )
         return self.fixture.mapping(
             {
-                "version": 4,
+                "version": 5,
                 "executor": "scripts/cix-build",
                 "targets": {
                     "package-a": {
                         "description": "package A",
-                        "builder": "sbuild",
+                        "builder": "debian",
                         "flow": "quilt",
                         "source": "sources/a",
                         "source_git": "sources/a",
@@ -92,7 +92,7 @@ Description: package B runtime
                     },
                     "package-b": {
                         "description": "package B",
-                        "builder": "sbuild",
+                        "builder": "debian",
                         "flow": "quilt",
                         "source": "sources/b",
                         "source_git": "sources/b",
@@ -139,12 +139,12 @@ Description: package B runtime
         build_map = self._dependency_fixture()
         target = build_map.targets["package-a"]
 
-        self.assertEqual(target.builder, "sbuild")
+        self.assertEqual(target.builder, "debian")
         self.assertEqual(target.flow, "quilt")
         self.assertEqual(target.source, "sources/a")
         self.assertEqual(target.control, "debian/a/control")
         shell = plan.target_shell(target)
-        self.assertIn("TARGET[builder]=sbuild", shell)
+        self.assertIn("TARGET[builder]=debian", shell)
         self.assertIn("TARGET[flow]=quilt", shell)
         self.assertIn("TARGET[source]=sources/a", shell)
 
@@ -153,15 +153,15 @@ Description: package B runtime
             "stable-kernel",
             {
                 "description": "stable kernel",
-                "builder": "kernel",
-                "flow": "stable-tarball",
+                "builder": "direct",
+                "flow": "kernel-stable-tarball",
                 "version": "7.0.13",
                 "patch_source": "sources/linux-main",
             },
         )
 
-        self.assertEqual(target.builder, "kernel")
-        self.assertEqual(target.flow, "stable-tarball")
+        self.assertEqual(target.builder, "direct")
+        self.assertEqual(target.flow, "kernel-stable-tarball")
         self.assertEqual(target.version, "7.0.13")
         self.assertIsNone(target.control)
         self.assertIn("TARGET[version]=7.0.13", plan.target_shell(target))

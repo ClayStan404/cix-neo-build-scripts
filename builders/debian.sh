@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Standard Debian source-package builder backed by sbuild.
+# Standard Debian source-package builder with selectable execution backends.
 
 cix_validate_packaging() {
     local packaging_dir="$1"
@@ -45,13 +45,23 @@ cix_create_orig_tar() {
         "$(basename "${source_tree}")"
 }
 
-cix_create_quilt_dsc() {
+cix_add_debian_metadata() {
     local packaging_dir="$1"
     local source_tree="$2"
-    local work_root="$3"
 
     mkdir -p -- "${source_tree}/debian"
-    rsync -a "${packaging_dir}/" "${source_tree}/debian/"
+    rsync -a \
+        --exclude=/.debhelper/ \
+        --exclude=/files \
+        --exclude='/*.debhelper.log' \
+        --exclude='/*.substvars' \
+        "${packaging_dir}/" "${source_tree}/debian/"
+}
+
+cix_create_dsc() {
+    local source_tree="$1"
+    local work_root="$2"
+
     (
         cd "${work_root}" || exit
         dpkg-source -b "$(basename "${source_tree}")"
@@ -108,6 +118,75 @@ cix_run_sbuild() {
             "${dsc_file}"
 }
 
+cix_run_local_dpkg() (
+    local source_tree="$1"
+    local source_date_epoch="$2"
+    local build_output="$3"
+    local build_jobs="$4"
+    local artifact
+    local deb_count=0
+    local work_root
+    local -a artifacts=()
+
+    work_root="$(dirname "${source_tree}")"
+    cix_prepare_host_ccache
+    cix_log "Build ${TARGET[description]} locally with dpkg-buildpackage"
+    (
+        cd "${source_tree}" || exit
+        SOURCE_DATE_EPOCH="${source_date_epoch}" \
+            dpkg-buildpackage \
+                --build=binary \
+                --no-sign \
+                --jobs-force="${build_jobs}"
+    )
+
+    shopt -s nullglob
+    artifacts=(
+        "${work_root}"/*.deb
+        "${work_root}"/*.ddeb
+        "${work_root}"/*.udeb
+        "${work_root}"/*.buildinfo
+        "${work_root}"/*.changes
+    )
+    for artifact in "${artifacts[@]}"; do
+        case "${artifact}" in
+            *.deb|*.ddeb|*.udeb) ((deb_count += 1)) ;;
+        esac
+    done
+    ((deb_count > 0)) ||
+        cix_die "local build produced no Debian packages: ${TARGET[description]}"
+    mv -f -- "${artifacts[@]}" "${build_output}/"
+)
+
+cix_run_debian_backend() {
+    local backend="$1"
+    local source_package="$2"
+    local source_tree="$3"
+    local source_date_epoch="$4"
+    local work_root="$5"
+    local build_output="$6"
+    local build_jobs="$7"
+    local dsc_file
+
+    case "${backend}" in
+        sbuild)
+            cix_create_dsc "${source_tree}" "${work_root}"
+            dsc_file="$(cix_find_dsc "${source_package}" "${work_root}")"
+            cix_run_sbuild \
+                "${dsc_file}" "${source_date_epoch}" \
+                "${build_output}" "${build_jobs}"
+            ;;
+        local)
+            cix_run_local_dpkg \
+                "${source_tree}" "${source_date_epoch}" \
+                "${build_output}" "${build_jobs}"
+            ;;
+        *)
+            cix_die "unsupported Debian build backend: ${backend}"
+            ;;
+    esac
+}
+
 cix_validate_dkms_source() {
     local source_dir="$1"
     local source_package="$2"
@@ -127,13 +206,13 @@ cix_validate_dkms_source() {
         cix_die "Debian version ${upstream_version} does not match DKMS version ${dkms_version}"
 }
 
-cix_sbuild_quilt_package() (
+cix_debian_quilt_package() (
     local build_output="$1"
     local build_jobs="$2"
+    local build_backend="$3"
     local packaging_dir="${CIX_ROOT}/${TARGET[debian]}"
     local source_dir="${CIX_ROOT}/${TARGET[source]}"
     local quilt_git="${CIX_ROOT}/${TARGET[source_git]}"
-    local dsc_file
     local source_date_epoch
     local source_package
     local source_tree
@@ -164,18 +243,19 @@ cix_sbuild_quilt_package() (
     cix_create_orig_tar \
         "${source_package}" "${upstream_version}" "${source_date_epoch}" \
         "${source_tree}" "${work_root}"
-    cix_create_quilt_dsc "${packaging_dir}" "${source_tree}" "${work_root}"
-    dsc_file="$(cix_find_dsc "${source_package}" "${work_root}")"
-    cix_run_sbuild "${dsc_file}" "${source_date_epoch}" "${build_output}" "${build_jobs}"
+    cix_add_debian_metadata "${packaging_dir}" "${source_tree}"
+    cix_run_debian_backend \
+        "${build_backend}" "${source_package}" "${source_tree}" \
+        "${source_date_epoch}" "${work_root}" "${build_output}" "${build_jobs}"
 )
 
-cix_sbuild_native_package() (
+cix_debian_native_package() (
     local build_output="$1"
     local build_jobs="$2"
+    local build_backend="$3"
     local packaging_dir="${CIX_ROOT}/${TARGET[debian]}"
     local native_git="${CIX_ROOT}/${TARGET[source_git]}"
     local debian_version
-    local dsc_file
     local source_date_epoch
     local source_package
     local source_tree
@@ -194,44 +274,50 @@ cix_sbuild_native_package() (
     trap 'rm -rf -- "${work_root}"' EXIT
     source_tree="${work_root}/${source_package}-${tree_version}"
     cix_log "Assemble ${TARGET[description]} native source package"
-    mkdir -p -- "${source_tree}/debian"
-    rsync -a "${packaging_dir}/" "${source_tree}/debian/"
-    (
-        cd "${work_root}" || exit
-        dpkg-source -b "$(basename "${source_tree}")"
-    )
+    cix_add_debian_metadata "${packaging_dir}" "${source_tree}"
 
-    dsc_file="$(cix_find_dsc "${source_package}" "${work_root}")"
     source_date_epoch="$(git -C "${native_git}" log -1 --format=%ct)"
-    cix_run_sbuild "${dsc_file}" "${source_date_epoch}" "${build_output}" "${build_jobs}"
+    cix_run_debian_backend \
+        "${build_backend}" "${source_package}" "${source_tree}" \
+        "${source_date_epoch}" "${work_root}" "${build_output}" "${build_jobs}"
 )
 
-cix_sbuild_package() {
+cix_debian_build() {
     local build_action="$1"
     local build_output="$2"
     local build_jobs="$3"
+    local build_backend="$4"
 
     if [[ "${build_action}" == "clean" ]]; then
         cix_clean_artifacts "${build_output}"
         return 0
     fi
 
-    cix_require_command \
-        dpkg-parsechangelog dpkg-source find git grep realpath rsync sbuild tar
+    cix_require_command dpkg-parsechangelog find git grep realpath rsync tar
+    case "${build_backend}" in
+        sbuild) cix_require_command dpkg-source sbuild ;;
+        local) cix_require_command dpkg-buildpackage fakeroot ;;
+        *) cix_die "unsupported Debian build backend: ${build_backend}" ;;
+    esac
     mkdir -p -- "${build_output}"
     cix_clean_artifacts "${build_output}"
     case "${TARGET[flow]}" in
         quilt)
-            cix_sbuild_quilt_package "${build_output}" "${build_jobs}"
+            cix_debian_quilt_package \
+                "${build_output}" "${build_jobs}" "${build_backend}"
             ;;
         native)
-            cix_sbuild_native_package "${build_output}" "${build_jobs}"
+            cix_debian_native_package \
+                "${build_output}" "${build_jobs}" "${build_backend}"
             ;;
         firmware)
-            cix_sbuild_firmware_package "${build_output}" "${build_jobs}"
+            # shellcheck source=builders/debian/firmware.sh
+            source "${CIX_ROOT}/build-scripts/builders/debian/firmware.sh"
+            cix_debian_firmware_package \
+                "${build_output}" "${build_jobs}" "${build_backend}"
             ;;
         *)
-            cix_die "unsupported sbuild flow: ${TARGET[flow]}"
+            cix_die "unsupported Debian source flow: ${TARGET[flow]}"
             ;;
     esac
     cix_log "${TARGET[description]} build complete"

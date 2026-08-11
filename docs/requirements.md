@@ -24,8 +24,9 @@ is confirmed.
   other host distributions are outside the current scope.
 - Build software as standard Debian packages using conventional Debian package
   build workflows.
-- Use `sbuild` as the Debian package build backend for conventional source
-  packages.
+- Support both `sbuild` and host-local `dpkg-buildpackage` as selectable
+  backends for conventional Debian source packages. Keep `sbuild` as the
+  default.
 - Build the Linux kernel natively with its own `bindeb-pkg` make target rather
   than running the kernel build through `sbuild`.
 - Maintain two independent kernel targets: the CIX 6.6 development kernel and
@@ -59,9 +60,9 @@ is confirmed.
   distribution from the host OS release or expose an unused suite selector.
 - Keep compiler caches at the fixed user-scoped path
   `~/.cache/cix-neo-sbuild/ccache`.
-- Introduce a Nexus selector only when a non-sbuild project needs to fetch
-  private inputs. It is not an APT mirror or an sbuild setting and must not be
-  propagated into standard sbuild builds.
+- Introduce a Nexus selector only when a direct-build project needs to fetch
+  private inputs. It is not an APT mirror or a Debian package backend setting
+  and must not be propagated into standard package builds.
 - Validate GPU, VPU, and NPU DKMS packages by compiling their modules against
   the headers package produced by the CIX kernel build. Generic upstream
   kernel headers are not a supported test target.
@@ -132,8 +133,9 @@ is confirmed.
   upstream sources.
 - `build-scripts/`: repo-managed single build command and its shared build
   engines.
-- `build-scripts/builders/`: internal, reusable build-type implementations;
-  adding a conventional package must not add a builder file.
+- `build-scripts/builders/`: internal implementations for the `direct` and
+  `debian` build models and their flows; adding a conventional package must not
+  add a builder file.
 - `build-scripts/tests/`: executable build-output compatibility tests. Keep a
   single parameterized DKMS test command rather than per-package wrappers, and
   do not place `test-*` scripts at the build-scripts root.
@@ -145,10 +147,16 @@ is confirmed.
 - Keep `build-scripts/build-map.yaml` as the single registry for target names,
   build types, source locations, Debian metadata locations, and CI repository
   impact rules. Local builds and CI planning must read the same registry.
-- Expose only two execution builders: `kernel` for native `bindeb-pkg` builds
-  and `sbuild` for standard Debian source-package builds. Select source
-  preparation explicitly with a target flow instead of creating package-like
-  builder categories.
+- Expose only two build models: `direct` for project-specific commands running
+  on the native host, and `debian` for standard Debian source-package builds.
+  Kernel and future board-firmware builds are direct flows, not builder
+  categories. Select source preparation explicitly with a target flow.
+- Let the `debian` builder switch between `sbuild` and local
+  `dpkg-buildpackage` from the public command. Keep source assembly identical
+  between backends and reject the backend option for direct targets.
+- Keep the backend default at `sbuild`. Select the host build explicitly with
+  `cix-build TARGET --backend local`; local builds must check the package's
+  `Build-Depends` and fail rather than installing dependencies implicitly.
 - Implement reusable build types rather than package-specific Shell dispatch.
   Adding another conventional native or quilt source package must require only
   its Debian metadata and declarative mapping entries, not a new build script or
@@ -163,9 +171,9 @@ is confirmed.
   validation. Do not expose a build-job override. Pass the resolved value to
   native kernel packaging through `DPKG_FLAGS=--jobs=COUNT` so it overrides
   the upstream packaging rule's internal `dpkg-buildpackage -j1`.
-- Always enable ccache by prepending Debian's `/usr/lib/ccache` compiler
-  wrappers. Native kernel and sbuild builds share the fixed host cache at
-  `~/.cache/cix-neo-sbuild/ccache`.
+- Always enable ccache by using Debian's `/usr/lib/ccache` compiler wrappers.
+  Direct kernel builds, local `dpkg-buildpackage`, and sbuild share the fixed
+  host cache at `~/.cache/cix-neo-sbuild/ccache`.
 - Do not declare configuration variables or CLI options until a concrete target
   consumes them.
 - Derive one workspace-root path directly from the checked-out layout. Do not
