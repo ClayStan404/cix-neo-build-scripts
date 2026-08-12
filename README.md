@@ -10,6 +10,7 @@ Build the current CIX kernel, DKMS, and boot configuration packages:
 ./build-scripts/cix-build all
 ./build-scripts/cix-build kernel
 ./build-scripts/cix-build stable-kernel
+./build-scripts/cix-build audio-sof
 ./build-scripts/cix-build gpu-dkms
 ./build-scripts/cix-build bt-dkms
 ./build-scripts/cix-build vpu-dkms
@@ -49,8 +50,9 @@ direct host builds for all conventional Debian packages with:
 ./build-scripts/cix-build all --backend local
 ```
 
-The backend selection does not change `direct` targets such as `kernel` and
-`stable-kernel`; those always execute their target-owned native build flow.
+The backend selection does not change `direct` targets such as `kernel`,
+`stable-kernel`, and `audio-sof`; those always execute their target-owned
+native build flow.
 The full build stops at the first failed target. `cix-build all clean` cleans
 targets in reverse dependency order. Every target reports its elapsed time as
 `HH:MM:SS`, and a successful full build reports the total elapsed time. On
@@ -68,6 +70,14 @@ defconfig from the manifest-managed `cix-linux-main` checkout. Both use the
 `direct` builder and `make bindeb-pkg`; neither uses the Debian package backend.
 The stable target emits a `-cix` kernel release (for example, `7.0.13-cix`). The
 new system does not retain the legacy fixed `7.0.0-generic` package name.
+
+`audio-sof` builds on the native ARM64 host without using an x86 build
+machine. SOF firmware itself runs on the Sky1 Xtensa DSP, so the direct flow
+first builds an ARM64-hosted `xtensa-sky1-elf` compiler from the
+manifest-pinned crosstool-NG, Newlib, and Xtensa overlay sources. The toolchain
+is cached under `output/audio-sof/toolchain` and is rebuilt when any of those
+inputs changes. It then builds the Sky1/Sky1P firmware and topology files and
+packages them as `cix-audio-sof`.
 
 GPU, Bluetooth, WLAN, VPU, NPU, graphics, multimedia, firmware, boot
 configuration, ALSA configuration, and system environment targets create
@@ -101,20 +111,20 @@ already define their own host build commands.
 `build-map.yaml` is the single target registry. It declares each target's
 builder, source preparation flow, source checkout, Debian metadata directory,
 and repository/path impact rules. The only builders are `direct` and `debian`.
-Direct flows run project-specific tools on the native host; the current kernel
-flows are `kernel-worktree` and `kernel-stable-tarball`. Debian source flows are
-`quilt`, `native`, and `payload`, independently of the selected sbuild/local
-backend. `cix-build` resolves its target from this file, and the CI planner
-reads the same data. Package names and source paths are therefore not duplicated
-in Shell dispatch tables.
+Direct flows run project-specific tools on the native host; the current flows
+are `kernel-worktree`, `kernel-stable-tarball`, and `sof-firmware`. Debian
+source flows are `quilt`, `native`, and `payload`, independently of the
+selected sbuild/local backend. `cix-build` resolves its target from this file,
+and the CI planner reads the same data. Package names and source paths are
+therefore not duplicated in Shell dispatch tables.
 
 The planner normally discovers produced package names from Debian `control`
-files. A direct target has no persistent control file, so it may declare only
-the package identities needed by the dependency graph with `build_packages`
-and `build_provides`. The kernel uses these fields for its generated
-private `cix-linux-libc-dev` package. The
-dependency itself still appears only in the consuming package's
-`Build-Depends`.
+files used by the standard Debian builder. A direct target is outside that
+source-package parser, so it may declare only the package identities needed by
+the dependency graph with `build_packages` and `build_provides`. The kernel
+uses these fields for its generated private `cix-linux-libc-dev` package, and
+the SOF flow declares `cix-audio-sof`. A consuming package still expresses the
+dependency only in its own `Build-Depends`.
 
 All build paths use the host's full `nproc` value, including native kernel
 `make bindeb-pkg`, its nested `dpkg-buildpackage` invocation, Debian package
@@ -177,9 +187,8 @@ dependency.
 
 No Shell function or per-package script is needed for another conventional
 package. A project that cannot use standard Debian packaging uses the `direct`
-builder and a focused flow implementation, such as the current kernel flow or a
-future board-firmware flow. Package build dependencies remain exclusively in
-`debian/control`.
+builder and a focused flow implementation, such as the kernel or SOF firmware
+flows. Package build dependencies remain exclusively in `debian/control`.
 
 ## Build host dependencies
 

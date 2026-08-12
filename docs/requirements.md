@@ -22,6 +22,10 @@ is confirmed.
 
 - Replace the legacy x86-hosted ARM64 cross-compilation workflow.
 - Run the new build system natively on ARM64 machines.
+- Build CIX SOF on the ARM64 host by generating an ARM64-hosted Xtensa GCC
+  toolchain from manifest-pinned sources. Xtensa remains the firmware target
+  architecture because the firmware executes on the audio DSP; do not reuse
+  the legacy x86-hosted prebuilt compiler.
 - Support ARM64 Debian 13 as the build host baseline. Debian 12, Ubuntu, and
   other host distributions are outside the current scope.
 - Build software as standard Debian packages using conventional Debian package
@@ -135,6 +139,10 @@ is confirmed.
   `sources/wlan-qca` and `cix_opensource/wlan/rtl_wlan_driver` at branch
   `cix_rtl8852b_dev` under `sources/wlan-rtl` for the combined WLAN DKMS
   source package.
+- Track the SOF firmware inputs under `sources/audio-sof`: crosstool-NG at
+  `cix-sof-gcc10x-dev`, Newlib for Xtensa at `xtensa`, SOF at
+  `cix-stable-v2.11-dev`, tomlc99 at `master`, and the Xtensa overlay at
+  `cix-sof-gcc10.2-dev`.
 - Track `freedesktop_repo/mesa/drm` at branch `cix_libdrm_2.4.109_dev` under
   `sources/libdrm`.
 - Track `freedesktop_repo/mesa/libglvnd` at branch `cix_glvnd-v1.7.0_dev`
@@ -155,8 +163,9 @@ is confirmed.
   branch `master` under `build-scripts`.
 - Track the private GitHub repository `ClayStan404/cix-neo-debian` at branch
   `master` under `debian`.
-- The current manifest contains exactly twenty-three projects: twenty-one source
-  input repositories, the build scripts, and the Debian packaging metadata.
+- The current manifest contains exactly twenty-eight projects: twenty-six
+  source input repositories, the build scripts, and the Debian packaging
+  metadata.
 
 ### Project Layout
 
@@ -292,7 +301,7 @@ The current build system contains these build targets:
   `npu-umd`
 - AI runtimes: `ai-engine`, `mnn`
 - System integration and firmware: `grub-config`, `alsa-conf`, `audio-dsp`,
-  `cix-env`, `cix-firmware`
+  `audio-sof`, `cix-env`, `cix-firmware`
 
 The VPU DKMS package must retain its runtime dependency on
 `cix-vpu-firmware`. Its 16 proprietary `.fwb` files come from the
@@ -300,9 +309,10 @@ The VPU DKMS package must retain its runtime dependency on
 `cix_proprietary/cix_proprietary`, not from the open-source VPU driver. Fetch
 only those Git LFS objects when assembling the firmware source package.
 
-The legacy `cix-audio-sof` package is intentionally deferred. It is needed
-only for systems using the CIX ALSA SOF driver and requires an ARM64-hosted
-Xtensa toolchain; it is not a prerequisite for the current package targets.
+The `audio-sof` direct flow builds the ARM64-hosted Xtensa compiler from source,
+caches it by its manifest input revisions, builds Sky1 and Sky1P SOF firmware
+and topology files, and creates the architecture-independent
+`cix-audio-sof` Debian package.
 
 ## Legacy Reference
 

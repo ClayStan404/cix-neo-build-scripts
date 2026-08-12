@@ -17,6 +17,14 @@ targets:
     version: 7.0.13
     patch_source: sources/linux-main
 
+  audio-sof:
+    description: CIX Sound Open Firmware
+    builder: direct
+    flow: sof-firmware
+    source: sources/audio-sof
+    debian: debian/audio-sof
+    build_packages: [cix-audio-sof]
+
   gpu-dkms:
     description: GPU DKMS package
     builder: debian
@@ -335,6 +343,36 @@ projects:
       - paths: ["**"]
         targets: [stable-kernel]
 
+  github_mirror/thesofproject/crosstool-ng:
+    path: sources/audio-sof/crosstool-ng
+    rules:
+      - paths: ["**"]
+        targets: [audio-sof]
+
+  github_mirror/jcmvbkbc/newlib-xtensa:
+    path: sources/audio-sof/newlib-xtensa
+    rules:
+      - paths: ["**"]
+        targets: [audio-sof]
+
+  github_mirror/thesofproject/sof:
+    path: sources/audio-sof/sof
+    rules:
+      - paths: ["**"]
+        targets: [audio-sof]
+
+  github_mirror/thesofproject/tomlc99:
+    path: sources/audio-sof/tomlc99
+    rules:
+      - paths: ["**"]
+        targets: [audio-sof]
+
+  github_mirror/thesofproject/xtensa-overlay:
+    path: sources/audio-sof/xtensa-overlay
+    rules:
+      - paths: ["**"]
+        targets: [audio-sof]
+
   cix_opensource/gpu_kernel:
     path: sources/gpu-kernel
     rules:
@@ -468,8 +506,12 @@ projects:
     rules:
       - paths: ["build-map.yaml", "cix-build", "builders/common.sh"]
         targets: ["*"]
-      - paths: ["builders/direct.sh", "builders/direct/kernel.sh"]
+      - paths: ["builders/direct.sh"]
+        targets: [kernel, stable-kernel, audio-sof]
+      - paths: ["builders/direct/kernel.sh"]
         targets: [kernel, stable-kernel]
+      - paths: ["builders/direct/audio-sof.sh"]
+        targets: [audio-sof]
       - paths: ["builders/debian.sh"]
         targets: [gpu-dkms, bt-dkms, vpu-dkms, vpu-firmware, npu-dkms, grub-config, alsa-conf, cix-env, cix-firmware, audio-dsp, dpu-ddk, gpu-umd, isp-umd, isp-v4l2-dkms, isp-dkms, libdrm, libglvnd, libva, ffmpeg, mesa, libcme, cix-vaapi, noe-umd, npu-umd, ai-engine, mnn, gstreamer, nnstreamer, wlan-dkms]
       - paths: ["builders/debian/payload.sh"]
@@ -491,6 +533,8 @@ projects:
     rules:
       - paths: ["kernel/**"]
         targets: [kernel]
+      - paths: ["audio-sof/**"]
+        targets: [audio-sof]
       - paths: ["gpu-dkms/**"]
         targets: [gpu-dkms]
       - paths: ["bt-dkms/**"]

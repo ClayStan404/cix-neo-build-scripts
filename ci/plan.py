@@ -288,6 +288,10 @@ def _target_from_mapping(name: str, entry: dict) -> Target:
             {"version", "patch_source"},
             {"version", "patch_source"},
         ),
+        ("direct", "sof-firmware"): (
+            {"source", "debian"},
+            {"source", "debian"},
+        ),
         ("debian", "quilt"): (
             {"source", "source_git", "debian"},
             {

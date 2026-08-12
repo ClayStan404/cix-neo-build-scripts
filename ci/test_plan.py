@@ -360,6 +360,24 @@ Description: package C runtime
         self.assertIsNone(target.control)
         self.assertIn("TARGET[version]=7.0.13", plan.target_shell(target))
 
+    def test_audio_sof_is_a_direct_firmware_flow(self) -> None:
+        target = plan._target_from_mapping(
+            "audio-sof",
+            {
+                "description": "audio SOF firmware",
+                "builder": "direct",
+                "flow": "sof-firmware",
+                "source": "sources/audio-sof",
+                "debian": "debian/audio-sof",
+                "build_packages": ["cix-audio-sof"],
+            },
+        )
+
+        self.assertEqual(target.builder, "direct")
+        self.assertEqual(target.flow, "sof-firmware")
+        self.assertEqual(target.build_packages, ("cix-audio-sof",))
+        self.assertIsNone(target.control)
+
     def test_package_names_are_not_builder_types(self) -> None:
         with self.assertRaisesRegex(plan.PlanError, "unsupported builder/flow"):
             plan._target_from_mapping(

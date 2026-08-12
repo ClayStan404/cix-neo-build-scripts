@@ -69,8 +69,13 @@ command_is_available() {
 # Keep this as the single host-package list for the project. setup-sbuild
 # invokes this script instead of maintaining another copy.
 readonly host_packages=(
+    alsa-utils
+    autoconf
+    automake
     bc
+    binutils
     bison
+    bzip2
     build-essential
     ca-certificates
     ccache
@@ -84,9 +89,15 @@ readonly host_packages=(
     dkms
     dwarves
     fakeroot
+    file
     flex
+    g++-12
+    gawk
+    gcc-12
+    gperf
     git
     git-lfs
+    help2man
     kmod
     libdrm-dev
     libdw-dev
@@ -110,6 +121,7 @@ readonly host_packages=(
     libgudev-1.0-dev
     libgtk-3-dev
     liblzma-dev
+    libncurses-dev
     libmp3lame-dev
     libopenjp2-7-dev
     liborc-0.4-dev
@@ -145,13 +157,17 @@ readonly host_packages=(
     libxml2-dev
     libzimg-dev
     libzstd-dev
+    libtool
+    libtool-bin
     libyuv-dev
     lintian
+    m4
     meson
     mmdebstrap
     ninja-build
     ocl-icd-opencl-dev
     openssl
+    patch
     patchelf
     pkgconf
     python3
@@ -168,10 +184,13 @@ readonly host_packages=(
     rsync
     sbuild
     shellcheck
+    texinfo
     uidmap
+    unzip
     wayland-protocols
     x11proto-dev
     xz-utils
+    wget
     zlib1g-dev
     zstd
 )
