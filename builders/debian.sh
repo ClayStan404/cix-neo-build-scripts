@@ -68,6 +68,35 @@ cix_create_dsc() {
     )
 }
 
+cix_apply_quilt_patches() {
+    local source_tree="$1"
+    local patch_name
+    local patch_index
+    local -a applied_patches=()
+    local -a expected_patches=()
+
+    mapfile -t expected_patches < <(
+        sed -e 's/[[:space:]].*$//' -e '/^#/d' -e '/^$/d' \
+            "${source_tree}/debian/patches/series" 2>/dev/null || true
+    )
+    ((${#expected_patches[@]} > 0)) || return 0
+
+    (
+        cd "${source_tree}" || exit
+        dpkg-source --before-build .
+    )
+    [[ -f "${source_tree}/.pc/applied-patches" ]] ||
+        cix_die "quilt patches were not applied: ${TARGET[description]}"
+    mapfile -t applied_patches < "${source_tree}/.pc/applied-patches"
+    ((${#applied_patches[@]} == ${#expected_patches[@]})) ||
+        cix_die "not all quilt patches were applied: ${TARGET[description]}"
+    for patch_index in "${!expected_patches[@]}"; do
+        patch_name="${expected_patches[patch_index]}"
+        [[ "${applied_patches[patch_index]}" == "${patch_name}" ]] ||
+            cix_die "unexpected applied quilt patch: ${applied_patches[patch_index]}"
+    done
+}
+
 cix_find_dsc() {
     local source_package="$1"
     local work_root="$2"
@@ -91,6 +120,13 @@ cix_run_sbuild() {
     local chroot
     local config="${CIX_ROOT}/build-scripts/sbuild/config.pl"
     local tmpdir_root="${CIX_SBUILD_TMPDIR_ROOT:-/var/tmp/cix-neo-sbuild}"
+    local candidate
+    local dependency
+    local dependency_spec
+    local package_name
+    local provider_dir
+    local -a candidates=()
+    local -a extra_package_args=()
 
     chroot="${CIX_SBUILD_CHROOT:-${HOME}/.cache/sbuild/${CIX_SUITE}-arm64-sbuild.tar.zst}"
     chroot="$(realpath -m -- "${chroot}")"
@@ -104,6 +140,23 @@ cix_run_sbuild() {
     [[ -d "${tmpdir_root}" ]] ||
         cix_die "sbuild temporary directory is missing; run build-scripts/setup-sbuild"
 
+    for dependency_spec in "${TARGET_BUILD_PACKAGES[@]}"; do
+        dependency="${dependency_spec%%=*}"
+        provider_dir="${CIX_ROOT}/output/${dependency_spec#*=}"
+        [[ -d "${provider_dir}" ]] ||
+            cix_die "dependency output is missing: ${provider_dir}"
+        candidates=()
+        while IFS= read -r -d '' candidate; do
+            package_name="$(dpkg-deb -f "${candidate}" Package)"
+            [[ "${package_name}" == "${dependency}" ]] && candidates+=("${candidate}")
+        done < <(
+            find "${provider_dir}" -maxdepth 1 -type f -name '*.deb' -print0
+        )
+        ((${#candidates[@]} == 1)) ||
+            cix_die "expected one built ${dependency} package in ${provider_dir}; found ${#candidates[@]}"
+        extra_package_args+=(--extra-package="${candidates[0]}")
+    done
+
     cix_log "Build ${TARGET[description]} with sbuild"
     SOURCE_DATE_EPOCH="${source_date_epoch}" \
     CIX_SBUILD_TMPDIR_ROOT="${tmpdir_root}" \
@@ -115,6 +168,7 @@ cix_run_sbuild() {
             --arch=arm64 \
             --jobs="${build_jobs}" \
             --build-dir="${build_output}" \
+            "${extra_package_args[@]}" \
             "${dsc_file}"
 }
 
@@ -187,22 +241,28 @@ cix_run_debian_backend() {
     esac
 }
 
-cix_validate_dkms_source() {
-    local source_dir="$1"
+cix_validate_dkms_metadata() {
+    local packaging_dir="$1"
     local source_package="$2"
     local upstream_version="$3"
+    local dkms_file
     local dkms_name
     local dkms_version
+    local -a dkms_files=()
 
-    [[ -f "${source_dir}/dkms.conf" ]] ||
-        cix_die "DKMS metadata is missing: ${source_dir}/dkms.conf"
-    dkms_name="$(sed -n 's/^PACKAGE_NAME="\([^"]*\)"$/\1/p' "${source_dir}/dkms.conf" | head -n1)"
-    dkms_version="$(sed -n 's/^PACKAGE_VERSION="\([^"]*\)"$/\1/p' "${source_dir}/dkms.conf" | head -n1)"
+    mapfile -d '' -t dkms_files < <(
+        find "${packaging_dir}" -maxdepth 1 -type f -name '*.dkms' -print0
+    )
+    ((${#dkms_files[@]} == 1)) ||
+        cix_die "expected one DKMS metadata file in ${packaging_dir}; found ${#dkms_files[@]}"
+    dkms_file="${dkms_files[0]}"
+    dkms_name="$(sed -n 's/^PACKAGE_NAME="\([^"]*\)"$/\1/p' "${dkms_file}" | head -n1)"
+    dkms_version="$(sed -n 's/^PACKAGE_VERSION="\([^"]*\)"$/\1/p' "${dkms_file}" | head -n1)"
     [[ -n "${dkms_name}" && -n "${dkms_version}" ]] ||
-        cix_die "cannot determine PACKAGE_NAME/PACKAGE_VERSION from dkms.conf"
+        cix_die "cannot determine PACKAGE_NAME/PACKAGE_VERSION from ${dkms_file}"
     [[ "${source_package}" == "${dkms_name}" ]] ||
         cix_die "Debian source name ${source_package} does not match DKMS name ${dkms_name}"
-    [[ "${upstream_version}" == "${dkms_version}" ]] ||
+    [[ "${dkms_version}" == "#MODULE_VERSION#" || "${upstream_version}" == "${dkms_version}" ]] ||
         cix_die "Debian version ${upstream_version} does not match DKMS version ${dkms_version}"
 }
 
@@ -216,8 +276,15 @@ cix_debian_quilt_package() (
     local source_date_epoch
     local source_package
     local source_tree
+    local source_exclude
+    local source_overlay
+    local source_overlay_dir
+    local source_overlay_epoch
+    local source_overlay_path
+    local source_overlay_target
     local upstream_version
     local work_root=
+    local -a source_copy_args=(-a --exclude=.git --exclude=/debian/)
 
     cix_validate_packaging "${packaging_dir}" "3.0 (quilt)"
     [[ -d "${source_dir}" ]] || cix_die "source directory is missing: ${source_dir}"
@@ -228,7 +295,7 @@ cix_debian_quilt_package() (
     )
     case "${TARGET[validate]}" in
         "") ;;
-        dkms) cix_validate_dkms_source "${source_dir}" "${source_package}" "${upstream_version}" ;;
+        dkms) cix_validate_dkms_metadata "${packaging_dir}" "${source_package}" "${upstream_version}" ;;
         *) cix_die "unsupported source validation: ${TARGET[validate]}" ;;
     esac
 
@@ -237,13 +304,36 @@ cix_debian_quilt_package() (
     source_tree="${work_root}/${source_package}-${upstream_version}"
     cix_log "Assemble ${TARGET[description]} source package"
     mkdir -p -- "${source_tree}"
-    rsync -a --exclude=.git --exclude=/debian/ "${source_dir}/" "${source_tree}/"
+    for source_exclude in "${TARGET_SOURCE_EXCLUDES[@]}"; do
+        source_copy_args+=(--exclude="/${source_exclude}")
+    done
+    rsync "${source_copy_args[@]}" "${source_dir}/" "${source_tree}/"
+    for source_overlay in "${TARGET_SOURCE_OVERLAYS[@]}"; do
+        source_overlay_path="${source_overlay%%=*}"
+        source_overlay_target="${source_overlay#*=}"
+        source_overlay_dir="${CIX_ROOT}/${source_overlay_path}"
+        git -C "${source_overlay_dir}" rev-parse --is-inside-work-tree >/dev/null 2>&1 ||
+            cix_die "source overlay is not a Git worktree: ${source_overlay_dir}"
+        mkdir -p -- "${source_tree}/${source_overlay_target}"
+        rsync -a --exclude=.git --exclude=/debian/ \
+            "${source_overlay_dir}/" "${source_tree}/${source_overlay_target}/"
+    done
 
     source_date_epoch="$(git -C "${quilt_git}" log -1 --format=%ct)"
+    for source_overlay in "${TARGET_SOURCE_OVERLAYS[@]}"; do
+        source_overlay_path="${source_overlay%%=*}"
+        source_overlay_epoch="$(
+            git -C "${CIX_ROOT}/${source_overlay_path}" log -1 --format=%ct
+        )"
+        if ((source_overlay_epoch > source_date_epoch)); then
+            source_date_epoch="${source_overlay_epoch}"
+        fi
+    done
     cix_create_orig_tar \
         "${source_package}" "${upstream_version}" "${source_date_epoch}" \
         "${source_tree}" "${work_root}"
     cix_add_debian_metadata "${packaging_dir}" "${source_tree}"
+    cix_apply_quilt_patches "${source_tree}"
     cix_run_debian_backend \
         "${build_backend}" "${source_package}" "${source_tree}" \
         "${source_date_epoch}" "${work_root}" "${build_output}" "${build_jobs}"
@@ -293,7 +383,7 @@ cix_debian_build() {
         return 0
     fi
 
-    cix_require_command dpkg-parsechangelog find git grep realpath rsync tar
+    cix_require_command dpkg-parsechangelog dpkg-source find git grep realpath rsync sed tar
     case "${build_backend}" in
         sbuild) cix_require_command dpkg-source sbuild ;;
         local) cix_require_command dpkg-buildpackage fakeroot ;;
@@ -310,10 +400,10 @@ cix_debian_build() {
             cix_debian_native_package \
                 "${build_output}" "${build_jobs}" "${build_backend}"
             ;;
-        firmware)
-            # shellcheck source=builders/debian/firmware.sh
-            source "${CIX_ROOT}/build-scripts/builders/debian/firmware.sh"
-            cix_debian_firmware_package \
+        payload)
+            # shellcheck source=builders/debian/payload.sh
+            source "${CIX_ROOT}/build-scripts/builders/debian/payload.sh"
+            cix_debian_payload_package \
                 "${build_output}" "${build_jobs}" "${build_backend}"
             ;;
         *)

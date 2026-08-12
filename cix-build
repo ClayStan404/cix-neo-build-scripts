@@ -87,12 +87,23 @@ esac
 cix_require_command nproc python3 realpath
 parallel_jobs="$(nproc)"
 declare -A TARGET=()
-# plan.py emits fixed keys and shell-quotes every YAML value.
-eval "$(
+# Consumed by the sourced Debian builder.
+# shellcheck disable=SC2034
+declare -a TARGET_BUILD_PACKAGES=()
+# Optional paths omitted when assembling a repacked quilt source tree.
+# shellcheck disable=SC2034
+declare -a TARGET_SOURCE_EXCLUDES=()
+# Optional additional repositories copied below a quilt source tree.
+# shellcheck disable=SC2034
+declare -a TARGET_SOURCE_OVERLAYS=()
+# plan.py emits fixed keys and shell-quotes every YAML value. Capture its
+# status before eval so a validation error cannot continue with an empty map.
+target_definition="$(
     "${CIX_ROOT}/build-scripts/ci/plan.py" \
         --target "${target_name}" \
         --format shell
 )"
+eval "${target_definition}"
 
 output_dir="${CIX_ROOT}/output/${target_name}"
 

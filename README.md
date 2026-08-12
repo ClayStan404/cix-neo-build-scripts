@@ -10,10 +10,34 @@ Build the current CIX kernel, DKMS, and boot configuration packages:
 ./build-scripts/cix-build kernel
 ./build-scripts/cix-build stable-kernel
 ./build-scripts/cix-build gpu-dkms
+./build-scripts/cix-build bt-dkms
 ./build-scripts/cix-build vpu-dkms
 ./build-scripts/cix-build vpu-firmware
 ./build-scripts/cix-build npu-dkms
 ./build-scripts/cix-build grub-config
+./build-scripts/cix-build alsa-conf
+./build-scripts/cix-build cix-env
+./build-scripts/cix-build cix-firmware
+./build-scripts/cix-build audio-dsp
+./build-scripts/cix-build dpu-ddk
+./build-scripts/cix-build gpu-umd
+./build-scripts/cix-build isp-umd
+./build-scripts/cix-build libdrm
+./build-scripts/cix-build libglvnd
+./build-scripts/cix-build mesa
+./build-scripts/cix-build libva
+./build-scripts/cix-build ffmpeg
+./build-scripts/cix-build libcme
+./build-scripts/cix-build cix-vaapi
+./build-scripts/cix-build isp-v4l2-dkms
+./build-scripts/cix-build isp-dkms
+./build-scripts/cix-build noe-umd
+./build-scripts/cix-build npu-umd
+./build-scripts/cix-build ai-engine
+./build-scripts/cix-build mnn
+./build-scripts/cix-build gstreamer
+./build-scripts/cix-build nnstreamer
+./build-scripts/cix-build wlan-dkms
 ```
 
 The supported build host baseline is native ARM64 Debian 13. Other Debian and
@@ -28,13 +52,15 @@ defconfig from the manifest-managed `cix-linux-main` checkout. Both use the
 The stable target emits a `-cix` kernel release (for example, `7.0.13-cix`). The
 new system does not retain the legacy fixed `7.0.0-generic` package name.
 
-GPU, VPU, NPU, firmware, and boot configuration targets create standard Debian
-source trees with the shared `debian` builder. Its default backend is `sbuild`;
-pass `--backend local` to run `dpkg-buildpackage` directly on the host instead.
-All targets use the single `cix-build` entry point. Files under `builders/`
-implement reusable build models and source-assembly flows, not package lists or
-independent commands. `cix-grub-config` is a native package owned entirely by
-the Debian metadata repository.
+GPU, Bluetooth, WLAN, VPU, NPU, graphics, multimedia, firmware, boot
+configuration, ALSA configuration, and system environment targets create
+standard Debian source trees with the shared `debian` builder. Its default
+backend is `sbuild`; pass `--backend local` to run `dpkg-buildpackage` directly
+on the host instead. All targets use the single `cix-build` entry point. Files
+under `builders/` implement reusable build models and source-assembly flows,
+not package lists or independent commands. `cix-grub-config`,
+`cix-alsa-conf`, and `cix-env` are native packages owned entirely by the
+Debian metadata repository.
 
 ```bash
 ./build-scripts/cix-build gpu-dkms                 # isolated sbuild
@@ -43,7 +69,14 @@ the Debian metadata repository.
 
 The local backend requires the package's `Build-Depends` to already be
 installed on the host. The sbuild backend resolves them inside its clean build
-environment. `--backend` is rejected for `direct` targets because those flows
+environment. It also exposes previously built packages from `output/*` through
+sbuild's temporary package archive. An internal package named by the target's
+transitive `Build-Depends` closure selects the output set that supplied it. The
+non-debug binary packages from those source builds are published together so
+APT can resolve their package-level `Depends`; output sets from unrelated
+targets remain excluded. A Lintian policy violation fails the sbuild invocation,
+even when package compilation itself succeeded. `--backend` is rejected for
+`direct` targets because those flows
 already define their own host build commands.
 
 `build-map.yaml` is the single target registry. It declares each target's
@@ -51,10 +84,18 @@ builder, source preparation flow, source checkout, Debian metadata directory,
 and repository/path impact rules. The only builders are `direct` and `debian`.
 Direct flows run project-specific tools on the native host; the current kernel
 flows are `kernel-worktree` and `kernel-stable-tarball`. Debian source flows are
-`quilt`, `native`, and `firmware`, independently of the selected sbuild/local
+`quilt`, `native`, and `payload`, independently of the selected sbuild/local
 backend. `cix-build` resolves its target from this file, and the CI planner
 reads the same data. Package names and source paths are therefore not duplicated
 in Shell dispatch tables.
+
+The planner normally discovers produced package names from Debian `control`
+files. A direct target has no persistent control file, so it may declare only
+the package identities needed by the dependency graph with `build_packages`
+and `build_provides`. The kernel uses these fields for its generated
+private `cix-linux-libc-dev` package. The
+dependency itself still appears only in the consuming package's
+`Build-Depends`.
 
 All build paths use the host's full `nproc` value, including native kernel
 `make bindeb-pkg`, its nested `dpkg-buildpackage` invocation, Debian package
@@ -66,12 +107,31 @@ starting, so a persistent Jenkins workspace cannot publish stale packages.
 Direct kernel flows, local `dpkg-buildpackage`, and sbuild use compiler wrappers
 and share the host cache at
 `~/.cache/cix-neo-sbuild/ccache`.
+Isolated sbuild sessions also share downloaded Debian archives at
+`~/.cache/cix-neo-sbuild/apt-archives`; package installation still happens in
+the disposable chroot, but unchanged dependencies are not downloaded again.
 
 The VPU DKMS package retains its runtime dependency on `cix-vpu-firmware`.
-The firmware target packages the 16 proprietary `.fwb` files from the
-manifest-managed `cix_proprietary/cix_proprietary` repository. It fetches only
-that path's Git LFS objects when `repo sync` leaves pointer files in the
-checkout; it does not materialize every LFS object in the proprietary repo.
+Its `cix-vpu-driver-dev` binary package provides the userspace V4L2 controls
+header. CIX FFmpeg declares build dependencies on that package,
+`cix-libva-dev`, and the CIX kernel UAPI package; the planner therefore
+schedules kernel, VPU, and VA-API changes before rebuilding FFmpeg. Those three
+output sets are the only internal package sets published to FFmpeg's temporary
+sbuild archive.
+Payload targets package selected files and directories from the
+manifest-managed `cix_proprietary/cix_proprietary` repository. They fetch only
+the mapped paths' Git LFS objects when `repo sync` leaves pointer files in the
+checkout; they do not materialize every LFS object in the proprietary repo.
+The AI engine and MNN targets install their Python modules through Debian's
+package build, so installing their debs never invokes `pip` from a maintainer
+script. The MNN package is built for Debian 13's CPython 3.13 ABI and removes
+the upstream wheel's build-machine RPATH before packaging it.
+The GStreamer overlay retains the product's FDK-AAC plugin, so the canonical
+host dependency list and sbuild chroot enable Debian's `non-free` component in
+addition to `main`. Its private video development interface is shipped in
+`cix-gstreamer-dev`; NNStreamer consumes that interface, NOE, and libcme
+through normal `Build-Depends` and keeps its runtime plugins under
+`/usr/share/cix`.
 
 ## Adding a package
 
@@ -80,6 +140,21 @@ under `debian/` and add one target plus the relevant project/path rule to
 `build-map.yaml`. Select the `debian` builder and its `native` or `quilt` flow,
 then set the fields required by that flow. DKMS packages may add
 `validate: dkms` to check the source name and version against `dkms.conf`.
+Quilt targets may declare `source_excludes` for repository paths that are not
+part of the source build or binary packages. NNStreamer uses this to omit its
+large demo-model and disabled test-data directories from the repacked source
+archive.
+When one Debian source package genuinely combines multiple manifest projects,
+the same quilt flow may declare `source_overlays` entries as
+`WORKSPACE_SOURCE=SOURCE_SUBDIRECTORY`. Changes in every contributing project
+still map to the one target; the package dependency graph remains in
+`debian/control`.
+
+The `wlan-dkms` target uses that overlay mechanism to combine the QCA FC6XE
+and Realtek RTL8852B repositories into one DKMS source package. A change in
+either repository selects the same target. Its firmware relationship remains
+the runtime `Depends` field in `debian/wlan-dkms/control`, not a build-script
+dependency.
 
 No Shell function or per-package script is needed for another conventional
 package. A project that cannot use standard Debian packaging uses the `direct`
@@ -114,7 +189,9 @@ environment:
 
 The script invokes `setup-host`, validates native ARM64 user namespace support,
 provisions dedicated temporary and ccache directories, and creates an sbuild
-unshare tarball with `mmdebstrap`. Therefore, running `setup-sbuild` alone on a
+unshare tarball with `mmdebstrap`. It also provisions the persistent APT archive
+cache used by the project-owned sbuild configuration. Therefore, running
+`setup-sbuild` alone on a
 new host installs the same complete dependency set before creating the chroot.
 
 Use `--help` to see mirror, tarball, and rebuild overrides.
@@ -127,8 +204,12 @@ against the headers produced by the CIX kernel build:
 
 ```bash
 ./build-scripts/tests/dkms.sh gpu-dkms
+./build-scripts/tests/dkms.sh bt-dkms
 ./build-scripts/tests/dkms.sh vpu-dkms
 ./build-scripts/tests/dkms.sh npu-dkms
+./build-scripts/tests/dkms.sh isp-v4l2-dkms
+./build-scripts/tests/dkms.sh isp-dkms
+./build-scripts/tests/dkms.sh wlan-dkms
 ```
 
 The test command derives the binary package name from the target's Debian

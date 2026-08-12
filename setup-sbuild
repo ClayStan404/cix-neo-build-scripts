@@ -15,6 +15,7 @@ mirror="${CIX_SBUILD_MIRROR:-https://mirrors.ustc.edu.cn/debian}"
 tarball="${CIX_SBUILD_CHROOT:-}"
 tmpdir_root="${CIX_SBUILD_TMPDIR_ROOT:-/var/tmp/cix-neo-sbuild}"
 readonly ccache_dir="${HOME}/.cache/cix-neo-sbuild/ccache"
+readonly apt_archives_dir="${HOME}/.cache/cix-neo-sbuild/apt-archives"
 force=0
 install_host_packages=1
 dry_run=0
@@ -88,6 +89,11 @@ prepare_ccache_dir() {
     run chmod a+rwx -- "${ccache_dir}"
 }
 
+prepare_apt_archives_dir() {
+    run mkdir -p -- "${apt_archives_dir}/partial"
+    run chmod a+rwx -- "${apt_archives_dir}" "${apt_archives_dir}/partial"
+}
+
 cleanup() {
     if [[ -n "${staging_tarball}" && -f "${staging_tarball}" ]]; then
         rm -f -- "${staging_tarball}"
@@ -159,7 +165,7 @@ fi
 tmpdir_root="$(realpath -m -- "${tmpdir_root}")"
 tarball="$(realpath -m -- "${tarball}")"
 
-for setup_dir in "${tmpdir_root}" "${ccache_dir}"; do
+for setup_dir in "${tmpdir_root}" "${ccache_dir}" "${apt_archives_dir}"; do
     [[ "${setup_dir}" == /* ]] || die "setup directory must be absolute: ${setup_dir}"
     case "${setup_dir}" in
         /|/var|/var/tmp|/var/cache|"${HOME}")
@@ -210,6 +216,7 @@ log "Provision dedicated sbuild directories"
 run_as_root mkdir -p -- "${tmpdir_root}"
 run_as_root chmod 1777 -- "${tmpdir_root}"
 prepare_ccache_dir
+prepare_apt_archives_dir
 run mkdir -p -- "$(dirname "${tarball}")"
 
 echo
@@ -220,6 +227,7 @@ echo "  mirror:       ${mirror}"
 echo "  tarball:      ${tarball}"
 echo "  tmpdir:       ${tmpdir_root}"
 echo "  ccache:       ${ccache_dir}"
+echo "  apt cache:    ${apt_archives_dir}"
 echo "  config:       ${script_dir}/sbuild/config.pl"
 echo
 
@@ -238,8 +246,8 @@ else
             --mode=unshare \
             --architectures="${architecture}" \
             --variant=buildd \
-            --components=main \
-            --include=ca-certificates,ccache,eatmydata \
+            --components=main,non-free \
+            --include=ca-certificates,ccache \
             --aptopt='Acquire::Languages "none"' \
             --customize-hook="chroot \"\$1\" update-ccache-symlinks" \
             --skip=output/dev \

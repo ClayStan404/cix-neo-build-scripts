@@ -45,7 +45,9 @@ class BuildPlannerTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.fixture.close()
 
-    def _dependency_fixture(self) -> plan.BuildMap:
+    def _dependency_fixture(
+        self, transitive: bool = False, runtime_transitive: bool = False
+    ) -> plan.BuildMap:
         self.fixture.write("scripts/cix-build", "#!/bin/sh\n", executable=True)
         self.fixture.mkdir("sources/a")
         self.fixture.mkdir("sources/b")
@@ -77,38 +79,85 @@ Description: package B runtime
  Test runtime package B.
 """,
         )
+        targets = {
+            "package-a": {
+                "description": "package A",
+                "builder": "debian",
+                "flow": "quilt",
+                "source": "sources/a",
+                "source_git": "sources/a",
+                "debian": "debian/a",
+            },
+            "package-b": {
+                "description": "package B",
+                "builder": "debian",
+                "flow": "quilt",
+                "source": "sources/b",
+                "source_git": "sources/b",
+                "debian": "debian/b",
+            },
+        }
+        projects = {
+            "repo/a": {
+                "path": "sources/a",
+                "rules": [{"paths": ["src/**"], "targets": ["package-a"]}],
+            },
+            "repo/b": {
+                "path": "sources/b",
+                "rules": [{"paths": ["**"], "targets": ["package-b"]}],
+            },
+        }
+        if transitive or runtime_transitive:
+            self.fixture.mkdir("sources/c")
+            self.fixture.write(
+                "debian/c/control",
+                """Source: package-c
+Build-Depends: debhelper-compat (= 13)
+
+Package: package-c-dev
+Architecture: any
+Description: package C development files
+ Test package C.
+
+Package: package-c-runtime
+Architecture: any
+Description: package C runtime
+ Test runtime package C.
+""",
+            )
+            control_b = self.fixture.root / "debian/b/control"
+            control_b_content = control_b.read_text(encoding="utf-8")
+            if transitive:
+                control_b_content = control_b_content.replace(
+                    "Build-Depends: debhelper-compat (= 13)",
+                    "Build-Depends: debhelper-compat (= 13), package-c-dev",
+                )
+            if runtime_transitive:
+                control_b_content = control_b_content.replace(
+                    "Package: package-b-runtime\nArchitecture: any",
+                    "Package: package-b-runtime\nArchitecture: any\n"
+                    "Depends: package-c-runtime",
+                )
+            control_b.write_text(control_b_content, encoding="utf-8")
+            targets["package-c"] = {
+                "description": "package C",
+                "builder": "debian",
+                "flow": "quilt",
+                "source": "sources/c",
+                "source_git": "sources/c",
+                "debian": "debian/c",
+            }
+            projects["repo/c"] = {
+                "path": "sources/c",
+                "rules": [{"paths": ["**"], "targets": ["package-c"]}],
+            }
+
         return self.fixture.mapping(
             {
-                "version": 5,
+                "version": 6,
                 "executor": "scripts/cix-build",
-                "targets": {
-                    "package-a": {
-                        "description": "package A",
-                        "builder": "debian",
-                        "flow": "quilt",
-                        "source": "sources/a",
-                        "source_git": "sources/a",
-                        "debian": "debian/a",
-                    },
-                    "package-b": {
-                        "description": "package B",
-                        "builder": "debian",
-                        "flow": "quilt",
-                        "source": "sources/b",
-                        "source_git": "sources/b",
-                        "debian": "debian/b",
-                    },
-                },
-                "projects": {
-                    "repo/a": {
-                        "path": "sources/a",
-                        "rules": [{"paths": ["src/**"], "targets": ["package-a"]}],
-                    },
-                    "repo/b": {
-                        "path": "sources/b",
-                        "rules": [{"paths": ["**"], "targets": ["package-b"]}],
-                    },
-                },
+                "targets": targets,
+                "projects": projects,
             }
         )
 
@@ -147,6 +196,139 @@ Description: package B runtime
         self.assertIn("TARGET[builder]=debian", shell)
         self.assertIn("TARGET[flow]=quilt", shell)
         self.assertIn("TARGET[source]=sources/a", shell)
+        self.assertIn("TARGET_BUILD_PACKAGES=()", shell)
+
+    def test_quilt_source_excludes_are_validated_and_exported(self) -> None:
+        self.fixture.mkdir("sources/package/demo")
+        target = plan._target_from_mapping(
+            "package",
+            {
+                "description": "package",
+                "builder": "debian",
+                "flow": "quilt",
+                "source": "sources/package",
+                "source_git": "sources/package",
+                "source_excludes": ["demo"],
+                "debian": "debian/package",
+            },
+        )
+
+        self.assertEqual(target.source_excludes, ("demo",))
+        self.assertIn("TARGET_SOURCE_EXCLUDES=(demo)", plan.target_shell(target))
+
+        with self.assertRaisesRegex(plan.PlanError, "stay inside the workspace"):
+            plan._target_from_mapping(
+                "invalid-package",
+                {
+                    "description": "invalid package",
+                    "builder": "debian",
+                    "flow": "quilt",
+                    "source": "sources/package",
+                    "source_git": "sources/package",
+                    "source_excludes": ["../demo"],
+                    "debian": "debian/package",
+                },
+            )
+
+    def test_quilt_source_overlays_are_validated_and_exported(self) -> None:
+        target = plan._target_from_mapping(
+            "package",
+            {
+                "description": "package",
+                "builder": "debian",
+                "flow": "quilt",
+                "source": "sources/package",
+                "source_git": "sources/package",
+                "source_overlays": ["sources/second=vendor/second"],
+                "debian": "debian/package",
+            },
+        )
+
+        self.assertEqual(
+            target.source_overlays, ("sources/second=vendor/second",)
+        )
+        self.assertIn(
+            "TARGET_SOURCE_OVERLAYS=(sources/second=vendor/second)",
+            plan.target_shell(target),
+        )
+
+        with self.assertRaisesRegex(plan.PlanError, "SOURCE=DESTINATION"):
+            plan._target_from_mapping(
+                "invalid-package",
+                {
+                    "description": "invalid package",
+                    "builder": "debian",
+                    "flow": "quilt",
+                    "source": "sources/package",
+                    "source_git": "sources/package",
+                    "source_overlays": ["sources/second"],
+                    "debian": "debian/package",
+                },
+            )
+
+    def test_target_shell_exposes_internal_build_package_set(self) -> None:
+        build_map = self._dependency_fixture()
+        graph = plan.build_dependency_graph(build_map)
+        target = build_map.targets["package-a"]
+        packages = {
+            f"{package}={dependency}"
+            for dependency in graph.forward[target.name]
+            for package in graph.target_packages[dependency]
+        }
+
+        shell = plan.target_shell(target, packages)
+        self.assertIn(
+            "TARGET_BUILD_PACKAGES=(package-b-dev=package-b package-b-runtime=package-b)",
+            shell,
+        )
+
+    def test_target_shell_includes_transitive_build_package_sets(self) -> None:
+        build_map = self._dependency_fixture(transitive=True)
+        graph = plan.build_dependency_graph(build_map)
+        target = build_map.targets["package-a"]
+        packages = {
+            f"{package}={dependency}"
+            for dependency in plan.build_environment_closure(target.name, graph)
+            for package in graph.target_packages[dependency]
+        }
+
+        shell = plan.target_shell(target, packages)
+        self.assertIn("package-b-dev=package-b", shell)
+        self.assertIn("package-b-runtime=package-b", shell)
+        self.assertIn("package-c-dev=package-c", shell)
+        self.assertIn("package-c-runtime=package-c", shell)
+
+    def test_target_shell_includes_runtime_closure_of_build_packages(self) -> None:
+        build_map = self._dependency_fixture(runtime_transitive=True)
+        graph = plan.build_dependency_graph(build_map)
+        target = build_map.targets["package-a"]
+        packages = {
+            f"{package}={dependency}"
+            for dependency in plan.build_environment_closure(target.name, graph)
+            for package in graph.target_packages[dependency]
+        }
+
+        shell = plan.target_shell(target, packages)
+        self.assertEqual(graph.forward["package-b"], frozenset())
+        self.assertEqual(graph.install_forward["package-b"], frozenset({"package-c"}))
+        self.assertIn("package-c-dev=package-c", shell)
+        self.assertIn("package-c-runtime=package-c", shell)
+
+    def test_direct_target_can_provide_a_build_package(self) -> None:
+        target = plan._target_from_mapping(
+            "kernel",
+            {
+                "description": "kernel",
+                "builder": "direct",
+                "flow": "kernel-worktree",
+                "source": "sources/linux",
+                "debian": "debian/kernel",
+                "build_packages": ["cix-linux-libc-dev"],
+            },
+        )
+
+        self.assertEqual(target.build_packages, ("cix-linux-libc-dev",))
+        self.assertEqual(target.build_provides, ())
 
     def test_stable_kernel_is_a_kernel_flow(self) -> None:
         target = plan._target_from_mapping(
@@ -173,9 +355,52 @@ Description: package B runtime
                 {
                     "description": "firmware",
                     "builder": "firmware",
-                    "flow": "firmware",
+                    "flow": "payload",
                 },
             )
+
+    def test_payload_file_mapping_is_validated(self) -> None:
+        target = plan._target_from_mapping(
+            "firmware",
+            {
+                "description": "firmware",
+                "builder": "debian",
+                "flow": "payload",
+                "source": "sources/firmware",
+                "source_git": "sources/firmware",
+                "debian": "debian/firmware",
+                "payload_dir": "firmware",
+                "files": ["flat.bin", "nested=firmware/vendor"],
+                "required_files": ["flat.bin"],
+            },
+        )
+
+        self.assertEqual(target.files, ("flat.bin", "nested=firmware/vendor"))
+
+        with self.assertRaisesRegex(plan.PlanError, "stay inside the workspace"):
+            plan._target_from_mapping(
+                "invalid-firmware",
+                {
+                    "description": "invalid firmware",
+                    "builder": "debian",
+                    "flow": "payload",
+                    "source": "sources/firmware",
+                    "source_git": "sources/firmware",
+                    "debian": "debian/firmware",
+                    "payload_dir": "firmware",
+                    "files": ["firmware.bin=../outside"],
+                    "required_files": ["firmware.bin"],
+                },
+            )
+
+    def test_rule_target_wildcard_expands_to_all_targets(self) -> None:
+        self.assertEqual(
+            plan._rule_targets(["*"], "test rule", {"zeta", "alpha"}),
+            ("alpha", "zeta"),
+        )
+
+        with self.assertRaisesRegex(plan.PlanError, "cannot combine"):
+            plan._rule_targets(["*", "alpha"], "test rule", {"alpha"})
 
     def test_workspace_path_maps_to_project(self) -> None:
         build_map = self._dependency_fixture()

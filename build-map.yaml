@@ -1,4 +1,4 @@
-version: 5
+version: 6
 executor: build-scripts/cix-build
 
 targets:
@@ -8,6 +8,7 @@ targets:
     flow: kernel-worktree
     source: sources/linux
     debian: debian/kernel
+    build_packages: [cix-linux-libc-dev]
 
   stable-kernel:
     description: Latest stable kernel with CIX patches
@@ -25,6 +26,15 @@ targets:
     debian: debian/gpu-dkms
     validate: dkms
 
+  bt-dkms:
+    description: CIX Bluetooth DKMS package
+    builder: debian
+    flow: quilt
+    source: sources/rtl-bt-driver
+    source_git: sources/rtl-bt-driver
+    debian: debian/bt-dkms
+    validate: dkms
+
   vpu-dkms:
     description: VPU DKMS package
     builder: debian
@@ -37,13 +47,12 @@ targets:
   vpu-firmware:
     description: Proprietary VPU firmware package
     builder: debian
-    flow: firmware
+    flow: payload
     source: sources/cix-proprietary/cix_proprietary-debs/cix-vpu-umd/usr/lib/firmware
     source_git: sources/cix-proprietary
     debian: debian/vpu-firmware
     payload_dir: firmware
-    files: ["*.fwb"]
-    required_files:
+    files:
       - av1dec.fwb
       - avs2dec.fwb
       - avsdec.fwb
@@ -78,10 +87,245 @@ targets:
     source_git: debian
     debian: debian/grub-config
 
+  alsa-conf:
+    description: CIX ALSA UCM configuration package
+    builder: debian
+    flow: native
+    source_git: debian
+    debian: debian/alsa-conf
+
+  cix-env:
+    description: CIX system environment package
+    builder: debian
+    flow: native
+    source_git: debian
+    debian: debian/cix-env
+
+  cix-firmware:
+    description: CIX device firmware package
+    builder: debian
+    flow: payload
+    source: sources/cix-proprietary/cix_module_fw
+    source_git: sources/cix-proprietary
+    debian: debian/cix-firmware
+    payload_dir: firmware
+    files:
+      - sfh_fw=firmware
+      - wlan_fw/fc6xe=firmware
+      - bt_fw/rtl8852bu_fw=firmware/rtl8852bu_fw
+      - bt_fw/rtl8852bu_config=firmware/rtl8852bu_config
+      - bt_fw/qca=firmware/qca
+    required_files:
+      - sfh_fw/sfh_fw.bin
+      - sfh_fw/sfh_fw_i3c.bin
+      - sfh_fw/sfh_fw_sensor.bin
+      - sfh_fw/sfh_fw_wakeup.bin
+      - wlan_fw/fc6xe/Data.msc
+      - wlan_fw/fc6xe/amss.bin
+      - wlan_fw/fc6xe/bdwlan.elf
+      - wlan_fw/fc6xe/bdwlang.elf
+      - wlan_fw/fc6xe/m3.bin
+      - wlan_fw/fc6xe/regdb.bin
+      - wlan_fw/fc6xe/wlan/qcom_cfg.ini
+      - bt_fw/rtl8852bu_fw
+      - bt_fw/rtl8852bu_config
+      - bt_fw/qca/hpbtfw21.tlv
+      - bt_fw/qca/hpnv21.bin
+      - bt_fw/qca/hpnv21.nvm
+      - bt_fw/qca/hpnv21g.bin
+    lfs: true
+
+  audio-dsp:
+    description: CIX audio DSP package
+    builder: debian
+    flow: payload
+    source: sources/cix-proprietary/cix_proprietary-debs/cix-audio-dsp
+    source_git: sources/cix-proprietary
+    debian: debian/audio-dsp
+    files: ["usr=usr"]
+    lfs: true
+
+  dpu-ddk:
+    description: CIX DPU DDK package
+    builder: debian
+    flow: payload
+    source: sources/cix-proprietary/cix_proprietary-debs/cix-dpu-ddk
+    source_git: sources/cix-proprietary
+    debian: debian/dpu-ddk
+    files: ["usr=usr"]
+    lfs: true
+
+  gpu-umd:
+    description: CIX GPU userspace package
+    builder: debian
+    flow: payload
+    source: sources/cix-proprietary/cix_proprietary-debs/cix-gpu-umd
+    source_git: sources/cix-proprietary
+    debian: debian/gpu-umd
+    files:
+      - etc/ld.so.conf.d=etc/ld.so.conf.d
+      - etc/vulkan=etc/vulkan
+      - lib/firmware=usr/lib/firmware
+      - lib/udev=usr/lib/udev
+      - opt=opt
+      - usr=usr
+    lfs: true
+
+  libdrm:
+    description: CIX DRM userspace library package
+    builder: debian
+    flow: quilt
+    source: sources/libdrm
+    source_git: sources/libdrm
+    debian: debian/libdrm
+
+  libglvnd:
+    description: CIX private GL dispatch library package
+    builder: debian
+    flow: quilt
+    source: sources/libglvnd
+    source_git: sources/libglvnd
+    debian: debian/libglvnd
+
+  mesa:
+    description: CIX Mesa compatibility package
+    builder: debian
+    flow: quilt
+    source: sources/mesa
+    source_git: sources/mesa
+    debian: debian/mesa
+
+  libva:
+    description: CIX VA-API library packages
+    builder: debian
+    flow: quilt
+    source: sources/libva
+    source_git: sources/libva
+    debian: debian/libva
+
+  ffmpeg:
+    description: CIX FFmpeg multimedia packages
+    builder: debian
+    flow: quilt
+    source: sources/ffmpeg
+    source_git: sources/ffmpeg
+    debian: debian/ffmpeg
+
+  libcme:
+    description: CIX Media Engine packages
+    builder: debian
+    flow: quilt
+    source: sources/video-processing/libcme
+    source_git: sources/video-processing
+    debian: debian/libcme
+
+  cix-vaapi:
+    description: CIX VA-API hardware video driver
+    builder: debian
+    flow: quilt
+    source: sources/cix-vaapi
+    source_git: sources/cix-vaapi
+    debian: debian/cix-vaapi
+
+  isp-v4l2-dkms:
+    description: CIX ISP V4L2 DKMS package
+    builder: debian
+    flow: quilt
+    source: sources/isp-driver-v4l2
+    source_git: sources/isp-driver-v4l2
+    debian: debian/isp-v4l2-dkms
+    validate: dkms
+
+  isp-dkms:
+    description: CIX ISP kernel-tree DKMS package
+    builder: debian
+    flow: quilt
+    source: sources/linux/drivers/media/platform/cix/cix_isp
+    source_git: sources/linux
+    debian: debian/isp-dkms
+    validate: dkms
+
+  isp-umd:
+    description: CIX ISP userspace package
+    builder: debian
+    flow: payload
+    source: sources/cix-proprietary/cix_proprietary-debs/cix-isp-umd
+    source_git: sources/cix-proprietary
+    debian: debian/isp-umd
+    files: ["usr=usr"]
+    lfs: true
+
+  noe-umd:
+    description: CIX NOE userspace package
+    builder: debian
+    flow: payload
+    source: sources/cix-proprietary/cix_proprietary-debs/cix-noe-umd
+    source_git: sources/cix-proprietary
+    debian: debian/noe-umd
+    files: ["usr=usr"]
+    lfs: true
+
+  ai-engine:
+    description: CIX unified AI inference engine
+    builder: debian
+    flow: quilt
+    source: sources/cix-ai-engine
+    source_git: sources/cix-ai-engine
+    debian: debian/ai-engine
+
+  mnn:
+    description: CIX MNN inference runtime
+    builder: debian
+    flow: quilt
+    source: sources/mnn
+    source_git: sources/mnn
+    debian: debian/mnn
+
+  gstreamer:
+    description: CIX GStreamer runtime overlay
+    builder: debian
+    flow: quilt
+    source: sources/gstreamer
+    source_git: sources/gstreamer
+    debian: debian/gstreamer
+
+  nnstreamer:
+    description: CIX NNStreamer runtime
+    builder: debian
+    flow: quilt
+    source: sources/nnstreamer
+    source_git: sources/nnstreamer
+    source_excludes: [demo, tests/test_models]
+    debian: debian/nnstreamer
+
+  wlan-dkms:
+    description: CIX QCA and Realtek WLAN DKMS package
+    builder: debian
+    flow: quilt
+    source: sources/wlan-qca
+    source_git: sources/wlan-qca
+    source_excludes: [AIO/apps, AIO/rootfs, AIO/drivers/fw-api/hostap]
+    source_overlays:
+      - sources/wlan-rtl=rtl-wlan
+    debian: debian/wlan-dkms
+    validate: dkms
+
+  npu-umd:
+    description: CIX NPU userspace package
+    builder: debian
+    flow: payload
+    source: sources/cix-proprietary/cix_proprietary-debs/cix-npu-umd
+    source_git: sources/cix-proprietary
+    debian: debian/npu-umd
+    files: ["usr=usr"]
+    lfs: true
+
 projects:
   cix_opensource/linux:
     path: sources/linux
     rules:
+      - paths: ["drivers/media/platform/cix/cix_isp/**"]
+        targets: [isp-dkms]
       - paths: ["**"]
         targets: [kernel]
 
@@ -97,6 +341,60 @@ projects:
       - paths: ["**"]
         targets: [gpu-dkms]
 
+  cix_opensource/bt/rtl_bt_driver:
+    path: sources/rtl-bt-driver
+    rules:
+      - paths: ["**"]
+        targets: [bt-dkms]
+
+  freedesktop_repo/mesa/drm:
+    path: sources/libdrm
+    rules:
+      - paths: ["**"]
+        targets: [libdrm]
+
+  freedesktop_repo/mesa/libglvnd:
+    path: sources/libglvnd
+    rules:
+      - paths: ["**"]
+        targets: [libglvnd]
+
+  freedesktop_repo/mesa/mesa:
+    path: sources/mesa
+    rules:
+      - paths: ["**"]
+        targets: [mesa]
+
+  cix_opensource/libva:
+    path: sources/libva
+    rules:
+      - paths: ["**"]
+        targets: [libva]
+
+  ffmpeg_repo/ffmpeg:
+    path: sources/ffmpeg
+    rules:
+      - paths: ["**"]
+        targets: [ffmpeg]
+
+  cix_opensource/video_processing:
+    path: sources/video-processing
+    rules:
+      - paths: ["libcme/**"]
+        targets: [libcme]
+
+  cix_opensource/cix-vaapi:
+    path: sources/cix-vaapi
+    rules:
+      - paths: ["**"]
+        targets: [cix-vaapi]
+
+  cix_opensource/isp_driver:
+    path: sources/isp-driver-v4l2
+    rules:
+      - paths: ["**"]
+        targets: [isp-v4l2-dkms]
+
   cix_opensource/vpu_driver:
     path: sources/vpu-driver
     rules:
@@ -106,8 +404,22 @@ projects:
   cix_proprietary/cix_proprietary:
     path: sources/cix-proprietary
     rules:
-      - paths: ["**"]
+      - paths: ["cix_proprietary-debs/cix-vpu-umd/usr/lib/firmware/**"]
         targets: [vpu-firmware]
+      - paths: ["cix_module_fw/sfh_fw/**", "cix_module_fw/wlan_fw/fc6xe/**", "cix_module_fw/bt_fw/**"]
+        targets: [cix-firmware]
+      - paths: ["cix_proprietary-debs/cix-audio-dsp/**"]
+        targets: [audio-dsp]
+      - paths: ["cix_proprietary-debs/cix-dpu-ddk/**"]
+        targets: [dpu-ddk]
+      - paths: ["cix_proprietary-debs/cix-gpu-umd/**", "cix_proprietary-debs/copyright/cix-gpu-umd/**"]
+        targets: [gpu-umd]
+      - paths: ["cix_proprietary-debs/cix-isp-umd/**"]
+        targets: [isp-umd]
+      - paths: ["cix_proprietary-debs/cix-noe-umd/**"]
+        targets: [noe-umd]
+      - paths: ["cix_proprietary-debs/cix-npu-umd/**"]
+        targets: [npu-umd]
 
   cix_opensource/npu_driver:
     path: sources/npu-driver
@@ -115,23 +427,59 @@ projects:
       - paths: ["**"]
         targets: [npu-dkms]
 
+  cix_opensource/cix_ai_engine:
+    path: sources/cix-ai-engine
+    rules:
+      - paths: ["**"]
+        targets: [ai-engine]
+
+  github_mirror/alibaba/MNN:
+    path: sources/mnn
+    rules:
+      - paths: ["**"]
+        targets: [mnn]
+
+  freedesktop_repo/gstreamer/gstreamer:
+    path: sources/gstreamer
+    rules:
+      - paths: ["**"]
+        targets: [gstreamer]
+
+  cix_opensource/nnstreamer:
+    path: sources/nnstreamer
+    rules:
+      - paths: ["**"]
+        targets: [nnstreamer]
+
+  cix_opensource/wlan/fc6xe:
+    path: sources/wlan-qca
+    rules:
+      - paths: ["**"]
+        targets: [wlan-dkms]
+
+  cix_opensource/wlan/rtl_wlan_driver:
+    path: sources/wlan-rtl
+    rules:
+      - paths: ["**"]
+        targets: [wlan-dkms]
+
   cix-neo-build-scripts:
     path: build-scripts
     rules:
       - paths: ["build-map.yaml", "cix-build", "builders/common.sh"]
-        targets: [kernel, stable-kernel, gpu-dkms, vpu-dkms, vpu-firmware, npu-dkms, grub-config]
+        targets: ["*"]
       - paths: ["builders/direct.sh", "builders/direct/kernel.sh"]
         targets: [kernel, stable-kernel]
       - paths: ["builders/debian.sh"]
-        targets: [gpu-dkms, vpu-dkms, vpu-firmware, npu-dkms, grub-config]
-      - paths: ["builders/debian/firmware.sh"]
-        targets: [vpu-firmware]
+        targets: [gpu-dkms, bt-dkms, vpu-dkms, vpu-firmware, npu-dkms, grub-config, alsa-conf, cix-env, cix-firmware, audio-dsp, dpu-ddk, gpu-umd, isp-umd, isp-v4l2-dkms, isp-dkms, libdrm, libglvnd, libva, ffmpeg, mesa, libcme, cix-vaapi, noe-umd, npu-umd, ai-engine, mnn, gstreamer, nnstreamer, wlan-dkms]
+      - paths: ["builders/debian/payload.sh"]
+        targets: [vpu-firmware, cix-firmware, audio-dsp, dpu-ddk, gpu-umd, isp-umd, noe-umd, npu-umd]
       - paths: ["ci/plan.py"]
-        targets: [kernel, stable-kernel, gpu-dkms, vpu-dkms, vpu-firmware, npu-dkms, grub-config]
+        targets: ["*"]
       - paths: ["sbuild/**", "setup-host", "setup-sbuild"]
-        targets: [kernel, stable-kernel, gpu-dkms, vpu-dkms, vpu-firmware, npu-dkms, grub-config]
+        targets: ["*"]
       - paths: ["tests/**"]
-        targets: [kernel, gpu-dkms, vpu-dkms, npu-dkms]
+        targets: [kernel, gpu-dkms, bt-dkms, vpu-dkms, npu-dkms, isp-v4l2-dkms, isp-dkms, wlan-dkms]
     ignore:
       - ".gitignore"
       - "README.md"
@@ -145,6 +493,8 @@ projects:
         targets: [kernel]
       - paths: ["gpu-dkms/**"]
         targets: [gpu-dkms]
+      - paths: ["bt-dkms/**"]
+        targets: [bt-dkms]
       - paths: ["vpu-dkms/**"]
         targets: [vpu-dkms]
       - paths: ["vpu-firmware/**"]
@@ -153,5 +503,51 @@ projects:
         targets: [npu-dkms]
       - paths: ["grub-config/**"]
         targets: [grub-config]
+      - paths: ["alsa-conf/**"]
+        targets: [alsa-conf]
+      - paths: ["cix-env/**"]
+        targets: [cix-env]
+      - paths: ["cix-firmware/**"]
+        targets: [cix-firmware]
+      - paths: ["audio-dsp/**"]
+        targets: [audio-dsp]
+      - paths: ["dpu-ddk/**"]
+        targets: [dpu-ddk]
+      - paths: ["gpu-umd/**"]
+        targets: [gpu-umd]
+      - paths: ["isp-umd/**"]
+        targets: [isp-umd]
+      - paths: ["isp-v4l2-dkms/**"]
+        targets: [isp-v4l2-dkms]
+      - paths: ["isp-dkms/**"]
+        targets: [isp-dkms]
+      - paths: ["libdrm/**"]
+        targets: [libdrm]
+      - paths: ["libglvnd/**"]
+        targets: [libglvnd]
+      - paths: ["mesa/**"]
+        targets: [mesa]
+      - paths: ["libva/**"]
+        targets: [libva]
+      - paths: ["ffmpeg/**"]
+        targets: [ffmpeg]
+      - paths: ["libcme/**"]
+        targets: [libcme]
+      - paths: ["cix-vaapi/**"]
+        targets: [cix-vaapi]
+      - paths: ["noe-umd/**"]
+        targets: [noe-umd]
+      - paths: ["npu-umd/**"]
+        targets: [npu-umd]
+      - paths: ["ai-engine/**"]
+        targets: [ai-engine]
+      - paths: ["mnn/**"]
+        targets: [mnn]
+      - paths: ["gstreamer/**"]
+        targets: [gstreamer]
+      - paths: ["nnstreamer/**"]
+        targets: [nnstreamer]
+      - paths: ["wlan-dkms/**"]
+        targets: [wlan-dkms]
     ignore:
       - "README.md"

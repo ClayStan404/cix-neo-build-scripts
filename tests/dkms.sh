@@ -93,7 +93,7 @@ eval "$(
         --target "${target_name}" \
         --format shell
 )"
-[[ "${TARGET[builder]}" == "sbuild" && "${TARGET[validate]}" == "dkms" ]] ||
+[[ "${TARGET[builder]}" == "debian" && "${TARGET[validate]}" == "dkms" ]] ||
     cix_die "target is not a mapped DKMS package: ${target_name}"
 
 control_file="${CIX_ROOT}/${TARGET[debian]}/control"
@@ -224,6 +224,7 @@ cix_log "Register ${module_name}/${module_version} in the isolated DKMS tree"
     -v "${module_version}" \
     "${common_dkms_args[@]}"
 
+cix_prepare_host_ccache
 cix_log "Build ${target_name} modules for CIX kernel ${kernel_release}"
 "${dkms_command}" build \
     -m "${module_name}" \

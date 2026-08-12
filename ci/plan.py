@@ -7,8 +7,10 @@ Input consists of one change per line. Each line can be one of:
 * ``PROJECT:relative/path``;
 * a path relative to the repo workspace.
 
-The mapping file selects seed build targets. Internal build dependencies are
-derived exclusively from Debian Build-Depends fields, never from build scripts.
+The mapping file selects seed build targets. Build ordering is derived
+exclusively from Debian Build-Depends fields, never from build scripts. Binary
+Depends and Pre-Depends are used only to make the internal package cohort
+injected into sbuild installable.
 """
 
 from __future__ import annotations
@@ -53,6 +55,10 @@ class Target:
     payload_dir: str | None
     files: tuple[str, ...]
     required_files: tuple[str, ...]
+    source_excludes: tuple[str, ...]
+    source_overlays: tuple[str, ...]
+    build_packages: tuple[str, ...]
+    build_provides: tuple[str, ...]
     lfs: bool
 
     @property
@@ -88,8 +94,10 @@ class BuildMap:
 class DependencyGraph:
     forward: Mapping[str, frozenset[str]]
     reverse: Mapping[str, frozenset[str]]
+    install_forward: Mapping[str, frozenset[str]]
     edge_packages: Mapping[tuple[str, str], frozenset[str]]
     produced_packages: Mapping[str, str]
+    target_packages: Mapping[str, frozenset[str]]
 
 
 def _mapping(value: object, context: str) -> dict:
@@ -110,6 +118,21 @@ def _string_list(value: object, context: str) -> tuple[str, ...]:
     return tuple(_string(item, f"{context} entry") for item in value)
 
 
+def _rule_targets(
+    value: object, context: str, available_targets: Iterable[str]
+) -> tuple[str, ...]:
+    selected = _string_list(value, context)
+    available = set(available_targets)
+    if "*" in selected:
+        if selected != ("*",):
+            raise PlanError(f"{context} cannot combine * with named targets")
+        return tuple(sorted(available))
+    unknown = sorted(set(selected) - available)
+    if unknown:
+        raise PlanError(f"{context} references unknown targets: {', '.join(unknown)}")
+    return selected
+
+
 def _optional_string(value: object, context: str) -> str | None:
     return None if value is None else _string(value, context)
 
@@ -126,10 +149,34 @@ def _optional_relative_path(value: object, context: str) -> str | None:
     return None if value is None else _relative_path(value, context)
 
 
+def _payload_file(value: object, context: str) -> str:
+    raw = _string(value, context)
+    if raw.count("=") > 1:
+        raise PlanError(f"{context} must use SOURCE or SOURCE=DESTINATION: {raw}")
+    source, separator, destination = raw.partition("=")
+    source = _relative_path(source, f"{context} source")
+    if not separator:
+        return source
+    destination = _relative_path(destination, f"{context} destination")
+    return f"{source}={destination}"
+
+
+def _source_overlay(value: object, context: str) -> str:
+    raw = _string(value, context)
+    if raw.count("=") != 1:
+        raise PlanError(f"{context} must use SOURCE=DESTINATION: {raw}")
+    source, destination = raw.split("=", 1)
+    source = _relative_path(source, f"{context} source")
+    destination = _relative_path(destination, f"{context} destination")
+    return f"{source}={destination}"
+
+
 def _target_from_mapping(name: str, entry: dict) -> Target:
     context = f"target {name}"
     allowed = {
         "builder",
+        "build_packages",
+        "build_provides",
         "debian",
         "description",
         "files",
@@ -139,7 +186,9 @@ def _target_from_mapping(name: str, entry: dict) -> Target:
         "payload_dir",
         "required_files",
         "source",
+        "source_excludes",
         "source_git",
+        "source_overlays",
         "validate",
         "version",
     }
@@ -165,11 +214,15 @@ def _target_from_mapping(name: str, entry: dict) -> Target:
     payload_dir = _optional_relative_path(
         entry.get("payload_dir"), f"{context} payload_dir"
     )
-    files = (
-        _string_list(entry["files"], f"{context} files")
-        if "files" in entry
-        else ()
-    )
+    files = ()
+    if "files" in entry:
+        raw_files = _string_list(entry["files"], f"{context} files")
+        files = tuple(
+            _payload_file(item, f"{context} files entry")
+            if (builder, flow) == ("debian", "payload")
+            else item
+            for item in raw_files
+        )
     required_files = (
         tuple(
             _relative_path(item, f"{context} required_files entry")
@@ -180,6 +233,46 @@ def _target_from_mapping(name: str, entry: dict) -> Target:
         if "required_files" in entry
         else ()
     )
+    source_excludes = (
+        tuple(
+            _relative_path(item, f"{context} source_excludes entry")
+            for item in _string_list(
+                entry["source_excludes"], f"{context} source_excludes"
+            )
+        )
+        if "source_excludes" in entry
+        else ()
+    )
+    source_overlays = (
+        tuple(
+            _source_overlay(item, f"{context} source_overlays entry")
+            for item in _string_list(
+                entry["source_overlays"], f"{context} source_overlays"
+            )
+        )
+        if "source_overlays" in entry
+        else ()
+    )
+    build_packages = (
+        _string_list(entry["build_packages"], f"{context} build_packages")
+        if "build_packages" in entry
+        else ()
+    )
+    for package in build_packages:
+        if not re.fullmatch(r"[a-z0-9][a-z0-9+.-]*", package):
+            raise PlanError(f"{context} has invalid build package name: {package}")
+    if len(build_packages) != len(set(build_packages)):
+        raise PlanError(f"{context} build_packages contains duplicates")
+    build_provides = (
+        _string_list(entry["build_provides"], f"{context} build_provides")
+        if "build_provides" in entry
+        else ()
+    )
+    for package in build_provides:
+        if not re.fullmatch(r"[a-z0-9][a-z0-9+.-]*", package):
+            raise PlanError(f"{context} has invalid provided package name: {package}")
+    if len(build_provides) != len(set(build_provides)):
+        raise PlanError(f"{context} build_provides contains duplicates")
     lfs = entry.get("lfs", False)
     if not isinstance(lfs, bool):
         raise PlanError(f"{context} lfs must be a boolean")
@@ -195,20 +288,25 @@ def _target_from_mapping(name: str, entry: dict) -> Target:
         ),
         ("debian", "quilt"): (
             {"source", "source_git", "debian"},
-            {"source", "source_git", "debian", "validate"},
+            {
+                "source",
+                "source_git",
+                "debian",
+                "validate",
+                "source_excludes",
+                "source_overlays",
+            },
         ),
         ("debian", "native"): (
             {"source_git", "debian"},
             {"source_git", "debian"},
         ),
-        ("debian", "firmware"): (
+        ("debian", "payload"): (
             {
                 "source",
                 "source_git",
                 "debian",
-                "payload_dir",
                 "files",
-                "required_files",
             },
             {
                 "source",
@@ -235,6 +333,8 @@ def _target_from_mapping(name: str, entry: dict) -> Target:
         "payload_dir": payload_dir,
         "files": files,
         "required_files": required_files,
+        "source_excludes": source_excludes,
+        "source_overlays": source_overlays,
         "lfs": lfs,
     }
     missing = sorted(
@@ -245,7 +345,15 @@ def _target_from_mapping(name: str, entry: dict) -> Target:
     if missing:
         raise PlanError(f"{context} requires fields: {', '.join(missing)}")
     unsupported = sorted(
-        set(entry) - {"description", "builder", "flow"} - flow_fields
+        set(entry)
+        - {
+            "description",
+            "builder",
+            "flow",
+            "build_packages",
+            "build_provides",
+        }
+        - flow_fields
     )
     if unsupported:
         raise PlanError(
@@ -254,6 +362,12 @@ def _target_from_mapping(name: str, entry: dict) -> Target:
         )
     if validate not in {None, "dkms"}:
         raise PlanError(f"{context} has unsupported validation: {validate}")
+    if (builder, flow) == ("debian", "payload"):
+        uses_default_destination = any("=" not in item for item in files)
+        if uses_default_destination and payload_dir is None:
+            raise PlanError(
+                f"{context} payload_dir is required for files without a destination"
+            )
     if version is not None and not re.fullmatch(
         r"[0-9]+\.[0-9]+\.[0-9]+", version
     ):
@@ -273,6 +387,10 @@ def _target_from_mapping(name: str, entry: dict) -> Target:
         payload_dir=payload_dir,
         files=files,
         required_files=required_files,
+        source_excludes=source_excludes,
+        source_overlays=source_overlays,
+        build_packages=build_packages,
+        build_provides=build_provides,
         lfs=lfs,
     )
 
@@ -293,8 +411,8 @@ def load_build_map(
     )
     if unknown_root:
         raise PlanError(f"mapping root has unknown fields: {', '.join(unknown_root)}")
-    if root.get("version") != 5:
-        raise PlanError("mapping version must be 5")
+    if root.get("version") != 6:
+        raise PlanError("mapping version must be 6")
 
     executor = _relative_path(root.get("executor"), "executor")
 
@@ -343,15 +461,11 @@ def load_build_map(
             patterns = _string_list(
                 rule_data.get("paths"), f"project {name} rule {index} paths"
             )
-            rule_targets = _string_list(
-                rule_data.get("targets"), f"project {name} rule {index} targets"
+            rule_targets = _rule_targets(
+                rule_data.get("targets"),
+                f"project {name} rule {index} targets",
+                targets,
             )
-            unknown = sorted(set(rule_targets) - set(targets))
-            if unknown:
-                raise PlanError(
-                    f"project {name} rule {index} references unknown targets: "
-                    + ", ".join(unknown)
-                )
             mapped_targets.update(rule_targets)
             rules.append(Rule(paths=patterns, targets=rule_targets))
 
@@ -409,6 +523,22 @@ def validate_target_paths(target: Target, workspace: Path) -> None:
             raise PlanError(
                 f"target {target.name} control does not exist: {control_path}"
             )
+    if target.source:
+        for source_exclude in target.source_excludes:
+            excluded_path = workspace / target.source / source_exclude
+            if not excluded_path.exists():
+                raise PlanError(
+                    f"target {target.name} source_excludes path does not exist: "
+                    f"{excluded_path}"
+                )
+    for source_overlay in target.source_overlays:
+        source, _ = source_overlay.split("=", 1)
+        overlay_path = workspace / source
+        if not overlay_path.is_dir():
+            raise PlanError(
+                f"target {target.name} source_overlays directory does not exist: "
+                f"{overlay_path}"
+            )
 
 
 def target_dict(target: Target) -> dict:
@@ -426,11 +556,15 @@ def target_dict(target: Target) -> dict:
         "payload_dir": target.payload_dir,
         "files": list(target.files),
         "required_files": list(target.required_files),
+        "source_excludes": list(target.source_excludes),
+        "source_overlays": list(target.source_overlays),
+        "build_packages": list(target.build_packages),
+        "build_provides": list(target.build_provides),
         "lfs": target.lfs,
     }
 
 
-def target_shell(target: Target) -> str:
+def target_shell(target: Target, internal_build_packages: Iterable[str] = ()) -> str:
     values = {
         "name": target.name,
         "builder": target.builder,
@@ -451,6 +585,9 @@ def target_shell(target: Target) -> str:
     for name, items in (
         ("TARGET_FILES", target.files),
         ("TARGET_REQUIRED_FILES", target.required_files),
+        ("TARGET_SOURCE_EXCLUDES", target.source_excludes),
+        ("TARGET_SOURCE_OVERLAYS", target.source_overlays),
+        ("TARGET_BUILD_PACKAGES", tuple(sorted(internal_build_packages))),
     ):
         quoted = " ".join(shlex.quote(item) for item in items)
         lines.append(f"{name}=({quoted})")
@@ -461,6 +598,19 @@ def _relation_names(value: str, context: str) -> set[str]:
     # Debian permits a trailing comma in relationship fields. python-debian
     # accepts it but emits an unnecessary warning for the empty final item.
     value = value.strip().rstrip(",").rstrip()
+    if not value:
+        return set()
+    # Substitution variables are expanded by debhelper and cannot identify an
+    # internal package at planning time. Preserve relations whose version uses
+    # a substitution variable by replacing only that version with a parseable
+    # placeholder.
+    entries = [entry.strip() for entry in value.split(",")]
+    entries = [
+        re.sub(r"\$\{[^}]+\}", "0", entry)
+        for entry in entries
+        if not re.fullmatch(r"\$\{[^}]+\}", entry)
+    ]
+    value = ", ".join(entries)
     if not value:
         return set()
     try:
@@ -481,7 +631,9 @@ def _relation_names(value: str, context: str) -> set[str]:
     }
 
 
-def _parse_control(control_path: Path) -> tuple[set[str], set[str]]:
+def _parse_control(
+    control_path: Path,
+) -> tuple[set[str], set[str], set[str], set[str]]:
     try:
         from debian.deb822 import Deb822
 
@@ -498,16 +650,26 @@ def _parse_control(control_path: Path) -> tuple[set[str], set[str]]:
         raise PlanError(f"Debian control has no Source stanza: {control_path}")
 
     source = paragraphs[0]
-    produced: set[str] = set()
+    binary_packages: set[str] = set()
+    provided_packages: set[str] = set()
+    runtime_dependencies: set[str] = set()
     for paragraph in paragraphs[1:]:
         package = paragraph.get("Package")
         if package:
-            produced.add(package.strip())
+            binary_packages.add(package.strip())
         provides = paragraph.get("Provides")
         if provides:
-            produced.update(_relation_names(provides, f"Provides in {control_path}"))
+            provided_packages.update(
+                _relation_names(provides, f"Provides in {control_path}")
+            )
+        for field in ("Pre-Depends", "Depends"):
+            value = paragraph.get(field)
+            if value:
+                runtime_dependencies.update(
+                    _relation_names(value, f"{field} in {control_path}")
+                )
 
-    if not produced:
+    if not binary_packages:
         raise PlanError(f"Debian control defines no binary packages: {control_path}")
 
     build_dependencies: set[str] = set()
@@ -517,20 +679,39 @@ def _parse_control(control_path: Path) -> tuple[set[str], set[str]]:
             build_dependencies.update(
                 _relation_names(value, f"{field} in {control_path}")
             )
-    return produced, build_dependencies
+    return (
+        binary_packages,
+        provided_packages,
+        build_dependencies,
+        runtime_dependencies,
+    )
 
 
 def build_dependency_graph(build_map: BuildMap) -> DependencyGraph:
     dependencies_by_target: dict[str, set[str]] = defaultdict(set)
+    runtime_dependencies_by_target: dict[str, set[str]] = defaultdict(set)
     provider: dict[str, str] = {}
+    target_packages: dict[str, set[str]] = {}
 
     for target in build_map.targets.values():
-        if not target.control:
-            continue
-        control_path = build_map.workspace / target.control
-        produced, dependencies = _parse_control(control_path)
-        dependencies_by_target[target.name].update(dependencies)
-        for package in produced:
+        binary_packages = set(target.build_packages)
+        package_identities = set(binary_packages)
+        package_identities.update(target.build_provides)
+        if target.control:
+            control_path = build_map.workspace / target.control
+            (
+                control_packages,
+                provided_packages,
+                dependencies,
+                runtime_dependencies,
+            ) = _parse_control(control_path)
+            binary_packages.update(control_packages)
+            package_identities.update(control_packages)
+            package_identities.update(provided_packages)
+            dependencies_by_target[target.name].update(dependencies)
+            runtime_dependencies_by_target[target.name].update(runtime_dependencies)
+        target_packages[target.name] = binary_packages
+        for package in package_identities:
             previous = provider.get(package)
             if previous and previous != target.name:
                 raise PlanError(
@@ -546,6 +727,9 @@ def build_dependency_graph(build_map: BuildMap) -> DependencyGraph:
         target_name: set() for target_name in build_map.targets
     }
     edge_packages: dict[tuple[str, str], set[str]] = defaultdict(set)
+    install_forward: dict[str, set[str]] = {
+        target_name: set() for target_name in build_map.targets
+    }
 
     for dependent, package_names in dependencies_by_target.items():
         for package in package_names:
@@ -556,13 +740,25 @@ def build_dependency_graph(build_map: BuildMap) -> DependencyGraph:
             reverse[dependency].add(dependent)
             edge_packages[(dependent, dependency)].add(package)
 
+    for dependent, package_names in runtime_dependencies_by_target.items():
+        for package in package_names:
+            dependency = provider.get(package)
+            if dependency and dependency != dependent:
+                install_forward[dependent].add(dependency)
+
     frozen_forward = {key: frozenset(value) for key, value in forward.items()}
     frozen_reverse = {key: frozenset(value) for key, value in reverse.items()}
     graph = DependencyGraph(
         forward=frozen_forward,
         reverse=frozen_reverse,
+        install_forward={
+            key: frozenset(value) for key, value in install_forward.items()
+        },
         edge_packages={key: frozenset(value) for key, value in edge_packages.items()},
         produced_packages=dict(provider),
+        target_packages={
+            key: frozenset(value) for key, value in target_packages.items()
+        },
     )
     topological_sort(set(build_map.targets), graph.forward)
     return graph
@@ -668,6 +864,31 @@ def reverse_closure(seeds: set[str], graph: DependencyGraph) -> set[str]:
                 affected.add(dependent)
                 queue.append(dependent)
     return affected
+
+
+def dependency_closure(target: str, graph: DependencyGraph) -> set[str]:
+    dependencies: set[str] = set()
+    queue = deque(sorted(graph.forward.get(target, ())))
+    while queue:
+        dependency = queue.popleft()
+        if dependency in dependencies:
+            continue
+        dependencies.add(dependency)
+        queue.extend(sorted(graph.forward.get(dependency, ())))
+    return dependencies
+
+
+def build_environment_closure(target: str, graph: DependencyGraph) -> set[str]:
+    """Return targets whose package cohorts must be available to sbuild."""
+    dependencies = dependency_closure(target, graph)
+    queue = deque(sorted(dependencies))
+    while queue:
+        dependency = queue.popleft()
+        for required in sorted(graph.install_forward.get(dependency, ())):
+            if required not in dependencies:
+                dependencies.add(required)
+                queue.append(required)
+    return dependencies
 
 
 def topological_sort(nodes: set[str], forward: Mapping[str, frozenset[str]]) -> list[str]:
@@ -805,6 +1026,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                 raise PlanError(f"unknown build target: {args.target}")
             validate_target_paths(target, build_map.workspace)
             result = target_dict(target)
+            graph = build_dependency_graph(build_map)
+            internal_build_packages = sorted(
+                f"{package}={dependency}"
+                for dependency in build_environment_closure(target.name, graph)
+                for package in graph.target_packages[dependency]
+            )
+            result["internal_build_packages"] = internal_build_packages
         else:
             if args.check:
                 graph = build_dependency_graph(build_map)
@@ -822,7 +1050,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1
 
     if args.format == "shell":
-        print(target_shell(build_map.targets[args.target]))
+        print(
+            target_shell(
+                build_map.targets[args.target],
+                result["internal_build_packages"],
+            )
+        )
     elif args.format == "text" and args.list_targets:
         for target in result["targets"]:
             print(f"{target['name']}\t{target['description']}")

@@ -13,6 +13,8 @@ is confirmed.
   same workflow unless the user explicitly requests a local-only commit.
 - Do not provide compatibility with the legacy build system, its CLI, its
   configuration files, or its internal module contract.
+- Do not recreate the legacy `cix-debian13-k6.6.89-driver` metapackage. Package
+  targets are selected and built directly through the new build map.
 - Legacy implementation ideas may be studied and reused selectively, but no
   legacy behavior is retained by default.
 
@@ -56,6 +58,8 @@ is confirmed.
   required host tools and provision a clean sbuild environment directly.
 - Use an unprivileged `sbuild` unshare backend with a build chroot tarball
   created by `mmdebstrap`.
+- Enable Debian's `main` and `non-free` components in the sbuild chroot because
+  the required CIX GStreamer feature set includes the FDK-AAC plugin.
 - Use `trixie` as the fixed build distribution. Do not derive the build
   distribution from the host OS release or expose an unused suite selector.
 - Keep compiler caches at the fixed user-scoped path
@@ -109,6 +113,8 @@ is confirmed.
   `sources/linux-main`.
 - Track `cix_opensource/gpu_kernel` at branch `cix_r54p1-11eac0_dev` under
   `sources/gpu-kernel`.
+- Track `cix_opensource/bt/rtl_bt_driver` at branch `cix_rtl8852b_dev` under
+  `sources/rtl-bt-driver`.
 - Track `cix_opensource/vpu_driver` at branch `cix_vpu_dev` under
   `sources/vpu-driver`.
 - Track `cix_proprietary/cix_proprietary` at branch `cix_master_linux_lfs`
@@ -117,12 +123,40 @@ is confirmed.
   temporary GitHub repositories.
 - Track `cix_opensource/npu_driver` at branch `cix_x2_r2p1_dev` under
   `sources/npu-driver`.
+- Track `cix_opensource/cix_ai_engine` at branch `cix_master` under
+  `sources/cix-ai-engine`.
+- Track `github_mirror/alibaba/MNN` at branch `cix_3.6.1_dev` under
+  `sources/mnn`.
+- Track `freedesktop_repo/gstreamer/gstreamer` at branch `cix_1.26.2_dev`
+  under `sources/gstreamer`.
+- Track `cix_opensource/nnstreamer` at branch `cix_2.4.2_dev` under
+  `sources/nnstreamer`.
+- Track `cix_opensource/wlan/fc6xe` at branch `cix_wlan_qcacld_dev` under
+  `sources/wlan-qca` and `cix_opensource/wlan/rtl_wlan_driver` at branch
+  `cix_rtl8852b_dev` under `sources/wlan-rtl` for the combined WLAN DKMS
+  source package.
+- Track `freedesktop_repo/mesa/drm` at branch `cix_libdrm_2.4.109_dev` under
+  `sources/libdrm`.
+- Track `freedesktop_repo/mesa/libglvnd` at branch `cix_glvnd-v1.7.0_dev`
+  under `sources/libglvnd`.
+- Track `freedesktop_repo/mesa/mesa` at branch `cix_mesa-25.1.5_dev` under
+  `sources/mesa`.
+- Track `cix_opensource/libva` at branch `cix_2.22_dev` under
+  `sources/libva`.
+- Track `ffmpeg_repo/ffmpeg` at branch `cix_7.1.1_dev` under
+  `sources/ffmpeg`.
+- Track `cix_opensource/video_processing` at branch `cix_master` under
+  `sources/video-processing` for the CIX Media Engine source.
+- Track `cix_opensource/cix-vaapi` at branch `cix_master` under
+  `sources/cix-vaapi`.
+- Track `cix_opensource/isp_driver` at branch `cix_isp_dev` under
+  `sources/isp-driver-v4l2`.
 - Track the private GitHub repository `ClayStan404/cix-neo-build-scripts` at
   branch `master` under `build-scripts`.
 - Track the private GitHub repository `ClayStan404/cix-neo-debian` at branch
   `master` under `debian`.
-- The current manifest contains exactly eight projects: six source input
-  repositories, the build scripts, and the Debian packaging metadata.
+- The current manifest contains exactly twenty-three projects: twenty-one source
+  input repositories, the build scripts, and the Debian packaging metadata.
 
 ### Project Layout
 
@@ -161,6 +195,12 @@ is confirmed.
   Adding another conventional native or quilt source package must require only
   its Debian metadata and declarative mapping entries, not a new build script or
   Shell function.
+- Let quilt targets declaratively exclude repository paths that are not build
+  inputs or package outputs. Do not archive large demo models or disabled test
+  data merely because they share an upstream repository with buildable source.
+- Let a quilt target declaratively assemble multiple manifest repositories
+  when they form one Debian source package. Keep this as source preparation in
+  the shared quilt flow, and map every contributing repository to the target.
 - Keep current defaults in `cix-build`: use all host CPUs and write under
   `output/TARGET`. Do not maintain a separate configuration file until a
   concrete target needs configuration-driven behavior.
@@ -174,6 +214,9 @@ is confirmed.
 - Always enable ccache by using Debian's `/usr/lib/ccache` compiler wrappers.
   Direct kernel builds, local `dpkg-buildpackage`, and sbuild share the fixed
   host cache at `~/.cache/cix-neo-sbuild/ccache`.
+- Reuse downloaded Debian archives across disposable sbuild sessions through
+  `~/.cache/cix-neo-sbuild/apt-archives`. Keep package installation and build
+  state isolated; share only the download cache.
 - Do not declare configuration variables or CLI options until a concrete target
   consumes them.
 - Derive one workspace-root path directly from the checked-out layout. Do not
@@ -207,6 +250,10 @@ is confirmed.
 - When a changed target provides a package used by another target's build
   dependencies, include all transitive reverse build dependencies in the CI
   plan.
+- When sbuild consumes internal packages, inject the exact binary-package
+  cohorts for the complete transitive `Build-Depends` closure so isolated
+  builds never mix a private development package with an unrelated archive
+  runtime package.
 - Execute selected targets in deterministic topological order, with
   dependencies before dependents.
 - Treat unmapped non-ignored paths, a missing build executor or control file,
@@ -223,24 +270,32 @@ is confirmed.
   `Build-Depends` edge.
 - Run CI in the company-internal Jenkins deployment. Do not add a GitHub-hosted
   build workflow.
+- Run Lintian for sbuild package builds and require a successful Lintian run.
 
 ### Current Implemented Scope
 
-The current build system contains these build modules:
+The current build system contains these build targets:
 
-1. CIX 6.6 development Linux kernel
-2. CIX-patched latest stable Linux kernel
-3. GPU DKMS package
-4. VPU DKMS package
-5. VPU firmware package
-6. NPU DKMS package
-7. CIX GRUB configuration package
+- Kernels: `kernel`, `stable-kernel`
+- Kernel drivers and firmware: `gpu-dkms`, `bt-dkms`, `wlan-dkms`,
+  `vpu-dkms`, `vpu-firmware`, `npu-dkms`, `isp-v4l2-dkms`, `isp-dkms`
+- Graphics and media: `libdrm`, `libglvnd`, `mesa`, `libva`, `ffmpeg`,
+  `libcme`, `cix-vaapi`, `gstreamer`, `nnstreamer`
+- Proprietary userspace payloads: `gpu-umd`, `dpu-ddk`, `isp-umd`, `noe-umd`,
+  `npu-umd`
+- AI runtimes: `ai-engine`, `mnn`
+- System integration and firmware: `grub-config`, `alsa-conf`, `audio-dsp`,
+  `cix-env`, `cix-firmware`
 
 The VPU DKMS package must retain its runtime dependency on
 `cix-vpu-firmware`. Its 16 proprietary `.fwb` files come from the
 `cix-vpu-umd/usr/lib/firmware` staging directory in
 `cix_proprietary/cix_proprietary`, not from the open-source VPU driver. Fetch
 only those Git LFS objects when assembling the firmware source package.
+
+The legacy `cix-audio-sof` package is intentionally deferred. It is needed
+only for systems using the CIX ALSA SOF driver and requires an ARM64-hosted
+Xtensa toolchain; it is not a prerequisite for the current package targets.
 
 ## Legacy Reference
 
