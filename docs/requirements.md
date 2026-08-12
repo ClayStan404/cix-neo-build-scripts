@@ -176,8 +176,10 @@ is confirmed.
 
 ### Configuration
 
-- Expose one public command: `build-scripts/cix-build TARGET`. Do not create
-  legacy-style per-target `build-*.sh` entry points.
+- Expose one public command: `build-scripts/cix-build TARGET|all`. Do not
+  create legacy-style per-target `build-*.sh` entry points. The `all` selector
+  must build every registered target in dependency order and stop on the first
+  failure.
 - Keep `build-scripts/build-map.yaml` as the single registry for target names,
   build types, source locations, Debian metadata locations, and CI repository
   impact rules. Local builds and CI planning must read the same registry.
@@ -187,7 +189,9 @@ is confirmed.
   categories. Select source preparation explicitly with a target flow.
 - Let the `debian` builder switch between `sbuild` and local
   `dpkg-buildpackage` from the public command. Keep source assembly identical
-  between backends and reject the backend option for direct targets.
+  between backends and reject the backend option for an individual direct
+  target. For `all`, apply the selected backend only to Debian targets and
+  leave direct flows unchanged.
 - Keep the backend default at `sbuild`. Select the host build explicitly with
   `cix-build TARGET --backend local`; local builds must check the package's
   `Build-Depends` and fail rather than installing dependencies implicitly.

@@ -198,6 +198,8 @@ def _target_from_mapping(name: str, entry: dict) -> Target:
 
     if not re.fullmatch(r"[a-z0-9][a-z0-9+.-]*", name):
         raise PlanError(f"invalid target name: {name}")
+    if name == "all":
+        raise PlanError("target name is reserved by the full-build selector: all")
     description = _string(entry.get("description"), f"{context} description")
     builder = _string(entry.get("builder"), f"{context} builder")
     flow = _string(entry.get("flow"), f"{context} flow")
@@ -944,6 +946,25 @@ def create_plan(changes: Iterable[str], build_map: BuildMap) -> dict:
     }
 
 
+def create_all_plan(build_map: BuildMap) -> dict:
+    """Create a dependency-ordered plan containing every build target."""
+    graph = build_dependency_graph(build_map)
+    targets = set(build_map.targets)
+    order = topological_sort(targets, graph.forward)
+    return {
+        "changes": [],
+        "seeds": sorted(targets),
+        "affected": sorted(targets),
+        "order": order,
+        "commands": [
+            shlex.join((build_map.executor, target)) for target in order
+        ],
+        "reasons": {
+            target: ["full build requested"] for target in sorted(targets)
+        },
+    }
+
+
 def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     script_path = Path(__file__).resolve()
     default_workspace = script_path.parents[2]
@@ -982,6 +1003,11 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="list target names and descriptions",
     )
+    selection.add_argument(
+        "--all",
+        action="store_true",
+        help="create a dependency-ordered plan containing every target",
+    )
     parser.add_argument(
         "--format",
         choices=("json", "text", "shell"),
@@ -1000,8 +1026,10 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_args(argv)
     try:
-        if (args.target or args.list_targets) and (args.check or args.changes):
-            raise PlanError("target inspection cannot be combined with changes or --check")
+        if (args.target or args.list_targets or args.all) and (
+            args.check or args.changes
+        ):
+            raise PlanError("target selection cannot be combined with changes or --check")
         if args.check and args.changes:
             raise PlanError("--check does not accept changes")
         if args.format == "shell" and not args.target:
@@ -1033,6 +1061,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 for package in graph.target_packages[dependency]
             )
             result["internal_build_packages"] = internal_build_packages
+        elif args.all:
+            result = create_all_plan(build_map)
         else:
             if args.check:
                 graph = build_dependency_graph(build_map)

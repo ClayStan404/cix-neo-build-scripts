@@ -11,15 +11,16 @@ list_targets() {
 
 usage() {
     cat <<'EOF'
-Usage: cix-build TARGET [build|clean] [--backend sbuild|local]
+Usage: cix-build TARGET|all [build|clean] [--backend sbuild|local]
        cix-build --list
 
 Options:
-  --backend BACKEND      Debian build backend (default: sbuild)
+  --backend BACKEND      Debian package backend (default: sbuild)
   --list                 List build targets
   -h, --help             Show this help
 
 Targets:
+  all                Build every target in dependency order
 EOF
     list_targets | while IFS=$'\t' read -r name description; do
         printf '  %-18s %s\n' "${name}" "${description}"
@@ -96,34 +97,76 @@ declare -a TARGET_SOURCE_EXCLUDES=()
 # Optional additional repositories copied below a quilt source tree.
 # shellcheck disable=SC2034
 declare -a TARGET_SOURCE_OVERLAYS=()
-# plan.py emits fixed keys and shell-quotes every YAML value. Capture its
-# status before eval so a validation error cannot continue with an empty map.
-target_definition="$(
-    "${CIX_ROOT}/build-scripts/ci/plan.py" \
-        --target "${target_name}" \
-        --format shell
-)"
-eval "${target_definition}"
 
-output_dir="${CIX_ROOT}/output/${target_name}"
+# shellcheck source=builders/direct.sh
+source "${CIX_ROOT}/build-scripts/builders/direct.sh"
+# shellcheck source=builders/debian.sh
+source "${CIX_ROOT}/build-scripts/builders/debian.sh"
+
+load_target() {
+    local name="$1"
+    local target_definition
+
+    TARGET=()
+    TARGET_FILES=()
+    TARGET_REQUIRED_FILES=()
+    TARGET_SOURCE_EXCLUDES=()
+    TARGET_SOURCE_OVERLAYS=()
+    TARGET_BUILD_PACKAGES=()
+    # plan.py emits fixed keys and shell-quotes every YAML value. Capture its
+    # status before eval so a validation error cannot continue with an empty map.
+    target_definition="$(
+        "${CIX_ROOT}/build-scripts/ci/plan.py" \
+            --target "${name}" \
+            --format shell
+    )"
+    eval "${target_definition}"
+}
+
+run_target() {
+    local name="$1"
+    local output_dir="${CIX_ROOT}/output/${name}"
+
+    load_target "${name}"
+    case "${TARGET[builder]}" in
+        direct)
+            if ((backend_selected == 1)) && [[ "${target_name}" != all ]]; then
+                cix_die "--backend applies only to Debian package targets"
+            fi
+            cix_direct_build "${action}" "${output_dir}" "${parallel_jobs}"
+            ;;
+        debian)
+            cix_debian_build \
+                "${action}" "${output_dir}" "${parallel_jobs}" "${debian_backend}"
+            ;;
+        *)
+            cix_die "unsupported build engine: ${TARGET[builder]}"
+            ;;
+    esac
+}
 
 cix_validate_host
 
-case "${TARGET[builder]}" in
-    direct)
-        ((backend_selected == 0)) ||
-            cix_die "--backend applies only to Debian package targets"
-        # shellcheck source=builders/direct.sh
-        source "${CIX_ROOT}/build-scripts/builders/direct.sh"
-        cix_direct_build "${action}" "${output_dir}" "${parallel_jobs}"
-        ;;
-    debian)
-        # shellcheck source=builders/debian.sh
-        source "${CIX_ROOT}/build-scripts/builders/debian.sh"
-        cix_debian_build \
-            "${action}" "${output_dir}" "${parallel_jobs}" "${debian_backend}"
-        ;;
-    *)
-        cix_die "unsupported build engine: ${TARGET[builder]}"
-        ;;
-esac
+if [[ "${target_name}" == all ]]; then
+    all_plan="$(
+        "${CIX_ROOT}/build-scripts/ci/plan.py" \
+            --all \
+            --format text \
+            --mode order
+    )"
+    [[ -n "${all_plan}" ]] || cix_die "full build plan contains no targets"
+    mapfile -t all_targets < <(printf '%s\n' "${all_plan}")
+    cix_log "Run ${action} for ${#all_targets[@]} targets; Debian backend: ${debian_backend}"
+    if [[ "${action}" == clean ]]; then
+        for ((index = ${#all_targets[@]} - 1; index >= 0; index--)); do
+            run_target "${all_targets[index]}"
+        done
+    else
+        for name in "${all_targets[@]}"; do
+            run_target "${name}"
+        done
+    fi
+    cix_log "All targets ${action} complete"
+else
+    run_target "${target_name}"
+fi

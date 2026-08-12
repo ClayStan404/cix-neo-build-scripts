@@ -177,6 +177,18 @@ Description: package C runtime
             result["reasons"]["package-a"],
         )
 
+    def test_all_plan_contains_every_target_in_dependency_order(self) -> None:
+        build_map = self._dependency_fixture()
+        result = plan.create_all_plan(build_map)
+
+        self.assertEqual(result["affected"], ["package-a", "package-b"])
+        self.assertEqual(result["order"], ["package-b", "package-a"])
+        self.assertEqual(
+            result["commands"],
+            ["scripts/cix-build package-b", "scripts/cix-build package-a"],
+        )
+        self.assertEqual(result["reasons"]["package-a"], ["full build requested"])
+
     def test_runtime_depends_does_not_create_build_edge(self) -> None:
         build_map = self._dependency_fixture()
         graph = plan.build_dependency_graph(build_map)
@@ -356,6 +368,19 @@ Description: package C runtime
                     "description": "firmware",
                     "builder": "firmware",
                     "flow": "payload",
+                },
+            )
+
+    def test_all_target_name_is_reserved(self) -> None:
+        with self.assertRaisesRegex(plan.PlanError, "reserved"):
+            plan._target_from_mapping(
+                "all",
+                {
+                    "description": "reserved target",
+                    "builder": "direct",
+                    "flow": "kernel-worktree",
+                    "source": "sources/linux",
+                    "debian": "debian/kernel",
                 },
             )
 
