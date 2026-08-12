@@ -144,7 +144,7 @@ starting, so a persistent Jenkins workspace cannot publish stale packages.
 
 Direct kernel flows, local `dpkg-buildpackage`, and sbuild use compiler wrappers
 and share the host cache at
-`~/.cache/cix-neo-sbuild/ccache`.
+`~/.cache/cix-neo-sbuild/ccache`, with a shared 20 GB size limit.
 Isolated sbuild sessions also share downloaded Debian archives at
 `~/.cache/cix-neo-sbuild/apt-archives`; package installation still happens in
 the disposable chroot, but unchanged dependencies are not downloaded again.

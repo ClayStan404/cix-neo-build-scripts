@@ -15,6 +15,7 @@ mirror="${CIX_SBUILD_MIRROR:-https://mirrors.ustc.edu.cn/debian}"
 tarball="${CIX_SBUILD_CHROOT:-}"
 tmpdir_root="${CIX_SBUILD_TMPDIR_ROOT:-/var/tmp/cix-neo-sbuild}"
 readonly ccache_dir="${HOME}/.cache/cix-neo-sbuild/ccache"
+readonly ccache_max_size=20G
 readonly apt_archives_dir="${HOME}/.cache/cix-neo-sbuild/apt-archives"
 force=0
 install_host_packages=1
@@ -87,6 +88,8 @@ prepare_ccache_dir() {
     # entries shared and writable.
     run chmod a+X -- "${parent_dirs[@]}"
     run chmod a+rwx -- "${ccache_dir}"
+    run env "CCACHE_DIR=${ccache_dir}" \
+        ccache --set-config "max_size=${ccache_max_size}"
 }
 
 prepare_apt_archives_dir() {
@@ -227,6 +230,7 @@ echo "  mirror:       ${mirror}"
 echo "  tarball:      ${tarball}"
 echo "  tmpdir:       ${tmpdir_root}"
 echo "  ccache:       ${ccache_dir}"
+echo "  ccache limit: ${ccache_max_size}"
 echo "  apt cache:    ${apt_archives_dir}"
 echo "  config:       ${script_dir}/sbuild/config.pl"
 echo

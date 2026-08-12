@@ -71,7 +71,8 @@ is confirmed.
 - Use `trixie` as the fixed build distribution. Do not derive the build
   distribution from the host OS release or expose an unused suite selector.
 - Keep compiler caches at the fixed user-scoped path
-  `~/.cache/cix-neo-sbuild/ccache`.
+  `~/.cache/cix-neo-sbuild/ccache` with a 20 GB size limit shared by local and
+  sbuild execution.
 - Introduce a Nexus selector only when a direct-build project needs to fetch
   private inputs. It is not an APT mirror or a Debian package backend setting
   and must not be propagated into standard package builds.
@@ -233,7 +234,7 @@ is confirmed.
   the upstream packaging rule's internal `dpkg-buildpackage -j1`.
 - Always enable ccache by using Debian's `/usr/lib/ccache` compiler wrappers.
   Direct kernel builds, local `dpkg-buildpackage`, and sbuild share the fixed
-  host cache at `~/.cache/cix-neo-sbuild/ccache`.
+  host cache at `~/.cache/cix-neo-sbuild/ccache` with a 20 GB size limit.
 - Reuse downloaded Debian archives across disposable sbuild sessions through
   `~/.cache/cix-neo-sbuild/apt-archives`. Keep package installation and build
   state isolated; share only the download cache.
