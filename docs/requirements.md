@@ -236,8 +236,10 @@ is confirmed.
   Direct kernel builds, local `dpkg-buildpackage`, and sbuild share the fixed
   host cache at `~/.cache/cix-neo-sbuild/ccache` with a 20 GB size limit.
 - Reuse downloaded Debian archives across disposable sbuild sessions through
-  `~/.cache/cix-neo-sbuild/apt-archives`. Keep package installation and build
-  state isolated; share only the download cache.
+  `~/.cache/cix-neo-sbuild/apt-archives`. Keep each chroot's APT working
+  directory, package installation, and build state isolated. Exchange only
+  real downloaded archives with the persistent cache; never cache sbuild's
+  generated build-dependency packages.
 - Do not declare configuration variables or CLI options until a concrete target
   consumes them.
 - Derive one workspace-root path directly from the checked-out layout. Do not

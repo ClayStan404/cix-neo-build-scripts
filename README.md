@@ -146,8 +146,10 @@ Direct kernel flows, local `dpkg-buildpackage`, and sbuild use compiler wrappers
 and share the host cache at
 `~/.cache/cix-neo-sbuild/ccache`, with a shared 20 GB size limit.
 Isolated sbuild sessions also share downloaded Debian archives at
-`~/.cache/cix-neo-sbuild/apt-archives`; package installation still happens in
-the disposable chroot, but unchanged dependencies are not downloaded again.
+`~/.cache/cix-neo-sbuild/apt-archives`. Each disposable chroot keeps its own
+APT working directory and exchanges only real downloaded archives with this
+cache; sbuild's temporary dependency packages and APT state are never shared.
+Unchanged dependencies therefore do not need to be downloaded again.
 
 The VPU DKMS package retains its runtime dependency on `cix-vpu-firmware`.
 Its `cix-vpu-driver-dev` binary package provides the userspace V4L2 controls
