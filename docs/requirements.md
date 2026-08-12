@@ -240,6 +240,9 @@ is confirmed.
   directory, package installation, and build state isolated. Exchange only
   real downloaded archives with the persistent cache; never cache sbuild's
   generated build-dependency packages.
+- Validate existing sbuild chroots before reuse and before package builds.
+  Require both the `main` and `non-free` components for Debian 13, and direct
+  users to rebuild stale chroots explicitly with `setup-sbuild --force`.
 - Do not declare configuration variables or CLI options until a concrete target
   consumes them.
 - Derive one workspace-root path directly from the checked-out layout. Do not

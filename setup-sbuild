@@ -221,6 +221,8 @@ done
 [[ ! -L "${tarball}" ]] || die "tarball path must not be a symlink: ${tarball}"
 [[ -r "${script_dir}/sbuild/config.pl" ]] ||
     die "missing sbuild config: ${script_dir}/sbuild/config.pl"
+[[ -x "${script_dir}/sbuild/validate-chroot" ]] ||
+    die "missing sbuild chroot validator: ${script_dir}/sbuild/validate-chroot"
 [[ -x "${script_dir}/setup-host" ]] ||
     die "missing host setup command: ${script_dir}/setup-host"
 command -v sudo >/dev/null || die "sudo is required"
@@ -276,6 +278,9 @@ echo
 
 if [[ -f "${tarball}" && ${force} -eq 0 ]]; then
     [[ -s "${tarball}" ]] || die "existing tarball is empty: ${tarball}"
+    "${script_dir}/sbuild/validate-chroot" \
+        "${tarball}" "${suite}" main non-free ||
+        die "incompatible chroot; rerun setup-sbuild with --force"
     log "Existing chroot tarball retained; use --force to rebuild it"
 else
     log "Create ${suite}/${architecture} chroot tarball"

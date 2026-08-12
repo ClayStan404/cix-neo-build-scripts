@@ -149,6 +149,7 @@ cix_run_sbuild() {
     local ccache_dir
     local chroot
     local config="${CIX_ROOT}/build-scripts/sbuild/config.pl"
+    local validate_chroot="${CIX_ROOT}/build-scripts/sbuild/validate-chroot"
     local tmpdir_root="${CIX_SBUILD_TMPDIR_ROOT:-/var/tmp/cix-neo-sbuild}"
     local dependency_deb
     local -a dependency_debs=()
@@ -159,8 +160,12 @@ cix_run_sbuild() {
     ccache_dir="${HOME}/.cache/cix-neo-sbuild/ccache"
 
     [[ -f "${config}" ]] || cix_die "sbuild configuration is missing: ${config}"
+    [[ -x "${validate_chroot}" ]] ||
+        cix_die "sbuild chroot validator is missing: ${validate_chroot}"
     [[ -s "${chroot}" ]] ||
         cix_die "sbuild chroot is missing; run build-scripts/setup-sbuild: ${chroot}"
+    "${validate_chroot}" "${chroot}" "${CIX_SUITE}" main non-free ||
+        cix_die "incompatible sbuild chroot; run build-scripts/setup-sbuild --force"
     [[ -d "${ccache_dir}" ]] ||
         cix_die "sbuild ccache is missing; run build-scripts/setup-sbuild: ${ccache_dir}"
     [[ -d "${tmpdir_root}" ]] ||

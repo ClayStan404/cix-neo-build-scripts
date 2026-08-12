@@ -232,6 +232,9 @@ unshare tarball with `mmdebstrap`. It also provisions the persistent APT archive
 cache used by the project-owned sbuild configuration. Therefore, running
 `setup-sbuild` alone on a
 new host installs the same complete dependency set before creating the chroot.
+Both setup and package builds validate that an existing chroot enables the
+required `trixie` archive components. If a previously created chroot is no
+longer compatible, rebuild it with `setup-sbuild --force`.
 
 Use `--help` to see mirror, tarball, and rebuild overrides.
 

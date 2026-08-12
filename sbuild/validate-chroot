@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# Validate the Debian archive components required by a CIX sbuild chroot.
+set -Eeuo pipefail
+
+die() {
+    printf 'ERROR: %s\n' "$*" >&2
+    exit 1
+}
+
+(($# >= 3)) ||
+    die "usage: validate-chroot TARBALL SUITE COMPONENT..."
+
+tarball="$1"
+suite="$2"
+shift 2
+required_components=("$@")
+
+[[ -s "${tarball}" ]] || die "sbuild chroot is missing or empty: ${tarball}"
+command -v tar >/dev/null || die "required command is unavailable: tar"
+command -v unzstd >/dev/null || die "required command is unavailable: unzstd"
+
+sources="$({
+    tar --use-compress-program=unzstd -xOf \
+        "${tarball}" ./etc/apt/sources.list
+} 2>/dev/null)" ||
+    die "cannot read /etc/apt/sources.list from sbuild chroot: ${tarball}"
+
+declare -A enabled_components=()
+while read -r -a fields; do
+    ((${#fields[@]} >= 4)) || continue
+    [[ "${fields[0]}" == deb && "${fields[2]}" == "${suite}" ]] || continue
+    for component in "${fields[@]:3}"; do
+        [[ "${component}" == \#* ]] && break
+        enabled_components["${component}"]=1
+    done
+done <<< "${sources}"
+
+missing_components=()
+for component in "${required_components[@]}"; do
+    [[ -n "${enabled_components[${component}]:-}" ]] ||
+        missing_components+=("${component}")
+done
+
+((${#missing_components[@]} == 0)) ||
+    die "sbuild chroot does not enable ${suite} component(s): ${missing_components[*]}"
