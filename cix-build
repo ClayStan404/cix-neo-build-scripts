@@ -98,6 +98,33 @@ declare -a TARGET_SOURCE_EXCLUDES=()
 # shellcheck disable=SC2034
 declare -a TARGET_SOURCE_OVERLAYS=()
 
+format_duration() {
+    local total_seconds="$1"
+
+    printf '%02d:%02d:%02d' \
+        "$((total_seconds / 3600))" \
+        "$(((total_seconds % 3600) / 60))" \
+        "$((total_seconds % 60))"
+}
+
+report_exit() {
+    local exit_status="$1"
+    local elapsed
+
+    trap - EXIT
+    if ((exit_status != 0)); then
+        if [[ -n "${current_target}" ]]; then
+            elapsed="$((SECONDS - current_target_started_at))"
+            cix_log "${current_target} ${action} failed after $(format_duration "${elapsed}")" >&2
+        fi
+        if [[ "${target_name}" == all ]]; then
+            elapsed="$((SECONDS - command_started_at))"
+            cix_log "Full ${action} stopped after $(format_duration "${elapsed}")" >&2
+        fi
+    fi
+    exit "${exit_status}"
+}
+
 # shellcheck source=builders/direct.sh
 source "${CIX_ROOT}/build-scripts/builders/direct.sh"
 # shellcheck source=builders/debian.sh
@@ -126,7 +153,11 @@ load_target() {
 run_target() {
     local name="$1"
     local output_dir="${CIX_ROOT}/output/${name}"
+    local target_elapsed
 
+    current_target="${name}"
+    current_target_started_at="${SECONDS}"
+    cix_log "Start ${action}: ${name}"
     load_target "${name}"
     case "${TARGET[builder]}" in
         direct)
@@ -143,9 +174,16 @@ run_target() {
             cix_die "unsupported build engine: ${TARGET[builder]}"
             ;;
     esac
+    target_elapsed="$((SECONDS - current_target_started_at))"
+    cix_log "${name} ${action} complete in $(format_duration "${target_elapsed}")"
+    current_target=""
 }
 
 cix_validate_host
+command_started_at="${SECONDS}"
+current_target=""
+current_target_started_at=0
+trap 'report_exit "$?"' EXIT
 
 if [[ "${target_name}" == all ]]; then
     all_plan="$(
@@ -166,7 +204,10 @@ if [[ "${target_name}" == all ]]; then
             run_target "${name}"
         done
     fi
-    cix_log "All targets ${action} complete"
+    cix_log \
+        "All targets ${action} complete in $(format_duration "$((SECONDS - command_started_at))")"
 else
     run_target "${target_name}"
 fi
+
+trap - EXIT

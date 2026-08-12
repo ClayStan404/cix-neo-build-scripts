@@ -179,7 +179,10 @@ is confirmed.
 - Expose one public command: `build-scripts/cix-build TARGET|all`. Do not
   create legacy-style per-target `build-*.sh` entry points. The `all` selector
   must build every registered target in dependency order and stop on the first
-  failure.
+  failure. Report elapsed time for every target and the total elapsed time after
+  a successful full build. A failed build must report the failed target's
+  elapsed time before exiting; a failed full build must also report its total
+  elapsed time.
 - Keep `build-scripts/build-map.yaml` as the single registry for target names,
   build types, source locations, Debian metadata locations, and CI repository
   impact rules. Local builds and CI planning must read the same registry.

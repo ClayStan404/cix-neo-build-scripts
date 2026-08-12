@@ -52,7 +52,10 @@ direct host builds for all conventional Debian packages with:
 The backend selection does not change `direct` targets such as `kernel` and
 `stable-kernel`; those always execute their target-owned native build flow.
 The full build stops at the first failed target. `cix-build all clean` cleans
-targets in reverse dependency order.
+targets in reverse dependency order. Every target reports its elapsed time as
+`HH:MM:SS`, and a successful full build reports the total elapsed time. On
+failure, the command reports the failed target's elapsed time and the total
+time before stopping.
 
 The supported build host baseline is native ARM64 Debian 13. Other Debian and
 Ubuntu host releases are intentionally outside the current scope.
