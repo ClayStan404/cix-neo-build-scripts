@@ -111,34 +111,17 @@ cix_find_dsc() {
     printf '%s\n' "${dsc_files[0]}"
 }
 
-cix_run_sbuild() {
-    local dsc_file="$1"
-    local source_date_epoch="$2"
-    local build_output="$3"
-    local build_jobs="$4"
-    local ccache_dir
-    local chroot
-    local config="${CIX_ROOT}/build-scripts/sbuild/config.pl"
-    local tmpdir_root="${CIX_SBUILD_TMPDIR_ROOT:-/var/tmp/cix-neo-sbuild}"
+cix_collect_internal_dependency_debs() {
+    local result_name="$1"
+    local -n result="${result_name}"
     local candidate
     local dependency
     local dependency_spec
     local package_name
     local provider_dir
     local -a candidates=()
-    local -a extra_package_args=()
 
-    chroot="${CIX_SBUILD_CHROOT:-${HOME}/.cache/sbuild/${CIX_SUITE}-arm64-sbuild.tar.zst}"
-    chroot="$(realpath -m -- "${chroot}")"
-    ccache_dir="${HOME}/.cache/cix-neo-sbuild/ccache"
-
-    [[ -f "${config}" ]] || cix_die "sbuild configuration is missing: ${config}"
-    [[ -s "${chroot}" ]] ||
-        cix_die "sbuild chroot is missing; run build-scripts/setup-sbuild: ${chroot}"
-    [[ -d "${ccache_dir}" ]] ||
-        cix_die "sbuild ccache is missing; run build-scripts/setup-sbuild: ${ccache_dir}"
-    [[ -d "${tmpdir_root}" ]] ||
-        cix_die "sbuild temporary directory is missing; run build-scripts/setup-sbuild"
+    result=()
 
     for dependency_spec in "${TARGET_BUILD_PACKAGES[@]}"; do
         dependency="${dependency_spec%%=*}"
@@ -154,7 +137,38 @@ cix_run_sbuild() {
         )
         ((${#candidates[@]} == 1)) ||
             cix_die "expected one built ${dependency} package in ${provider_dir}; found ${#candidates[@]}"
-        extra_package_args+=(--extra-package="${candidates[0]}")
+        result+=("${candidates[0]}")
+    done
+}
+
+cix_run_sbuild() {
+    local dsc_file="$1"
+    local source_date_epoch="$2"
+    local build_output="$3"
+    local build_jobs="$4"
+    local ccache_dir
+    local chroot
+    local config="${CIX_ROOT}/build-scripts/sbuild/config.pl"
+    local tmpdir_root="${CIX_SBUILD_TMPDIR_ROOT:-/var/tmp/cix-neo-sbuild}"
+    local dependency_deb
+    local -a dependency_debs=()
+    local -a extra_package_args=()
+
+    chroot="${CIX_SBUILD_CHROOT:-${HOME}/.cache/sbuild/${CIX_SUITE}-arm64-sbuild.tar.zst}"
+    chroot="$(realpath -m -- "${chroot}")"
+    ccache_dir="${HOME}/.cache/cix-neo-sbuild/ccache"
+
+    [[ -f "${config}" ]] || cix_die "sbuild configuration is missing: ${config}"
+    [[ -s "${chroot}" ]] ||
+        cix_die "sbuild chroot is missing; run build-scripts/setup-sbuild: ${chroot}"
+    [[ -d "${ccache_dir}" ]] ||
+        cix_die "sbuild ccache is missing; run build-scripts/setup-sbuild: ${ccache_dir}"
+    [[ -d "${tmpdir_root}" ]] ||
+        cix_die "sbuild temporary directory is missing; run build-scripts/setup-sbuild"
+
+    cix_collect_internal_dependency_debs dependency_debs
+    for dependency_deb in "${dependency_debs[@]}"; do
+        extra_package_args+=(--extra-package="${dependency_deb}")
     done
 
     cix_log "Build ${TARGET[description]} with sbuild"
@@ -172,6 +186,31 @@ cix_run_sbuild() {
             "${dsc_file}"
 }
 
+cix_install_local_internal_dependencies() {
+    local candidate
+    local package_name
+    local package_version
+    local -a apt_sources=()
+    local -a dependency_debs=()
+    local -a install_requests=()
+
+    ((${#TARGET_BUILD_PACKAGES[@]} > 0)) || return 0
+    cix_require_command apt-get dpkg-deb sudo
+    cix_collect_internal_dependency_debs dependency_debs
+
+    for candidate in "${dependency_debs[@]}"; do
+        apt_sources+=(--with-source="${candidate}")
+        package_name="$(dpkg-deb -f "${candidate}" Package)"
+        package_version="$(dpkg-deb -f "${candidate}" Version)"
+        install_requests+=("${package_name}=${package_version}")
+    done
+
+    cix_log "Install locally built dependencies for ${TARGET[description]}"
+    sudo DEBIAN_FRONTEND=noninteractive \
+        apt-get "${apt_sources[@]}" install -y --no-install-recommends \
+        "${install_requests[@]}"
+}
+
 cix_run_local_dpkg() (
     local source_tree="$1"
     local source_date_epoch="$2"
@@ -183,6 +222,7 @@ cix_run_local_dpkg() (
     local -a artifacts=()
 
     work_root="$(dirname "${source_tree}")"
+    cix_install_local_internal_dependencies
     cix_prepare_host_ccache
     cix_log "Build ${TARGET[description]} locally with dpkg-buildpackage"
     (

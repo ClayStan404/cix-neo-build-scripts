@@ -70,6 +70,7 @@ Build-Depends: debhelper-compat (= 13)
 
 Package: package-b-dev
 Architecture: any
+Depends: package-b-runtime
 Description: package B development files
  Test package B.
 
@@ -283,48 +284,66 @@ Description: package C runtime
         graph = plan.build_dependency_graph(build_map)
         target = build_map.targets["package-a"]
         packages = {
-            f"{package}={dependency}"
-            for dependency in graph.forward[target.name]
-            for package in graph.target_packages[dependency]
+            f"{package}={provider}"
+            for package, provider in plan.build_environment_packages(
+                target.name, graph
+            ).items()
         }
-
         shell = plan.target_shell(target, packages)
         self.assertIn(
             "TARGET_BUILD_PACKAGES=(package-b-dev=package-b package-b-runtime=package-b)",
             shell,
         )
 
-    def test_target_shell_includes_transitive_build_package_sets(self) -> None:
+    def test_target_shell_excludes_dependencies_used_only_to_build_a_provider(
+        self,
+    ) -> None:
         build_map = self._dependency_fixture(transitive=True)
         graph = plan.build_dependency_graph(build_map)
         target = build_map.targets["package-a"]
         packages = {
-            f"{package}={dependency}"
-            for dependency in plan.build_environment_closure(target.name, graph)
-            for package in graph.target_packages[dependency]
+            f"{package}={provider}"
+            for package, provider in plan.build_environment_packages(
+                target.name, graph
+            ).items()
         }
 
         shell = plan.target_shell(target, packages)
         self.assertIn("package-b-dev=package-b", shell)
         self.assertIn("package-b-runtime=package-b", shell)
-        self.assertIn("package-c-dev=package-c", shell)
-        self.assertIn("package-c-runtime=package-c", shell)
+        self.assertNotIn("package-c-dev=package-c", shell)
+        self.assertNotIn("package-c-runtime=package-c", shell)
 
     def test_target_shell_includes_runtime_closure_of_build_packages(self) -> None:
         build_map = self._dependency_fixture(runtime_transitive=True)
         graph = plan.build_dependency_graph(build_map)
         target = build_map.targets["package-a"]
         packages = {
-            f"{package}={dependency}"
-            for dependency in plan.build_environment_closure(target.name, graph)
-            for package in graph.target_packages[dependency]
+            f"{package}={provider}"
+            for package, provider in plan.build_environment_packages(
+                target.name, graph
+            ).items()
         }
 
         shell = plan.target_shell(target, packages)
         self.assertEqual(graph.forward["package-b"], frozenset())
-        self.assertEqual(graph.install_forward["package-b"], frozenset({"package-c"}))
-        self.assertIn("package-c-dev=package-c", shell)
+        self.assertEqual(
+            graph.package_dependencies["package-b-runtime"],
+            frozenset({"package-c-runtime"}),
+        )
+        self.assertNotIn("package-c-dev=package-c", shell)
         self.assertIn("package-c-runtime=package-c", shell)
+
+    def test_all_plan_orders_runtime_prerequisites_for_build_dependencies(
+        self,
+    ) -> None:
+        build_map = self._dependency_fixture(runtime_transitive=True)
+        result = plan.create_all_plan(build_map)
+
+        self.assertLess(
+            result["order"].index("package-c"),
+            result["order"].index("package-a"),
+        )
 
     def test_direct_target_can_provide_a_build_package(self) -> None:
         target = plan._target_from_mapping(

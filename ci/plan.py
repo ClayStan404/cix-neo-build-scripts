@@ -7,10 +7,10 @@ Input consists of one change per line. Each line can be one of:
 * ``PROJECT:relative/path``;
 * a path relative to the repo workspace.
 
-The mapping file selects seed build targets. Build ordering is derived
+The mapping file selects seed build targets. Rebuild impact is derived
 exclusively from Debian Build-Depends fields, never from build scripts. Binary
-Depends and Pre-Depends are used only to make the internal package cohort
-injected into sbuild installable.
+Depends and Pre-Depends are used only to make internal build dependencies
+installable and to order complete builds from an empty output directory.
 """
 
 from __future__ import annotations
@@ -94,10 +94,9 @@ class BuildMap:
 class DependencyGraph:
     forward: Mapping[str, frozenset[str]]
     reverse: Mapping[str, frozenset[str]]
-    install_forward: Mapping[str, frozenset[str]]
     edge_packages: Mapping[tuple[str, str], frozenset[str]]
     produced_packages: Mapping[str, str]
-    target_packages: Mapping[str, frozenset[str]]
+    package_dependencies: Mapping[str, frozenset[str]]
 
 
 def _mapping(value: object, context: str) -> dict:
@@ -570,7 +569,10 @@ def target_dict(target: Target) -> dict:
     }
 
 
-def target_shell(target: Target, internal_build_packages: Iterable[str] = ()) -> str:
+def target_shell(
+    target: Target,
+    internal_build_packages: Iterable[str] = (),
+) -> str:
     values = {
         "name": target.name,
         "builder": target.builder,
@@ -639,7 +641,7 @@ def _relation_names(value: str, context: str) -> set[str]:
 
 def _parse_control(
     control_path: Path,
-) -> tuple[set[str], set[str], set[str], set[str]]:
+) -> tuple[set[str], set[str], set[str], dict[str, set[str]]]:
     try:
         from debian.deb822 import Deb822
 
@@ -658,20 +660,24 @@ def _parse_control(
     source = paragraphs[0]
     binary_packages: set[str] = set()
     provided_packages: set[str] = set()
-    runtime_dependencies: set[str] = set()
+    runtime_dependencies: dict[str, set[str]] = {}
     for paragraph in paragraphs[1:]:
         package = paragraph.get("Package")
         if package:
-            binary_packages.add(package.strip())
+            package = package.strip()
+            binary_packages.add(package)
+            runtime_dependencies[package] = set()
         provides = paragraph.get("Provides")
         if provides:
             provided_packages.update(
                 _relation_names(provides, f"Provides in {control_path}")
             )
+        if not package:
+            continue
         for field in ("Pre-Depends", "Depends"):
             value = paragraph.get(field)
             if value:
-                runtime_dependencies.update(
+                runtime_dependencies[package].update(
                     _relation_names(value, f"{field} in {control_path}")
                 )
 
@@ -695,9 +701,8 @@ def _parse_control(
 
 def build_dependency_graph(build_map: BuildMap) -> DependencyGraph:
     dependencies_by_target: dict[str, set[str]] = defaultdict(set)
-    runtime_dependencies_by_target: dict[str, set[str]] = defaultdict(set)
     provider: dict[str, str] = {}
-    target_packages: dict[str, set[str]] = {}
+    package_dependencies: dict[str, set[str]] = {}
 
     for target in build_map.targets.values():
         binary_packages = set(target.build_packages)
@@ -709,14 +714,13 @@ def build_dependency_graph(build_map: BuildMap) -> DependencyGraph:
                 control_packages,
                 provided_packages,
                 dependencies,
-                runtime_dependencies,
+                control_package_dependencies,
             ) = _parse_control(control_path)
             binary_packages.update(control_packages)
             package_identities.update(control_packages)
             package_identities.update(provided_packages)
             dependencies_by_target[target.name].update(dependencies)
-            runtime_dependencies_by_target[target.name].update(runtime_dependencies)
-        target_packages[target.name] = binary_packages
+            package_dependencies.update(control_package_dependencies)
         for package in package_identities:
             previous = provider.get(package)
             if previous and previous != target.name:
@@ -733,10 +737,6 @@ def build_dependency_graph(build_map: BuildMap) -> DependencyGraph:
         target_name: set() for target_name in build_map.targets
     }
     edge_packages: dict[tuple[str, str], set[str]] = defaultdict(set)
-    install_forward: dict[str, set[str]] = {
-        target_name: set() for target_name in build_map.targets
-    }
-
     for dependent, package_names in dependencies_by_target.items():
         for package in package_names:
             dependency = provider.get(package)
@@ -746,24 +746,15 @@ def build_dependency_graph(build_map: BuildMap) -> DependencyGraph:
             reverse[dependency].add(dependent)
             edge_packages[(dependent, dependency)].add(package)
 
-    for dependent, package_names in runtime_dependencies_by_target.items():
-        for package in package_names:
-            dependency = provider.get(package)
-            if dependency and dependency != dependent:
-                install_forward[dependent].add(dependency)
-
     frozen_forward = {key: frozenset(value) for key, value in forward.items()}
     frozen_reverse = {key: frozenset(value) for key, value in reverse.items()}
     graph = DependencyGraph(
         forward=frozen_forward,
         reverse=frozen_reverse,
-        install_forward={
-            key: frozenset(value) for key, value in install_forward.items()
-        },
         edge_packages={key: frozenset(value) for key, value in edge_packages.items()},
         produced_packages=dict(provider),
-        target_packages={
-            key: frozenset(value) for key, value in target_packages.items()
+        package_dependencies={
+            key: frozenset(value) for key, value in package_dependencies.items()
         },
     )
     topological_sort(set(build_map.targets), graph.forward)
@@ -872,29 +863,50 @@ def reverse_closure(seeds: set[str], graph: DependencyGraph) -> set[str]:
     return affected
 
 
-def dependency_closure(target: str, graph: DependencyGraph) -> set[str]:
-    dependencies: set[str] = set()
-    queue = deque(sorted(graph.forward.get(target, ())))
+def build_environment_packages(
+    target: str, graph: DependencyGraph
+) -> dict[str, str]:
+    """Return exact internal packages needed to install target Build-Depends."""
+    packages: dict[str, str] = {}
+    queue = deque(
+        sorted(
+            package
+            for dependency in graph.forward.get(target, ())
+            for package in graph.edge_packages[(target, dependency)]
+        )
+    )
     while queue:
-        dependency = queue.popleft()
-        if dependency in dependencies:
+        package = queue.popleft()
+        if package in packages:
             continue
-        dependencies.add(dependency)
-        queue.extend(sorted(graph.forward.get(dependency, ())))
-    return dependencies
+        provider = graph.produced_packages.get(package)
+        if provider is None:
+            continue
+        packages[package] = provider
+        queue.extend(
+            sorted(
+                required
+                for required in graph.package_dependencies.get(package, ())
+                if required in graph.produced_packages and required not in packages
+            )
+        )
+    return packages
 
 
-def build_environment_closure(target: str, graph: DependencyGraph) -> set[str]:
-    """Return targets whose package cohorts must be available to sbuild."""
-    dependencies = dependency_closure(target, graph)
-    queue = deque(sorted(dependencies))
-    while queue:
-        dependency = queue.popleft()
-        for required in sorted(graph.install_forward.get(dependency, ())):
-            if required not in dependencies:
-                dependencies.add(required)
-                queue.append(required)
-    return dependencies
+def build_environment_forward(
+    graph: DependencyGraph,
+) -> dict[str, frozenset[str]]:
+    """Return target edges required by a clean complete build."""
+    result: dict[str, frozenset[str]] = {}
+    for target in graph.forward:
+        dependencies = set(graph.forward[target])
+        dependencies.update(
+            provider
+            for provider in build_environment_packages(target, graph).values()
+            if provider != target
+        )
+        result[target] = frozenset(dependencies)
+    return result
 
 
 def topological_sort(nodes: set[str], forward: Mapping[str, frozenset[str]]) -> list[str]:
@@ -919,7 +931,10 @@ def topological_sort(nodes: set[str], forward: Mapping[str, frozenset[str]]) -> 
 
     if len(order) != len(nodes):
         cyclic = sorted(node for node, count in indegree.items() if count > 0)
-        raise PlanError("internal Build-Depends graph contains a cycle: " + ", ".join(cyclic))
+        raise PlanError(
+            "internal package dependency graph contains a cycle: "
+            + ", ".join(cyclic)
+        )
     return order
 
 
@@ -954,7 +969,7 @@ def create_all_plan(build_map: BuildMap) -> dict:
     """Create a dependency-ordered plan containing every build target."""
     graph = build_dependency_graph(build_map)
     targets = set(build_map.targets)
-    order = topological_sort(targets, graph.forward)
+    order = topological_sort(targets, build_environment_forward(graph))
     return {
         "changes": [],
         "seeds": sorted(targets),
@@ -1059,10 +1074,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             validate_target_paths(target, build_map.workspace)
             result = target_dict(target)
             graph = build_dependency_graph(build_map)
+            environment_packages = build_environment_packages(target.name, graph)
             internal_build_packages = sorted(
-                f"{package}={dependency}"
-                for dependency in build_environment_closure(target.name, graph)
-                for package in graph.target_packages[dependency]
+                f"{package}={provider}"
+                for package, provider in environment_packages.items()
             )
             result["internal_build_packages"] = internal_build_packages
         elif args.all:

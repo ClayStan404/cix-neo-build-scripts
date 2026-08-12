@@ -50,6 +50,15 @@ direct host builds for all conventional Debian packages with:
 ./build-scripts/cix-build all --backend local
 ```
 
+The local backend uses APT to install exact, already-built internal
+`Build-Depends` packages and their internal runtime dependencies on the host
+before invoking `dpkg-buildpackage`; it therefore requires passwordless `sudo`
+and intentionally changes the host's installed CIX packages. The required
+`.deb` files are supplied directly from their mapped `output` directories, so
+unrelated binary packages from the same source are not required or installed.
+The sbuild backend keeps these packages inside its disposable build
+environment.
+
 The backend selection does not change `direct` targets such as `kernel`,
 `stable-kernel`, and `audio-sof`; those always execute their target-owned
 native build flow.

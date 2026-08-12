@@ -62,6 +62,10 @@ is confirmed.
   required host tools and provision a clean sbuild environment directly.
 - Use an unprivileged `sbuild` unshare backend with a build chroot tarball
   created by `mmdebstrap`.
+- When the local `dpkg-buildpackage` backend is selected, install the exact
+  internal packages named by `Build-Depends`, plus their internal runtime
+  dependencies, from mapped build outputs before building a consumer. Do not
+  require or install unrelated sibling binary packages.
 - Enable Debian's `main` and `non-free` components in the sbuild chroot because
   the required CIX GStreamer feature set includes the FDK-AAC plugin.
 - Use `trixie` as the fixed build distribution. Do not derive the build
@@ -266,10 +270,13 @@ is confirmed.
 - When a changed target provides a package used by another target's build
   dependencies, include all transitive reverse build dependencies in the CI
   plan.
-- When sbuild consumes internal packages, inject the exact binary-package
-  cohorts for the complete transitive `Build-Depends` closure so isolated
-  builds never mix a private development package with an unrelated archive
-  runtime package.
+- When either Debian backend consumes internal packages, inject the exact
+  binary packages named by `Build-Depends` and recursively include their
+  internal `Pre-Depends` and `Depends`. Never inject unrelated binaries merely
+  because the same source package produces them.
+- For a complete build, order every target that provides one of those exact
+  packages before its consumer so the build succeeds from an empty output
+  directory.
 - Execute selected targets in deterministic topological order, with
   dependencies before dependents.
 - Treat unmapped non-ignored paths, a missing build executor or control file,
