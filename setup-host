@@ -66,6 +66,53 @@ command_is_available() {
         [[ -x "/usr/sbin/${command_name}" || -x "/sbin/${command_name}" ]]
 }
 
+verify_debian_build_dependencies() {
+    local dependencies
+    local missing
+    local output
+    local workspace
+    local -a controls=()
+
+    workspace="$(realpath "$(dirname "${BASH_SOURCE[0]}")/..")"
+    shopt -s nullglob
+    controls=("${workspace}"/debian/*/control)
+    shopt -u nullglob
+    ((${#controls[@]} > 0)) || return 0
+
+    dependencies="$(python3 - "${workspace}" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+from debian.deb822 import Deb822, PkgRelation
+
+relations = set()
+for control in sorted((Path(sys.argv[1]) / "debian").glob("*/control")):
+    with control.open(encoding="utf-8") as stream:
+        source = next(Deb822.iter_paragraphs(stream))
+    for field in ("Build-Depends", "Build-Depends-Arch", "Build-Depends-Indep"):
+        value = re.sub(r",\s*$", "", source.get(field, ""))
+        if not value:
+            continue
+        for group in PkgRelation.parse_relations(value):
+            names = [alternative["name"] for alternative in group]
+            if not any(name.startswith("cix-") for name in names):
+                relations.add(PkgRelation.str([group]))
+print(", ".join(sorted(relations)))
+PY
+    )"
+    [[ -n "${dependencies}" ]] || return 0
+    if ! output="$(
+        dpkg-checkbuilddeps -d "${dependencies}" "${controls[0]}" 2>&1
+    )"; then
+        [[ "${output}" == *"unmet build dependencies: "* ]] ||
+            die "cannot check external Debian Build-Depends: ${output}"
+        missing="${output#*unmet build dependencies: }"
+        die "unmet external Debian Build-Depends: ${missing}"
+    fi
+    log "All external Debian Build-Depends are installed"
+}
+
 # Keep this as the single host-package list for the project. setup-sbuild
 # invokes this script instead of maintaining another copy.
 readonly host_packages=(
@@ -171,6 +218,7 @@ readonly host_packages=(
     patchelf
     pkgconf
     python3
+    python3-build
     python3-debian
     python3-dev
     python3-installer
@@ -179,6 +227,7 @@ readonly host_packages=(
     python3-numpy-dev
     python3-ply
     python3-setuptools
+    python3-wheel
     python3-yaml
     repo
     rsync
@@ -268,6 +317,7 @@ if ((!dry_run)); then
     git lfs version >/dev/null 2>&1 || die "Git LFS is unavailable after package setup"
     python3 -c 'import installer' >/dev/null 2>&1 ||
         die "Python wheel installer module is unavailable after package setup"
+    verify_debian_build_dependencies
 fi
 
 log "CIX Neo host dependency setup complete"
