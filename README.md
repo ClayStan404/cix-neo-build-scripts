@@ -57,8 +57,9 @@ before invoking `dpkg-buildpackage`; it therefore requires passwordless `sudo`
 and intentionally changes the host's installed CIX packages. The required
 `.deb` files are supplied directly from their mapped `output` directories, so
 unrelated binary packages from the same source are not required or installed.
-The sbuild backend keeps these packages inside its disposable build
-environment.
+APT installs the exact workspace-built versions, including a downgrade when
+the host already has a newer version of the same CIX package. The sbuild
+backend keeps these packages inside its disposable build environment.
 
 The backend selection does not change `direct` targets such as `kernel`,
 `stable-kernel`, `audio-sof`, and `radxa-o6-firmware`; those always execute

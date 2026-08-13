@@ -212,8 +212,9 @@ cix_install_local_internal_dependencies() {
 
     cix_log "Install locally built dependencies for ${TARGET[description]}"
     sudo DEBIAN_FRONTEND=noninteractive \
-        apt-get "${apt_sources[@]}" install -y --no-install-recommends \
-        "${install_requests[@]}"
+        apt-get "${apt_sources[@]}" install -y \
+            --allow-downgrades --no-install-recommends \
+            "${install_requests[@]}"
 }
 
 cix_run_local_dpkg() (
