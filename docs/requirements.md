@@ -156,8 +156,11 @@ is confirmed.
   `R2024_12_12`; and `cix_bsp_release` at `cix_master`. Sync the EDK2 gitlinks
   as revision-pinned manifest projects directly in the EDK2 tree, and do not
   include the x86-only AArch64 cross-toolchain on the native ARM64 host. Keep
-  both board implementations in the current CIX EDK2 source; the build system
-  must not fetch or overlay a separate Radxa EDK2 tree at build time.
+  O6N as patches against the current CIX EDK2 source until the equivalent
+  internal changes are merged. Apply those patches only to isolated build
+  worktrees, and automatically skip them when they are already present
+  upstream. The build system must not fetch or overlay a separate Radxa EDK2
+  tree at build time.
 - Track `freedesktop_repo/mesa/drm` at branch `cix_libdrm_2.4.109_dev` under
   `sources/libdrm`.
 - Track `freedesktop_repo/mesa/libglvnd` at branch `cix_glvnd-v1.7.0_dev`
@@ -341,10 +344,12 @@ and topology files, and creates the architecture-independent
 
 The `radxa-o6-firmware` and `radxa-o6n-firmware` targets share one direct
 firmware flow that invokes the manifest-pinned CIX EDK2 and internal packaging
-scripts on ARM64 with board `O6` or `O6N`. It emits each board's flash and OCB
-images under `output/TARGET/images` and has no Debian backend. O6N has no EC,
-so its packaging must leave the EC flash region erased rather than include the
-default platform EC firmware.
+scripts on ARM64 with board `O6` or `O6N`. Temporary O6N patches live in the
+build-script repository and are applied to target-owned worktrees, leaving the
+manifest source checkouts unchanged. It emits each board's flash and OCB images
+under `output/TARGET/images` and has no Debian backend. O6N has no EC, so its
+packaging must leave the EC flash region erased rather than include the default
+platform EC firmware.
 
 ## Legacy Reference
 

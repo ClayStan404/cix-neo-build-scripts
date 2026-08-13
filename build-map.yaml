@@ -624,6 +624,8 @@ projects:
         targets: [audio-sof]
       - paths: ["builders/direct/firmware-radxa.sh"]
         targets: [radxa-o6-firmware, radxa-o6n-firmware]
+      - paths: ["patches/radxa-o6n/**"]
+        targets: [radxa-o6n-firmware]
       - paths: ["builders/debian.sh"]
         targets: [gpu-dkms, bt-dkms, vpu-dkms, vpu-firmware, npu-dkms, grub-config, alsa-conf, cix-env, cix-firmware, audio-dsp, dpu-ddk, gpu-umd, isp-umd, isp-v4l2-dkms, isp-dkms, libdrm, libglvnd, libva, ffmpeg, mesa, libcme, cix-vaapi, noe-umd, npu-umd, ai-engine, mnn, gstreamer, nnstreamer, wlan-dkms]
       - paths: ["builders/debian/payload.sh"]

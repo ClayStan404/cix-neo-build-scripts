@@ -1,0 +1,51 @@
+From 0c199580e1232ac7f590f6c35fed4e505b9dfc28 Mon Sep 17 00:00:00 2001
+From: Clay Stan <claystan97@gmail.com>
+Date: Thu, 13 Aug 2026 23:41:14 +0800
+Subject: [PATCH] Platform/CIX: package Orion O6N firmware
+
+Select the O6N platform in the Sky1 package flow and leave its absent EC flash region erased. Also avoid treating an empty board firmware directory as a set of files to copy.
+
+Test: ./build-scripts/cix-build radxa-o6n-firmware
+
+Test: ./build-scripts/cix-build radxa-o6-firmware
+Change-Id: I4dc8ef214ff72bd91dc2111b65a35a2ccd8cde75
+---
+ Platform/CIX/Sky1/PackageTool/build_and_package.sh | 11 ++++++++++-
+ 1 file changed, 10 insertions(+), 1 deletion(-)
+
+diff --git a/Platform/CIX/Sky1/PackageTool/build_and_package.sh b/Platform/CIX/Sky1/PackageTool/build_and_package.sh
+index 14e946343..92f9e7696 100755
+--- a/Platform/CIX/Sky1/PackageTool/build_and_package.sh
++++ b/Platform/CIX/Sky1/PackageTool/build_and_package.sh
+@@ -241,11 +241,17 @@ exec_cix_mkimage() {
+     fi
+ 
+     # update project specific low level firmware
+-    if [[ -e "${PATH_PROJECT}/Firmwares/" ]]; then
++    if compgen -G "${PATH_PROJECT}/Firmwares/*" >/dev/null; then
+         echo -e "${GREEN}found project specific firmware folder ${PATH_PROJECT}/Firmwares/${NORMAL}"
+         cp ${PATH_PROJECT}/Firmwares/* ${path_out_firmwares}
+     fi
+ 
++    # Orion O6N has no EC. Keep the EC flash region erased instead of
++    # packaging the default platform EC firmware.
++    if [[ "${UEFI_PROJECT}" == "O6N" ]]; then
++        cp -f "${path_out_firmwares}/dummy.bin" "${path_out_firmwares}/ec_fw.bin"
++    fi
++
+     # check bootloader1 image
+     if [[ ! -e "${path_out_firmwares}/bootloader1.img" ]]; then
+         echo "ERROR: no file ${path_out_firmwares}/bootloader1.img"
+@@ -424,6 +430,9 @@ case "$UEFI_PROJECT" in
+     UEFI_PROJECT_PATH="Platform/Radxa/Orion"
+     FASTBOOT_LOAD_TYPE="nvme"
+     ;;
++("O6N")
++    UEFI_PROJECT_PATH="Platform/Radxa/Orion"
++    ;;
+ ("android")
+     UEFI_PROJECT_PATH="Platform/CIX/Sky1"
+     UEFI_PROJECT="Merak"
+-- 
+2.47.3
+

@@ -4,26 +4,113 @@
 cix_radxa_validate_edk2_inputs() {
     local edk2_source="$1"
     local dependency
-    local -a dependencies=(
-        BaseTools/Source/C/BrotliCompress/brotli
-        CryptoPkg/Library/MbedTlsLib/mbedtls
-        CryptoPkg/Library/OpensslLib/openssl
-        MdeModulePkg/Library/BrotliCustomDecompressLib/brotli
-        MdeModulePkg/Universal/RegularExpressionDxe/oniguruma
-        MdePkg/Library/BaseFdtLib/libfdt
-        MdePkg/Library/MipiSysTLib/mipisyst
-        RedfishPkg/Library/JsonLib/jansson
-        SecurityPkg/DeviceSecurity/SpdmLib/libspdm
-        UnitTestFrameworkPkg/Library/CmockaLib/cmocka
-        UnitTestFrameworkPkg/Library/GoogleTestLib/googletest
-        UnitTestFrameworkPkg/Library/SubhookLib/subhook
-    )
 
-    for dependency in "${dependencies[@]}"; do
+    while IFS= read -r dependency; do
         git -C "${edk2_source}/${dependency}" rev-parse \
             --is-inside-work-tree >/dev/null 2>&1 ||
             cix_die "EDK2 dependency is not synced; run repo sync: ${dependency}"
-    done
+    done < <(
+        git -C "${edk2_source}" ls-files --stage |
+            awk '$1 == "160000" {print $4}'
+    )
+}
+
+cix_radxa_remove_worktree() {
+    local repository="$1"
+    local worktree="$2"
+
+    if git -C "${repository}" worktree list --porcelain |
+        awk -v worktree="${worktree}" \
+            '$1 == "worktree" && substr($0, 10) == worktree {found = 1}
+             END {exit !found}'; then
+        git -C "${repository}" worktree remove --force "${worktree}"
+    fi
+    git -C "${repository}" worktree prune
+}
+
+cix_radxa_remove_workspace() {
+    local source_root="$1"
+    local build_output="$2"
+    local work_root="${build_output}/work"
+    local work_uefi="${work_root}/uefi_release"
+
+    cix_radxa_remove_worktree \
+        "${source_root}/uefi_release/edk2" "${work_uefi}/edk2"
+    cix_radxa_remove_worktree \
+        "${source_root}/uefi_release/edk2-platforms" \
+        "${work_uefi}/edk2-platforms"
+    cix_radxa_remove_worktree \
+        "${source_root}/uefi_release/edk2-non-osi" \
+        "${work_uefi}/edk2-non-osi"
+    cix_radxa_remove_worktree \
+        "${source_root}/uefi_release/tools/acpica" \
+        "${work_uefi}/tools/acpica"
+
+    if [[ -d "${work_root}" ]]; then
+        find "${work_root}" -mindepth 1 -delete
+        rmdir "${work_root}"
+    fi
+}
+
+cix_radxa_apply_patch() {
+    local repository="$1"
+    local patch_file="$2"
+
+    if git -C "${repository}" apply --check --whitespace=nowarn "${patch_file}"; then
+        cix_log "Apply $(basename "${patch_file}")"
+        git -C "${repository}" apply --whitespace=nowarn "${patch_file}"
+    elif git -C "${repository}" apply --reverse --check \
+        --whitespace=nowarn "${patch_file}"; then
+        cix_log "Skip patch already present upstream: $(basename "${patch_file}")"
+    else
+        cix_die "firmware patch does not apply cleanly: ${patch_file}"
+    fi
+}
+
+cix_radxa_prepare_workspace() {
+    local source_root="$1"
+    local build_output="$2"
+    local platform="$3"
+    local source_uefi="${source_root}/uefi_release"
+    local work_root="${build_output}/work"
+    local work_uefi="${work_root}/uefi_release"
+    local patch_root="${CIX_ROOT}/build-scripts/patches/radxa-o6n"
+    local dependency
+    local dependency_target
+
+    cix_radxa_remove_workspace "${source_root}" "${build_output}"
+    mkdir -p -- "${work_uefi}/tools"
+
+    git -C "${source_uefi}/edk2" worktree add --detach \
+        "${work_uefi}/edk2" HEAD
+    git -C "${source_uefi}/edk2-platforms" worktree add --detach \
+        "${work_uefi}/edk2-platforms" HEAD
+    git -C "${source_uefi}/edk2-non-osi" worktree add --detach \
+        "${work_uefi}/edk2-non-osi" HEAD
+    git -C "${source_uefi}/tools/acpica" worktree add --detach \
+        "${work_uefi}/tools/acpica" HEAD
+
+    while IFS= read -r dependency; do
+        dependency_target="${work_uefi}/edk2/${dependency}"
+        if [[ -d "${dependency_target}" ]]; then
+            rmdir "${dependency_target}"
+        fi
+        mkdir -p -- "$(dirname "${dependency_target}")"
+        ln -s -- "${source_uefi}/edk2/${dependency}" "${dependency_target}"
+    done < <(
+        git -C "${source_uefi}/edk2" ls-files --stage |
+            awk '$1 == "160000" {print $4}'
+    )
+
+    ln -s -- "${source_root}/cix_bsp_release" \
+        "${work_root}/cix_bsp_release"
+
+    if [[ "${platform}" == "O6N" ]]; then
+        cix_radxa_apply_patch "${work_uefi}/edk2-platforms" \
+            "${patch_root}/0001-Platform-Radxa-add-Orion-O6N-support.patch"
+        cix_radxa_apply_patch "${work_uefi}/edk2-non-osi" \
+            "${patch_root}/0002-Platform-CIX-package-Orion-O6N-firmware.patch"
+    fi
 }
 
 cix_direct_radxa_firmware_build() (
@@ -32,7 +119,8 @@ cix_direct_radxa_firmware_build() (
     local build_output="$3"
     local build_jobs="$4"
     local firmware_source="${CIX_ROOT}/${TARGET[source]}"
-    local uefi_source="${firmware_source}/uefi_release"
+    local source_uefi="${firmware_source}/uefi_release"
+    local uefi_source="${build_output}/work/uefi_release"
     local edk2_source="${uefi_source}/edk2"
     local generated_output="${uefi_source}/output"
     local image_output="${build_output}/images"
@@ -42,26 +130,28 @@ cix_direct_radxa_firmware_build() (
 
     if [[ "${build_action}" == "clean" ]]; then
         cix_clean_artifacts "${build_output}"
+        cix_radxa_remove_workspace "${firmware_source}" "${build_output}"
         if [[ -d "${image_output}" ]]; then
             cix_log "Remove Radxa ${platform} firmware artifacts"
             find "${image_output}" -mindepth 1 -delete
         fi
-        if [[ -d "${uefi_source}/Build" ]]; then
-            cix_log "Remove generated EDK2 build files"
-            find "${uefi_source}/Build" -mindepth 0 -delete
-        fi
-        if [[ -d "${generated_output}" ]]; then
-            find "${generated_output}" -mindepth 0 -delete
-        fi
-        if [[ -d "${edk2_source}/BaseTools/Source/C/bin" ]]; then
-            make -C "${edk2_source}/BaseTools" clean
-        fi
         return 0
     fi
 
-    cix_require_command file find gcc git make python python3
-    [[ -f "${edk2_source}/edksetup.sh" ]] ||
-        cix_die "EDK2 source is missing: ${edk2_source}"
+    cix_require_command awk file find gcc git make python python3
+    [[ -f "${source_uefi}/edk2/edksetup.sh" ]] ||
+        cix_die "EDK2 source is missing: ${source_uefi}/edk2"
+    cix_radxa_validate_edk2_inputs "${source_uefi}/edk2"
+
+    cix_prepare_host_ccache
+    cix_clean_artifacts "${build_output}"
+    if [[ -d "${image_output}" ]]; then
+        find "${image_output}" -mindepth 1 -delete
+    fi
+    mkdir -p -- "${image_output}/ocb"
+    cix_radxa_prepare_workspace \
+        "${firmware_source}" "${build_output}" "${platform}"
+
     [[ -x "${package_script}" ]] ||
         cix_die "Radxa firmware package script is missing: ${package_script}"
     [[ -x "${internal_package_script}" ]] ||
@@ -75,13 +165,6 @@ cix_direct_radxa_firmware_build() (
     [[ -f "${uefi_source}/tools/acpica/Makefile" ]] ||
         cix_die "ACPICA source is missing: ${uefi_source}/tools/acpica"
     cix_radxa_validate_edk2_inputs "${edk2_source}"
-
-    cix_prepare_host_ccache
-    cix_clean_artifacts "${build_output}"
-    if [[ -d "${image_output}" ]]; then
-        find "${image_output}" -mindepth 1 -delete
-    fi
-    mkdir -p -- "${image_output}/ocb"
 
     cix_log "Build EDK2 host tools with ${build_jobs} jobs"
     make -C "${edk2_source}/BaseTools" \
@@ -130,5 +213,6 @@ cix_direct_radxa_firmware_build() (
         cp -- "${generated_output}/LinuxLoader.efi.cap" "${build_output}/"
     fi
 
+    cix_radxa_remove_workspace "${firmware_source}" "${build_output}"
     cix_log "Radxa Orion ${platform} firmware build complete"
 )

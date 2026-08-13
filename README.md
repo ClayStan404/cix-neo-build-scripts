@@ -94,11 +94,16 @@ packages them as `cix-audio-sof`.
 
 `radxa-o6-firmware` and `radxa-o6n-firmware` build the Radxa Orion O6 and O6N
 EDK2 firmware directly on the ARM64 host. Both targets use the O6 and O6N board
-support maintained in the manifest-pinned CIX EDK2 source. Repo supplies the
-three EDK2 trees, their pinned dependencies, ACPICA, and the CIX internal
-firmware payload. The shared flow publishes each board's flash and OCB images
-under its own `output/TARGET/images` directory; it does not create Debian
-packages and is not affected by `--backend`.
+support based on the manifest-pinned CIX EDK2 source. Until the corresponding
+internal changes are merged, the O6N source and packaging changes are carried
+under `build-scripts/patches/radxa-o6n`. The shared flow creates isolated Git
+worktrees under `output/TARGET/work` and applies the patches there, so repo
+checkouts remain clean. If the changes are later present upstream, the flow
+detects that and skips the patches. Repo also supplies the pinned EDK2
+dependencies, ACPICA, and the CIX internal firmware payload. The flow publishes
+each board's flash and OCB images under its own `output/TARGET/images`
+directory; it does not create Debian packages and is not affected by
+`--backend`.
 
 GPU, Bluetooth, WLAN, VPU, NPU, graphics, multimedia, firmware, boot
 configuration, ALSA configuration, and system environment targets create
