@@ -217,6 +217,7 @@ readonly host_packages=(
     patch
     patchelf
     pkgconf
+    python-is-python3
     python3
     python3-build
     python3-debian
@@ -236,6 +237,7 @@ readonly host_packages=(
     texinfo
     uidmap
     unzip
+    uuid-dev
     wayland-protocols
     x11proto-dev
     xz-utils

@@ -11,6 +11,7 @@ Build the current CIX kernel, DKMS, and boot configuration packages:
 ./build-scripts/cix-build kernel
 ./build-scripts/cix-build stable-kernel
 ./build-scripts/cix-build audio-sof
+./build-scripts/cix-build radxa-o6-firmware
 ./build-scripts/cix-build gpu-dkms
 ./build-scripts/cix-build bt-dkms
 ./build-scripts/cix-build vpu-dkms
@@ -60,8 +61,8 @@ The sbuild backend keeps these packages inside its disposable build
 environment.
 
 The backend selection does not change `direct` targets such as `kernel`,
-`stable-kernel`, and `audio-sof`; those always execute their target-owned
-native build flow.
+`stable-kernel`, `audio-sof`, and `radxa-o6-firmware`; those always execute
+their target-owned native build flow.
 The full build stops at the first failed target. `cix-build all clean` cleans
 targets in reverse dependency order. Every target reports its elapsed time as
 `HH:MM:SS`, and a successful full build reports the total elapsed time. On
@@ -87,6 +88,13 @@ manifest-pinned crosstool-NG, Newlib, and Xtensa overlay sources. The toolchain
 is cached under `output/audio-sof/toolchain` and is rebuilt when any of those
 inputs changes. It then builds the Sky1/Sky1P firmware and topology files and
 packages them as `cix-audio-sof`.
+
+`radxa-o6-firmware` builds the Radxa Orion O6 EDK2 firmware directly on the
+ARM64 host. Repo supplies the three EDK2 trees, their pinned dependencies,
+ACPICA, and the CIX internal firmware payload. The flow uses the upstream CIX
+package scripts and publishes the flash and OCB images under
+`output/radxa-o6-firmware/images`; it does not create a Debian package and is
+not affected by `--backend`.
 
 GPU, Bluetooth, WLAN, VPU, NPU, graphics, multimedia, firmware, boot
 configuration, ALSA configuration, and system environment targets create
@@ -121,11 +129,11 @@ already define their own host build commands.
 builder, source preparation flow, source checkout, Debian metadata directory,
 and repository/path impact rules. The only builders are `direct` and `debian`.
 Direct flows run project-specific tools on the native host; the current flows
-are `kernel-worktree`, `kernel-stable-tarball`, and `sof-firmware`. Debian
-source flows are `quilt`, `native`, and `payload`, independently of the
-selected sbuild/local backend. `cix-build` resolves its target from this file,
-and the CI planner reads the same data. Package names and source paths are
-therefore not duplicated in Shell dispatch tables.
+are `kernel-worktree`, `kernel-stable-tarball`, `sof-firmware`, and
+`radxa-o6-firmware`. Debian source flows are `quilt`, `native`, and `payload`,
+independently of the selected sbuild/local backend. `cix-build` resolves its
+target from this file, and the CI planner reads the same data. Package names
+and source paths are therefore not duplicated in Shell dispatch tables.
 
 The planner normally discovers produced package names from Debian `control`
 files used by the standard Debian builder. A direct target is outside that

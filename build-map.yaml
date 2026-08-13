@@ -25,6 +25,12 @@ targets:
     debian: debian/audio-sof
     build_packages: [cix-audio-sof]
 
+  radxa-o6-firmware:
+    description: Radxa Orion O6 platform firmware images
+    builder: direct
+    flow: radxa-o6-firmware
+    source: sources/radxa-o6
+
   gpu-dkms:
     description: GPU DKMS package
     builder: debian
@@ -373,6 +379,102 @@ projects:
       - paths: ["**"]
         targets: [audio-sof]
 
+  cix_opensource/release/edk2:
+    path: sources/radxa-o6/uefi_release/edk2
+    rules:
+      - paths: ["**"]
+        targets: [radxa-o6-firmware]
+
+  cix_opensource/release/edk2-non-osi:
+    path: sources/radxa-o6/uefi_release/edk2-non-osi
+    rules:
+      - paths: ["**"]
+        targets: [radxa-o6-firmware]
+
+  cix_opensource/release/edk2-platforms:
+    path: sources/radxa-o6/uefi_release/edk2-platforms
+    rules:
+      - paths: ["**"]
+        targets: [radxa-o6-firmware]
+
+  cix_private/acpica:
+    path: sources/radxa-o6/uefi_release/tools/acpica
+    rules:
+      - paths: ["**"]
+        targets: [radxa-o6-firmware]
+
+  cix_proprietary/cix_bsp_release:
+    path: sources/radxa-o6/cix_bsp_release
+    rules:
+      - paths: ["**"]
+        targets: [radxa-o6-firmware]
+
+  github_mirror/google/brotli:
+    path: sources/radxa-o6/uefi_release/edk2/BaseTools/Source/C/BrotliCompress/brotli
+    rules:
+      - paths: ["**"]
+        targets: [radxa-o6-firmware]
+
+  github_mirror/ARMmbed/mbedtls:
+    path: sources/radxa-o6/uefi_release/edk2/CryptoPkg/Library/MbedTlsLib/mbedtls
+    rules:
+      - paths: ["**"]
+        targets: [radxa-o6-firmware]
+
+  github_mirror/openssl/openssl:
+    path: sources/radxa-o6/uefi_release/edk2/CryptoPkg/Library/OpensslLib/openssl
+    rules:
+      - paths: ["**"]
+        targets: [radxa-o6-firmware]
+
+  github_mirror/kkos/oniguruma:
+    path: sources/radxa-o6/uefi_release/edk2/MdeModulePkg/Universal/RegularExpressionDxe/oniguruma
+    rules:
+      - paths: ["**"]
+        targets: [radxa-o6-firmware]
+
+  github_mirror/devicetree-org/pylibfdt:
+    path: sources/radxa-o6/uefi_release/edk2/MdePkg/Library/BaseFdtLib/libfdt
+    rules:
+      - paths: ["**"]
+        targets: [radxa-o6-firmware]
+
+  github_mirror/MIPI-Alliance/public-mipi-sys-t:
+    path: sources/radxa-o6/uefi_release/edk2/MdePkg/Library/MipiSysTLib/mipisyst
+    rules:
+      - paths: ["**"]
+        targets: [radxa-o6-firmware]
+
+  github_mirror/akheron/jansson:
+    path: sources/radxa-o6/uefi_release/edk2/RedfishPkg/Library/JsonLib/jansson
+    rules:
+      - paths: ["**"]
+        targets: [radxa-o6-firmware]
+
+  github_mirror/DMTF/libspdm:
+    path: sources/radxa-o6/uefi_release/edk2/SecurityPkg/DeviceSecurity/SpdmLib/libspdm
+    rules:
+      - paths: ["**"]
+        targets: [radxa-o6-firmware]
+
+  github_mirror/tianocore/edk2-cmocka:
+    path: sources/radxa-o6/uefi_release/edk2/UnitTestFrameworkPkg/Library/CmockaLib/cmocka
+    rules:
+      - paths: ["**"]
+        targets: [radxa-o6-firmware]
+
+  github_mirror/google/googletest:
+    path: sources/radxa-o6/uefi_release/edk2/UnitTestFrameworkPkg/Library/GoogleTestLib/googletest
+    rules:
+      - paths: ["**"]
+        targets: [radxa-o6-firmware]
+
+  github_mirror/tianocore/edk2-subhook:
+    path: sources/radxa-o6/uefi_release/edk2/UnitTestFrameworkPkg/Library/SubhookLib/subhook
+    rules:
+      - paths: ["**"]
+        targets: [radxa-o6-firmware]
+
   cix_opensource/gpu_kernel:
     path: sources/gpu-kernel
     rules:
@@ -507,11 +609,13 @@ projects:
       - paths: ["build-map.yaml", "cix-build", "builders/common.sh"]
         targets: ["*"]
       - paths: ["builders/direct.sh"]
-        targets: [kernel, stable-kernel, audio-sof]
+        targets: [kernel, stable-kernel, audio-sof, radxa-o6-firmware]
       - paths: ["builders/direct/kernel.sh"]
         targets: [kernel, stable-kernel]
       - paths: ["builders/direct/audio-sof.sh"]
         targets: [audio-sof]
+      - paths: ["builders/direct/firmware-radxa-o6.sh"]
+        targets: [radxa-o6-firmware]
       - paths: ["builders/debian.sh"]
         targets: [gpu-dkms, bt-dkms, vpu-dkms, vpu-firmware, npu-dkms, grub-config, alsa-conf, cix-env, cix-firmware, audio-dsp, dpu-ddk, gpu-umd, isp-umd, isp-v4l2-dkms, isp-dkms, libdrm, libglvnd, libva, ffmpeg, mesa, libcme, cix-vaapi, noe-umd, npu-umd, ai-engine, mnn, gstreamer, nnstreamer, wlan-dkms]
       - paths: ["builders/debian/payload.sh"]

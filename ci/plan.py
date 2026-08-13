@@ -291,6 +291,10 @@ def _target_from_mapping(name: str, entry: dict) -> Target:
             {"source", "debian"},
             {"source", "debian"},
         ),
+        ("direct", "radxa-o6-firmware"): (
+            {"source"},
+            {"source"},
+        ),
         ("debian", "quilt"): (
             {"source", "source_git", "debian"},
             {
