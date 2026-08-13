@@ -19,10 +19,11 @@ cix_direct_build() {
             cix_direct_audio_sof_build \
                 "${requested_action}" "${target_output}" "${target_jobs}"
             ;;
-        radxa-o6-firmware)
-            # shellcheck source=builders/direct/firmware-radxa-o6.sh
-            source "${CIX_ROOT}/build-scripts/builders/direct/firmware-radxa-o6.sh"
-            cix_direct_radxa_o6_firmware_build \
+        radxa-firmware)
+            # shellcheck source=builders/direct/firmware-radxa.sh
+            source "${CIX_ROOT}/build-scripts/builders/direct/firmware-radxa.sh"
+            cix_direct_radxa_firmware_build \
+                "${TARGET[board]}" \
                 "${requested_action}" "${target_output}" "${target_jobs}"
             ;;
         *)

@@ -397,21 +397,25 @@ Description: package C runtime
         self.assertEqual(target.build_packages, ("cix-audio-sof",))
         self.assertIsNone(target.control)
 
-    def test_radxa_o6_is_a_direct_firmware_flow(self) -> None:
-        target = plan._target_from_mapping(
-            "radxa-o6-firmware",
-            {
-                "description": "Radxa O6 firmware",
-                "builder": "direct",
-                "flow": "radxa-o6-firmware",
-                "source": "sources/radxa-o6",
-            },
-        )
+    def test_radxa_boards_use_the_shared_direct_firmware_flow(self) -> None:
+        for board in ("O6", "O6N"):
+            with self.subTest(board=board):
+                target = plan._target_from_mapping(
+                    f"radxa-{board.lower()}-firmware",
+                    {
+                        "description": f"Radxa {board} firmware",
+                        "builder": "direct",
+                        "flow": "radxa-firmware",
+                        "source": "sources/radxa-o6",
+                        "board": board,
+                    },
+                )
 
-        self.assertEqual(target.builder, "direct")
-        self.assertEqual(target.flow, "radxa-o6-firmware")
-        self.assertEqual(target.source, "sources/radxa-o6")
-        self.assertIsNone(target.control)
+                self.assertEqual(target.builder, "direct")
+                self.assertEqual(target.flow, "radxa-firmware")
+                self.assertEqual(target.source, "sources/radxa-o6")
+                self.assertEqual(target.board, board)
+                self.assertIsNone(target.control)
 
     def test_package_names_are_not_builder_types(self) -> None:
         with self.assertRaisesRegex(plan.PlanError, "unsupported builder/flow"):

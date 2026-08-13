@@ -151,11 +151,13 @@ is confirmed.
   `cix-sof-gcc10x-dev`, Newlib for Xtensa at `xtensa`, SOF at
   `cix-stable-v2.11-dev`, tomlc99 at `master`, and the Xtensa overlay at
   `cix-sof-gcc10.2-dev`.
-- Track the Radxa Orion O6 firmware inputs under `sources/radxa-o6`: EDK2,
-  EDK2 non-OSI, and EDK2 platforms at `cix_opensource_firmware`; ACPICA at
+- Track the Radxa Orion O6 and O6N firmware inputs under `sources/radxa-o6`:
+  EDK2, EDK2 non-OSI, and EDK2 platforms at `cix_opensource_firmware`; ACPICA at
   `R2024_12_12`; and `cix_bsp_release` at `cix_master`. Sync the EDK2 gitlinks
   as revision-pinned manifest projects directly in the EDK2 tree, and do not
-  include the x86-only AArch64 cross-toolchain on the native ARM64 host.
+  include the x86-only AArch64 cross-toolchain on the native ARM64 host. Keep
+  both board implementations in the current CIX EDK2 source; the build system
+  must not fetch or overlay a separate Radxa EDK2 tree at build time.
 - Track `freedesktop_repo/mesa/drm` at branch `cix_libdrm_2.4.109_dev` under
   `sources/libdrm`.
 - Track `freedesktop_repo/mesa/libglvnd` at branch `cix_glvnd-v1.7.0_dev`
@@ -323,7 +325,8 @@ The current build system contains these build targets:
   `npu-umd`
 - AI runtimes: `ai-engine`, `mnn`
 - System integration and firmware: `grub-config`, `alsa-conf`, `audio-dsp`,
-  `audio-sof`, `radxa-o6-firmware`, `cix-env`, `cix-firmware`
+  `audio-sof`, `radxa-o6-firmware`, `radxa-o6n-firmware`, `cix-env`,
+  `cix-firmware`
 
 The VPU DKMS package must retain its runtime dependency on
 `cix-vpu-firmware`. Its 16 proprietary `.fwb` files come from the
@@ -336,9 +339,12 @@ caches it by its manifest input revisions, builds Sky1 and Sky1P SOF firmware
 and topology files, and creates the architecture-independent
 `cix-audio-sof` Debian package.
 
-The `radxa-o6-firmware` direct flow invokes the manifest-pinned CIX EDK2 and
-internal packaging scripts on ARM64. It emits the O6 flash and OCB images under
-`output/radxa-o6-firmware/images` and has no Debian backend.
+The `radxa-o6-firmware` and `radxa-o6n-firmware` targets share one direct
+firmware flow that invokes the manifest-pinned CIX EDK2 and internal packaging
+scripts on ARM64 with board `O6` or `O6N`. It emits each board's flash and OCB
+images under `output/TARGET/images` and has no Debian backend. O6N has no EC,
+so its packaging must leave the EC flash region erased rather than include the
+default platform EC firmware.
 
 ## Legacy Reference
 

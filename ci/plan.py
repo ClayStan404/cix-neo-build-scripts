@@ -46,6 +46,7 @@ class Target:
     description: str
     builder: str
     flow: str
+    board: str | None
     version: str | None
     source: str | None
     source_git: str | None
@@ -174,6 +175,7 @@ def _target_from_mapping(name: str, entry: dict) -> Target:
     context = f"target {name}"
     allowed = {
         "builder",
+        "board",
         "build_packages",
         "build_provides",
         "debian",
@@ -202,6 +204,7 @@ def _target_from_mapping(name: str, entry: dict) -> Target:
     description = _string(entry.get("description"), f"{context} description")
     builder = _string(entry.get("builder"), f"{context} builder")
     flow = _string(entry.get("flow"), f"{context} flow")
+    board = _optional_string(entry.get("board"), f"{context} board")
     version = _optional_string(entry.get("version"), f"{context} version")
     source = _optional_relative_path(entry.get("source"), f"{context} source")
     source_git = _optional_relative_path(
@@ -291,9 +294,9 @@ def _target_from_mapping(name: str, entry: dict) -> Target:
             {"source", "debian"},
             {"source", "debian"},
         ),
-        ("direct", "radxa-o6-firmware"): (
-            {"source"},
-            {"source"},
+        ("direct", "radxa-firmware"): (
+            {"source", "board"},
+            {"source", "board"},
         ),
         ("debian", "quilt"): (
             {"source", "source_git", "debian"},
@@ -334,6 +337,7 @@ def _target_from_mapping(name: str, entry: dict) -> Target:
     required, flow_fields = schema
     parsed_fields = {
         "source": source,
+        "board": board,
         "source_git": source_git,
         "debian": debian,
         "version": version,
@@ -381,12 +385,15 @@ def _target_from_mapping(name: str, entry: dict) -> Target:
         r"[0-9]+\.[0-9]+\.[0-9]+", version
     ):
         raise PlanError(f"{context} version must use X.Y.Z: {version}")
+    if board is not None and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", board):
+        raise PlanError(f"{context} has invalid board name: {board}")
 
     return Target(
         name=name,
         description=description,
         builder=builder,
         flow=flow,
+        board=board,
         version=version,
         source=source,
         source_git=source_git,
@@ -556,6 +563,7 @@ def target_dict(target: Target) -> dict:
         "description": target.description,
         "builder": target.builder,
         "flow": target.flow,
+        "board": target.board,
         "version": target.version,
         "source": target.source,
         "source_git": target.source_git,
@@ -581,6 +589,7 @@ def target_shell(
         "name": target.name,
         "builder": target.builder,
         "flow": target.flow,
+        "board": target.board or "",
         "version": target.version or "",
         "description": target.description,
         "source": target.source or "",
