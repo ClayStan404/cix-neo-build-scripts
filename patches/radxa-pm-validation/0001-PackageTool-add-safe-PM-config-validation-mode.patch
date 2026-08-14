@@ -1,0 +1,25 @@
+diff --git a/Platform/CIX/Sky1/PackageTool/build_and_package.sh b/Platform/CIX/Sky1/PackageTool/build_and_package.sh
+index 707c9fc..fa50ce1 100755
+--- a/Platform/CIX/Sky1/PackageTool/build_and_package.sh
++++ b/Platform/CIX/Sky1/PackageTool/build_and_package.sh
+@@ -146,8 +146,14 @@ build_pmcfg(){
+     cd $pmcfg_dir
+-
+-    #compile and generate the pm config
+-    make || exit 1
+-
+-    cd -
+-
++
++    #compile and generate the pm config
++    if [[ "${CIX_PM_VALIDATION:-0}" == "1" ]]; then
++        # Keep the board's documented limits and voltage offsets unchanged;
++        # only make its existing custom PMIC section valid.
++        make CFLAGS="-Wall -Wno-overflow -DPM_PMIC_CONFIG=1" || exit 1
++    else
++        make || exit 1
++    fi
++
++    cd -
++
+     cp $pmcfg_dir/$pmcfg_file $pmcfg_target

@@ -9,6 +9,7 @@ Build one complete CIX kernel stack at a time:
 ```bash
 ./build-scripts/cix-build all-6.6
 ./build-scripts/cix-build all-7.0
+./build-scripts/cix-build pm-validation
 ```
 
 Build an individual target with the same command:
@@ -19,6 +20,8 @@ Build an individual target with the same command:
 ./build-scripts/cix-build audio-sof
 ./build-scripts/cix-build radxa-o6-firmware
 ./build-scripts/cix-build radxa-o6n-firmware
+./build-scripts/cix-build radxa-o6-pm-validation
+./build-scripts/cix-build radxa-o6n-pm-validation
 ./build-scripts/cix-build gpu-dkms
 ./build-scripts/cix-build bt-dkms
 ./build-scripts/cix-build vpu-dkms
@@ -121,6 +124,18 @@ each board's flash and OCB images under its own `output/TARGET/images`
 directory; it does not create Debian packages and is not affected by
 `--backend`.
 
+`radxa-o6-pm-validation` and `radxa-o6n-pm-validation` are deliberately kept
+outside the `all-6.6` and `all-7.0` product sets and are grouped only by the
+explicit `pm-validation` set. They build the same firmware from isolated
+worktrees, but enable the existing v3.0 custom PMIC section with the board's
+documented stock limits and voltage offsets. The flow verifies the PM config
+signature, checksum, limits, and rail fields before publishing
+`csu_pm_config_BOARD_validation.bin`. Use these images only to establish that
+the current closed firmware consumes v3 PM config; the normal firmware targets
+remain unaffected by this experiment. A successful build proves the config
+block is well formed, not that the closed firmware consumed it; that conclusion
+requires a board boot test.
+
 GPU, Bluetooth, WLAN, VPU, NPU, graphics, multimedia, firmware, boot
 configuration, ALSA configuration, and system environment targets create
 standard Debian source trees with the shared `debian` builder. Its default
@@ -161,9 +176,10 @@ set's target membership and each target's builder, source preparation flow,
 source checkout, Debian metadata directory, and repository/path impact rules.
 The only builders are `direct` and `debian`.
 Direct flows run project-specific tools on the native host; the current flows
-are `kernel-worktree`, `kernel-stable-tarball`, `sof-firmware`, and
-`radxa-firmware`. Debian source flows are `quilt`, `debian-git`, `native`, and
-`payload`, independently of the selected sbuild/local backend. `cix-build`
+are `kernel-worktree`, `kernel-stable-tarball`, `sof-firmware`,
+`radxa-firmware`, and `radxa-pm-validation`. Debian source flows are `quilt`,
+`debian-git`, `native`, and `payload`, independently of the selected
+sbuild/local backend. `cix-build`
 resolves its target from this file, and the CI planner reads the same data.
 Package names and source paths are therefore not duplicated in Shell dispatch
 tables.

@@ -184,6 +184,13 @@ is confirmed.
   worktrees, and automatically skip them when they are already present
   upstream. The build system must not fetch or overlay a separate Radxa EDK2
   tree at build time.
+- Reimplement useful performance controls from community firmware in the
+  manifest-pinned current CIX EDK2 source; do not depend on or transplant the
+  community EDK2 tree. Validate the current v3 PM configuration path before
+  adding setup controls. Keep that validation outside the 6.6 and 7.0 product
+  build sets, use the board-owned v3.0 generator, preserve its documented stock
+  limits and voltage offsets, and reject the generated block unless its version,
+  signature, checksum, PMIC scheme, limits, and rail configuration all match.
 - Track `freedesktop_repo/mesa/drm` at branch `cix_libdrm_2.4.109_dev` under
   `sources/libdrm`.
 - Track `freedesktop_repo/mesa/libglvnd` at branch `cix_glvnd-v1.7.0_dev`
@@ -386,6 +393,15 @@ manifest source checkouts unchanged. It emits each board's flash and OCB images
 under `output/TARGET/images` and has no Debian backend. O6N has no EC, so its
 packaging must leave the EC flash region erased rather than include the default
 platform EC firmware.
+
+The `radxa-o6-pm-validation` and `radxa-o6n-pm-validation` targets exercise the
+existing v3.0 custom PMIC path without changing the board's documented limits
+or voltage offsets. They are experimental direct targets grouped by the
+explicit `pm-validation` build set, are not members of either product build
+set, and publish a separately verified PM configuration block with their
+firmware images. Normal O6/O6N firmware builds do not apply the validation
+patch. Treat a board boot test as the acceptance gate for closed-firmware
+consumption; build-time binary validation alone is insufficient.
 
 ## Legacy Reference
 
