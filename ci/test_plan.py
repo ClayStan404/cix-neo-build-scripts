@@ -155,8 +155,14 @@ Description: package C runtime
 
         return self.fixture.mapping(
             {
-                "version": 6,
+                "version": 7,
                 "executor": "scripts/cix-build",
+                "build_sets": {
+                    "all-test": {
+                        "description": "Complete test build",
+                        "targets": list(targets),
+                    }
+                },
                 "targets": targets,
                 "projects": projects,
             }
@@ -178,17 +184,73 @@ Description: package C runtime
             result["reasons"]["package-a"],
         )
 
-    def test_all_plan_contains_every_target_in_dependency_order(self) -> None:
+    def test_build_set_plan_contains_declared_targets_in_dependency_order(self) -> None:
         build_map = self._dependency_fixture()
-        result = plan.create_all_plan(build_map)
+        result = plan.create_build_set_plan("all-test", build_map)
 
-        self.assertEqual(result["affected"], ["package-a", "package-b"])
+        self.assertEqual(result["build_set"], "all-test")
         self.assertEqual(result["order"], ["package-b", "package-a"])
         self.assertEqual(
             result["commands"],
             ["scripts/cix-build package-b", "scripts/cix-build package-a"],
         )
-        self.assertEqual(result["reasons"]["package-a"], ["full build requested"])
+        self.assertEqual(
+            result["reasons"]["package-a"],
+            ["build set requested: all-test"],
+        )
+
+    def test_build_set_rejects_missing_internal_dependency(self) -> None:
+        build_map = self._dependency_fixture()
+        incomplete = plan.BuildMap(
+            workspace=build_map.workspace,
+            executor=build_map.executor,
+            targets=build_map.targets,
+            build_sets={
+                "incomplete": plan.BuildSet(
+                    name="incomplete",
+                    description="Incomplete test build",
+                    targets=("package-a",),
+                ),
+                "complete": plan.BuildSet(
+                    name="complete",
+                    description="Complete test build",
+                    targets=("package-a", "package-b"),
+                ),
+            },
+            projects=build_map.projects,
+        )
+
+        with self.assertRaisesRegex(
+            plan.PlanError, "incomplete: package-a requires package-b"
+        ):
+            plan.create_build_set_plan("incomplete", incomplete)
+
+    def test_disjoint_build_sets_use_external_standard_package(self) -> None:
+        build_map = self._dependency_fixture()
+        variants = plan.BuildMap(
+            workspace=build_map.workspace,
+            executor=build_map.executor,
+            targets=build_map.targets,
+            build_sets={
+                "variant-a": plan.BuildSet(
+                    name="variant-a",
+                    description="Package A with distribution dependencies",
+                    targets=("package-a",),
+                ),
+                "variant-b": plan.BuildSet(
+                    name="variant-b",
+                    description="Private package B build",
+                    targets=("package-b",),
+                ),
+            },
+            projects=build_map.projects,
+        )
+
+        graph = plan.build_dependency_graph(variants)
+        result = plan.create_build_set_plan("variant-a", variants)
+
+        self.assertEqual(graph.forward["package-a"], frozenset())
+        self.assertEqual(result["order"], ["package-a"])
 
     def test_runtime_depends_does_not_create_build_edge(self) -> None:
         build_map = self._dependency_fixture()
@@ -328,7 +390,7 @@ Description: CIX VPU development files
         )
         build_map = self.fixture.mapping(
             {
-                "version": 6,
+                "version": 7,
                 "executor": "scripts/cix-build",
                 "targets": {
                     "package": {
@@ -427,11 +489,11 @@ Description: CIX VPU development files
         self.assertNotIn("package-c-dev=package-c", shell)
         self.assertIn("package-c-runtime=package-c", shell)
 
-    def test_all_plan_orders_runtime_prerequisites_for_build_dependencies(
+    def test_build_set_orders_runtime_prerequisites_for_build_dependencies(
         self,
     ) -> None:
         build_map = self._dependency_fixture(runtime_transitive=True)
-        result = plan.create_all_plan(build_map)
+        result = plan.create_build_set_plan("all-test", build_map)
 
         self.assertLess(
             result["order"].index("package-c"),
@@ -609,6 +671,7 @@ Description: CIX VPU development files
             workspace=build_map.workspace,
             executor=build_map.executor,
             targets=build_map.targets,
+            build_sets=build_map.build_sets,
             projects={**build_map.projects, "repo/a": replaced},
         )
 

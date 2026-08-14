@@ -227,16 +227,23 @@ is confirmed.
 
 ### Configuration
 
-- Expose one public command: `build-scripts/cix-build TARGET|all`. Do not
-  create legacy-style per-target `build-*.sh` entry points. The `all` selector
-  must build every registered target in dependency order and stop on the first
-  failure. Report elapsed time for every target and the total elapsed time after
-  a successful full build. A failed build must report the failed target's
-  elapsed time before exiting; a failed full build must also report its total
-  elapsed time.
+- Expose one public command: `build-scripts/cix-build TARGET|BUILD_SET`. Do not
+  create legacy-style per-target `build-*.sh` entry points. Provide separate
+  `all-6.6` and `all-7.0` product build sets, and reject the ambiguous bare
+  `all` selector. Each set must build its declared targets in dependency order
+  and stop on the first failure. Report elapsed time for every target and the
+  total elapsed time after a successful set build. A failed build must report
+  the failed target's elapsed time before exiting; a failed set build must also
+  report its total elapsed time.
+- Keep VPU DKMS, VPU firmware, and `cix-grub-config` in both product build
+  sets. Keep the CIX Linux 6.6 kernel and legacy CIX GStreamer target in
+  `all-6.6`. Keep the stable 7.0 kernel and the Debian Salsa-based GStreamer
+  7.0 targets in `all-7.0`; do not include the legacy GPU DKMS target because
+  Linux 7.0 uses Panthor.
 - Keep `build-scripts/build-map.yaml` as the single registry for target names,
-  build types, source locations, Debian metadata locations, and CI repository
-  impact rules. Local builds and CI planning must read the same registry.
+  product build-set membership, build types, source locations, Debian metadata
+  locations, and CI repository impact rules. Local builds and CI planning must
+  read the same registry.
 - Expose only two build models: `direct` for project-specific commands running
   on the native host, and `debian` for standard Debian source-package builds.
   Kernel and future board-firmware builds are direct flows, not builder
@@ -244,8 +251,8 @@ is confirmed.
 - Let the `debian` builder switch between `sbuild` and local
   `dpkg-buildpackage` from the public command. Keep source assembly identical
   between backends and reject the backend option for an individual direct
-  target. For `all`, apply the selected backend only to Debian targets and
-  leave direct flows unchanged.
+  target. For a product build set, apply the selected backend only to Debian
+  targets and leave direct flows unchanged.
 - Keep the backend default at `sbuild`. Select the host build explicitly with
   `cix-build TARGET --backend local`; local builds must check the package's
   `Build-Depends` and fail rather than installing dependencies implicitly.
@@ -317,9 +324,14 @@ is confirmed.
   binary packages named by `Build-Depends` and recursively include their
   internal `Pre-Depends` and `Depends`. Never inject unrelated binaries merely
   because the same source package produces them.
-- For a complete build, order every target that provides one of those exact
+- Scope internal package-provider matching to targets that share at least one
+  product build set. A standard Debian package produced only by another
+  product variant must remain an archive dependency; a private `cix-*`
+  dependency without a provider in a shared set is a configuration error.
+- For a product build set, order every target that provides one of those exact
   packages before its consumer so the build succeeds from an empty output
-  directory.
+  directory. Reject a set that omits an internal build dependency required by
+  one of its targets.
 - Execute selected targets in deterministic topological order, with
   dependencies before dependents.
 - Treat unmapped non-ignored paths, a missing build executor or control file,

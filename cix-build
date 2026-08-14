@@ -9,19 +9,26 @@ list_targets() {
     "${CIX_ROOT}/build-scripts/ci/plan.py" --list-targets --format text
 }
 
+list_build_sets() {
+    "${CIX_ROOT}/build-scripts/ci/plan.py" --list-build-sets --format text
+}
+
 usage() {
     cat <<'EOF'
-Usage: cix-build TARGET|all [build|clean] [--backend sbuild|local]
+Usage: cix-build TARGET|BUILD_SET [build|clean] [--backend sbuild|local]
        cix-build --list
 
 Options:
   --backend BACKEND      Debian package backend (default: sbuild)
-  --list                 List build targets
+  --list                 List build sets and targets
   -h, --help             Show this help
 
-Targets:
-  all                Build every target in dependency order
+Build sets:
 EOF
+    list_build_sets | while IFS=$'\t' read -r name description; do
+        printf '  %-18s %s\n' "${name}" "${description}"
+    done
+    printf '\nTargets:\n'
     list_targets | while IFS=$'\t' read -r name description; do
         printf '  %-18s %s\n' "${name}" "${description}"
     done
@@ -41,6 +48,9 @@ case "${1:-}" in
     "")
         usage >&2
         exit 2
+        ;;
+    all)
+        cix_die "all is ambiguous; choose all-6.6 or all-7.0"
         ;;
     --*)
         cix_die "unknown option: $1"
@@ -85,6 +95,14 @@ case "${debian_backend}" in
     *) cix_die "Debian backend must be sbuild or local: ${debian_backend}" ;;
 esac
 
+build_set_name=""
+while IFS=$'\t' read -r name _; do
+    if [[ "${target_name}" == "${name}" ]]; then
+        build_set_name="${name}"
+        break
+    fi
+done < <(list_build_sets)
+
 cix_require_command nproc python3 realpath
 parallel_jobs="$(nproc)"
 declare -A TARGET=()
@@ -117,9 +135,11 @@ report_exit() {
             elapsed="$((SECONDS - current_target_started_at))"
             cix_log "${current_target} ${action} failed after $(format_duration "${elapsed}")" >&2
         fi
-        if [[ "${target_name}" == all ]]; then
+        if [[ -n "${build_set_name}" ]]; then
             elapsed="$((SECONDS - command_started_at))"
-            cix_log "Full ${action} stopped after $(format_duration "${elapsed}")" >&2
+            cix_log \
+                "${build_set_name} ${action} stopped after" \
+                "$(format_duration "${elapsed}")" >&2
         fi
     fi
     exit "${exit_status}"
@@ -161,7 +181,7 @@ run_target() {
     load_target "${name}"
     case "${TARGET[builder]}" in
         direct)
-            if ((backend_selected == 1)) && [[ "${target_name}" != all ]]; then
+            if ((backend_selected == 1)) && [[ -z "${build_set_name}" ]]; then
                 cix_die "--backend applies only to Debian package targets"
             fi
             cix_direct_build "${action}" "${output_dir}" "${parallel_jobs}"
@@ -185,27 +205,31 @@ current_target=""
 current_target_started_at=0
 trap 'report_exit "$?"' EXIT
 
-if [[ "${target_name}" == all ]]; then
-    all_plan="$(
+if [[ -n "${build_set_name}" ]]; then
+    build_set_plan="$(
         "${CIX_ROOT}/build-scripts/ci/plan.py" \
-            --all \
+            --build-set "${build_set_name}" \
             --format text \
             --mode order
     )"
-    [[ -n "${all_plan}" ]] || cix_die "full build plan contains no targets"
-    mapfile -t all_targets < <(printf '%s\n' "${all_plan}")
-    cix_log "Run ${action} for ${#all_targets[@]} targets; Debian backend: ${debian_backend}"
+    [[ -n "${build_set_plan}" ]] || \
+        cix_die "${build_set_name} build plan contains no targets"
+    mapfile -t build_set_targets < <(printf '%s\n' "${build_set_plan}")
+    cix_log \
+        "Run ${action} for ${build_set_name}: ${#build_set_targets[@]} targets;" \
+        "Debian backend: ${debian_backend}"
     if [[ "${action}" == clean ]]; then
-        for ((index = ${#all_targets[@]} - 1; index >= 0; index--)); do
-            run_target "${all_targets[index]}"
+        for ((index = ${#build_set_targets[@]} - 1; index >= 0; index--)); do
+            run_target "${build_set_targets[index]}"
         done
     else
-        for name in "${all_targets[@]}"; do
+        for name in "${build_set_targets[@]}"; do
             run_target "${name}"
         done
     fi
     cix_log \
-        "All targets ${action} complete in $(format_duration "$((SECONDS - command_started_at))")"
+        "${build_set_name} ${action} complete in" \
+        "$(format_duration "$((SECONDS - command_started_at))")"
 else
     run_target "${target_name}"
 fi

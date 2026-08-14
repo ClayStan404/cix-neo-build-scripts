@@ -1,5 +1,53 @@
-version: 6
+version: 7
 executor: build-scripts/cix-build
+
+build_sets:
+  all-6.6:
+    description: Complete CIX Linux 6.6 product build
+    targets:
+      - kernel
+      - audio-sof
+      - radxa-o6-firmware
+      - radxa-o6n-firmware
+      - gpu-dkms
+      - bt-dkms
+      - vpu-dkms
+      - vpu-firmware
+      - npu-dkms
+      - grub-config
+      - alsa-conf
+      - cix-env
+      - cix-firmware
+      - audio-dsp
+      - dpu-ddk
+      - gpu-umd
+      - isp-umd
+      - libdrm
+      - libglvnd
+      - mesa
+      - libva
+      - ffmpeg
+      - libcme
+      - cix-vaapi
+      - isp-v4l2-dkms
+      - isp-dkms
+      - noe-umd
+      - npu-umd
+      - ai-engine
+      - mnn
+      - gstreamer-6.6
+      - nnstreamer
+      - wlan-dkms
+
+  all-7.0:
+    description: CIX Linux 7.0 kernel, VPU, boot, and GStreamer build
+    targets:
+      - stable-kernel
+      - vpu-dkms
+      - vpu-firmware
+      - grub-config
+      - gstreamer-base-7.0
+      - gstreamer-good-7.0
 
 targets:
   kernel:

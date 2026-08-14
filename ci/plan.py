@@ -98,10 +98,18 @@ class Project:
 
 
 @dataclass(frozen=True)
+class BuildSet:
+    name: str
+    description: str
+    targets: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class BuildMap:
     workspace: Path
     executor: str
     targets: Mapping[str, Target]
+    build_sets: Mapping[str, BuildSet]
     projects: Mapping[str, Project]
 
 
@@ -441,12 +449,12 @@ def load_build_map(
 
     root = _mapping(raw, "mapping root")
     unknown_root = sorted(
-        set(root) - {"version", "executor", "targets", "projects"}
+        set(root) - {"version", "executor", "build_sets", "targets", "projects"}
     )
     if unknown_root:
         raise PlanError(f"mapping root has unknown fields: {', '.join(unknown_root)}")
-    if root.get("version") != 6:
-        raise PlanError("mapping version must be 6")
+    if root.get("version") != 7:
+        raise PlanError("mapping version must be 7")
 
     executor = _relative_path(root.get("executor"), "executor")
 
@@ -459,6 +467,48 @@ def load_build_map(
 
     if not targets:
         raise PlanError("targets must not be empty")
+
+    build_set_data = _mapping(root.get("build_sets", {}), "build_sets")
+    build_sets: dict[str, BuildSet] = {}
+    covered_targets: set[str] = set()
+    for build_set_name, value in build_set_data.items():
+        name = _string(build_set_name, "build set name")
+        context = f"build set {name}"
+        if not re.fullmatch(r"[a-z0-9][a-z0-9+.-]*", name):
+            raise PlanError(f"invalid build set name: {name}")
+        if name == "all" or name in targets:
+            raise PlanError(
+                f"build set name conflicts with a reserved or target name: {name}"
+            )
+        entry = _mapping(value, context)
+        unknown = sorted(set(entry) - {"description", "targets"})
+        if unknown:
+            raise PlanError(
+                f"{context} has unknown fields: {', '.join(unknown)}"
+            )
+        description = _string(entry.get("description"), f"{context} description")
+        selected_targets = _string_list(entry.get("targets"), f"{context} targets")
+        if len(selected_targets) != len(set(selected_targets)):
+            raise PlanError(f"{context} targets contains duplicates")
+        unknown_targets = sorted(set(selected_targets) - set(targets))
+        if unknown_targets:
+            raise PlanError(
+                f"{context} references unknown targets: {', '.join(unknown_targets)}"
+            )
+        covered_targets.update(selected_targets)
+        build_sets[name] = BuildSet(
+            name=name,
+            description=description,
+            targets=selected_targets,
+        )
+
+    if build_sets:
+        uncovered_targets = sorted(set(targets) - covered_targets)
+        if uncovered_targets:
+            raise PlanError(
+                "targets are not assigned to a build set: "
+                + ", ".join(uncovered_targets)
+            )
 
     project_data = _mapping(root.get("projects"), "projects")
     projects: dict[str, Project] = {}
@@ -537,6 +587,7 @@ def load_build_map(
         workspace=workspace,
         executor=executor,
         targets=targets,
+        build_sets=build_sets,
         projects=projects,
     )
 
@@ -769,6 +820,17 @@ def _parse_control(
     )
 
 
+def _targets_share_build_set(
+    dependent: str, dependency: str, build_map: BuildMap
+) -> bool:
+    if not build_map.build_sets:
+        return True
+    return any(
+        dependent in build_set.targets and dependency in build_set.targets
+        for build_set in build_map.build_sets.values()
+    )
+
+
 def build_dependency_graph(build_map: BuildMap) -> DependencyGraph:
     dependencies_by_target: dict[str, set[str]] = defaultdict(set)
     provider: dict[str, str] = {}
@@ -821,6 +883,13 @@ def build_dependency_graph(build_map: BuildMap) -> DependencyGraph:
         for package in package_names:
             dependency = provider.get(package)
             if not dependency or dependency == dependent:
+                continue
+            if not _targets_share_build_set(dependent, dependency, build_map):
+                if package.startswith("cix-"):
+                    raise PlanError(
+                        f"target {dependent} requires internal package {package} from "
+                        f"{dependency}, but they do not share a build set"
+                    )
                 continue
             forward[dependent].add(dependency)
             reverse[dependency].add(dependent)
@@ -944,7 +1013,7 @@ def reverse_closure(seeds: set[str], graph: DependencyGraph) -> set[str]:
 
 
 def build_environment_packages(
-    target: str, graph: DependencyGraph
+    target: str, graph: DependencyGraph, build_map: BuildMap | None = None
 ) -> dict[str, str]:
     """Return exact internal packages needed to install target Build-Depends."""
     packages: dict[str, str] = {}
@@ -962,6 +1031,15 @@ def build_environment_packages(
         provider = graph.produced_packages.get(package)
         if provider is None:
             continue
+        if build_map is not None and not _targets_share_build_set(
+            target, provider, build_map
+        ):
+            if package.startswith("cix-"):
+                raise PlanError(
+                    f"target {target} requires internal runtime package {package} "
+                    f"from {provider}, but they do not share a build set"
+                )
+            continue
         packages[package] = provider
         queue.extend(
             sorted(
@@ -974,7 +1052,7 @@ def build_environment_packages(
 
 
 def build_environment_forward(
-    graph: DependencyGraph,
+    graph: DependencyGraph, build_map: BuildMap | None = None
 ) -> dict[str, frozenset[str]]:
     """Return target edges required by a clean complete build."""
     result: dict[str, frozenset[str]] = {}
@@ -982,7 +1060,9 @@ def build_environment_forward(
         dependencies = set(graph.forward[target])
         dependencies.update(
             provider
-            for provider in build_environment_packages(target, graph).values()
+            for provider in build_environment_packages(
+                target, graph, build_map
+            ).values()
             if provider != target
         )
         result[target] = frozenset(dependencies)
@@ -1045,12 +1125,30 @@ def create_plan(changes: Iterable[str], build_map: BuildMap) -> dict:
     }
 
 
-def create_all_plan(build_map: BuildMap) -> dict:
-    """Create a dependency-ordered plan containing every build target."""
+def create_build_set_plan(build_set_name: str, build_map: BuildMap) -> dict:
+    """Create a dependency-ordered plan for one declared product build set."""
+    build_set = build_map.build_sets.get(build_set_name)
+    if build_set is None:
+        raise PlanError(f"unknown build set: {build_set_name}")
+
     graph = build_dependency_graph(build_map)
-    targets = set(build_map.targets)
-    order = topological_sort(targets, build_environment_forward(graph))
+    forward = build_environment_forward(graph, build_map)
+    targets = set(build_set.targets)
+    missing_dependencies = {
+        target: sorted(forward.get(target, frozenset()) - targets)
+        for target in sorted(targets)
+        if forward.get(target, frozenset()) - targets
+    }
+    if missing_dependencies:
+        details = "; ".join(
+            f"{target} requires {', '.join(dependencies)}"
+            for target, dependencies in missing_dependencies.items()
+        )
+        raise PlanError(f"build set {build_set_name} is incomplete: {details}")
+
+    order = topological_sort(targets, forward)
     return {
+        "build_set": build_set_name,
         "changes": [],
         "seeds": sorted(targets),
         "affected": sorted(targets),
@@ -1059,7 +1157,8 @@ def create_all_plan(build_map: BuildMap) -> dict:
             shlex.join((build_map.executor, target)) for target in order
         ],
         "reasons": {
-            target: ["full build requested"] for target in sorted(targets)
+            target: [f"build set requested: {build_set_name}"]
+            for target in sorted(targets)
         },
     }
 
@@ -1103,9 +1202,14 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="list target names and descriptions",
     )
     selection.add_argument(
-        "--all",
+        "--list-build-sets",
         action="store_true",
-        help="create a dependency-ordered plan containing every target",
+        help="list product build sets and descriptions",
+    )
+    selection.add_argument(
+        "--build-set",
+        metavar="NAME",
+        help="create a dependency-ordered plan for one product build set",
     )
     parser.add_argument(
         "--format",
@@ -1125,7 +1229,12 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_args(argv)
     try:
-        if (args.target or args.list_targets or args.all) and (
+        if (
+            args.target
+            or args.list_targets
+            or args.list_build_sets
+            or args.build_set
+        ) and (
             args.check or args.changes
         ):
             raise PlanError("target selection cannot be combined with changes or --check")
@@ -1134,7 +1243,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.format == "shell" and not args.target:
             raise PlanError("shell output requires --target")
 
-        inspect_only = bool(args.target or args.list_targets)
+        inspect_only = bool(args.target or args.list_targets or args.list_build_sets)
         build_map = load_build_map(
             args.map_path.resolve(),
             args.workspace.resolve(),
@@ -1147,6 +1256,17 @@ def main(argv: Sequence[str] | None = None) -> int:
                     for name in sorted(build_map.targets)
                 ]
             }
+        elif args.list_build_sets:
+            result = {
+                "build_sets": [
+                    {
+                        "name": build_set.name,
+                        "description": build_set.description,
+                        "targets": list(build_set.targets),
+                    }
+                    for build_set in build_map.build_sets.values()
+                ]
+            }
         elif args.target:
             target = build_map.targets.get(args.target)
             if target is None:
@@ -1154,19 +1274,25 @@ def main(argv: Sequence[str] | None = None) -> int:
             validate_target_paths(target, build_map.workspace)
             result = target_dict(target)
             graph = build_dependency_graph(build_map)
-            environment_packages = build_environment_packages(target.name, graph)
+            environment_packages = build_environment_packages(
+                target.name, graph, build_map
+            )
             internal_build_packages = sorted(
                 f"{package}={provider}"
                 for package, provider in environment_packages.items()
             )
             result["internal_build_packages"] = internal_build_packages
-        elif args.all:
-            result = create_all_plan(build_map)
+        elif args.build_set:
+            result = create_build_set_plan(args.build_set, build_map)
         else:
             if args.check:
                 graph = build_dependency_graph(build_map)
                 result = {
                     "status": "ok",
+                    "build_sets": {
+                        name: list(build_set.targets)
+                        for name, build_set in build_map.build_sets.items()
+                    },
                     "projects": sorted(build_map.projects),
                     "targets": sorted(build_map.targets),
                     "internal_packages": dict(sorted(graph.produced_packages.items())),
@@ -1188,6 +1314,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     elif args.format == "text" and args.list_targets:
         for target in result["targets"]:
             print(f"{target['name']}\t{target['description']}")
+    elif args.format == "text" and args.list_build_sets:
+        for build_set in result["build_sets"]:
+            print(f"{build_set['name']}\t{build_set['description']}")
     elif args.format == "text" and args.target:
         for key, value in result.items():
             print(f"{key}: {value}")

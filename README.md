@@ -4,10 +4,16 @@ This directory contains the CIX Neo build command and its small set of shared
 build engines. It does not use the legacy build-system CLI, per-module script
 naming, or framework contract.
 
-Build the current CIX kernel, DKMS, and boot configuration packages:
+Build one complete CIX kernel stack at a time:
 
 ```bash
-./build-scripts/cix-build all
+./build-scripts/cix-build all-6.6
+./build-scripts/cix-build all-7.0
+```
+
+Build an individual target with the same command:
+
+```bash
 ./build-scripts/cix-build kernel
 ./build-scripts/cix-build stable-kernel
 ./build-scripts/cix-build audio-sof
@@ -46,12 +52,20 @@ Build the current CIX kernel, DKMS, and boot configuration packages:
 ./build-scripts/cix-build wlan-dkms
 ```
 
-`all` builds every registered target in the dependency order calculated from
-Debian `Build-Depends`. The default Debian package backend is `sbuild`. Select
-direct host builds for all conventional Debian packages with:
+`all-6.6` builds the CIX Linux 6.6 kernel and the complete driver, firmware,
+userspace, multimedia, AI, and board-firmware target set. `all-7.0` builds the
+CIX-patched stable 7.0 kernel, VPU DKMS and firmware packages,
+`cix-grub-config`, and the Debian Salsa-based GStreamer 7.0 packages. VPU and
+GRUB targets are intentionally shared by both sets. A bare `all` is rejected
+because it would mix the two kernel stacks.
+
+Each set is built in the dependency order calculated from Debian
+`Build-Depends`. The default Debian package backend is `sbuild`. Select direct
+host builds for conventional Debian packages in either set with:
 
 ```bash
-./build-scripts/cix-build all --backend local
+./build-scripts/cix-build all-6.6 --backend local
+./build-scripts/cix-build all-7.0 --backend local
 ```
 
 The local backend uses APT to install exact, already-built internal
@@ -68,11 +82,11 @@ The backend selection does not change `direct` targets such as `kernel`,
 `stable-kernel`, `audio-sof`, `radxa-o6-firmware`, and `radxa-o6n-firmware`;
 those always execute
 their target-owned native build flow.
-The full build stops at the first failed target. `cix-build all clean` cleans
-targets in reverse dependency order. Every target reports its elapsed time as
-`HH:MM:SS`, and a successful full build reports the total elapsed time. On
-failure, the command reports the failed target's elapsed time and the total
-time before stopping.
+A build set stops at the first failed target. `cix-build all-6.6 clean` and
+`cix-build all-7.0 clean` clean their targets in reverse dependency order.
+Every target reports its elapsed time as `HH:MM:SS`, and a successful set
+reports the total elapsed time. On failure, the command reports the failed
+target's elapsed time and the total time before stopping.
 
 The supported build host baseline is native ARM64 Debian 13. Other Debian and
 Ubuntu host releases are intentionally outside the current scope.
@@ -123,22 +137,29 @@ Debian metadata repository.
 ```
 
 The local backend requires the package's `Build-Depends` to already be
-installed on the host. This also applies to `cix-build all --backend local`:
-the command builds in dependency order but does not install private build
-dependencies into the host. The sbuild backend resolves dependencies inside
-its clean build environment. It also exposes previously built packages from
-`output/*` through sbuild's temporary package archive. An internal package
-named by the target's transitive `Build-Depends` closure selects the output set
-that supplied it. The non-debug binary packages from those source builds are
+installed on the host. This also applies to a build set using
+`--backend local`: the command builds in dependency order but does not install
+private build dependencies into the host. The sbuild backend resolves
+dependencies inside its clean build environment. It also exposes previously
+built packages from `output/*` through sbuild's temporary package archive. An
+internal package named by the target's transitive `Build-Depends` closure
+selects the output set that supplied it. The non-debug binary packages from
+those source builds are
 published together so APT can resolve their package-level `Depends`; output
 sets from unrelated targets remain excluded. A Lintian policy violation fails
 the sbuild invocation, even when package compilation itself succeeded.
+Internal package matching is scoped by build-set membership. For example, the
+6.6 targets obtain the standard GStreamer base development package from
+Debian, while the 7.0 GStreamer target consumes the patched base package built
+by `gstreamer-base-7.0`. A private `cix-*` dependency whose provider does not
+share a build set is rejected as a configuration error.
 `--backend` is rejected for individual `direct` targets because those flows
 already define their own host build commands.
 
-`build-map.yaml` is the single target registry. It declares each target's
-builder, source preparation flow, source checkout, Debian metadata directory,
-and repository/path impact rules. The only builders are `direct` and `debian`.
+`build-map.yaml` is the single target and build-set registry. It declares each
+set's target membership and each target's builder, source preparation flow,
+source checkout, Debian metadata directory, and repository/path impact rules.
+The only builders are `direct` and `debian`.
 Direct flows run project-specific tools on the native host; the current flows
 are `kernel-worktree`, `kernel-stable-tarball`, `sof-firmware`, and
 `radxa-firmware`. Debian source flows are `quilt`, `debian-git`, `native`, and
