@@ -191,6 +191,17 @@ is confirmed.
   build sets, use the board-owned v3.0 generator, preserve its documented stock
   limits and voltage offsets, and reject the generated block unless its version,
   signature, checksum, PMIC scheme, limits, and rail configuration all match.
+  First validate external OPP handling with the unmodified stock OPP tables
+  shipped by the current CIX PackageTool. Keep this stock-table image separate
+  from product builds and reject it unless all domain headers, entries, unused
+  slots, and the unconfigured thirteenth domain match exactly. Do not introduce
+  higher frequencies or new voltage points until the stock-table image has
+  passed a recoverable board test.
+- Track internal `tools/cix_binary` at commit
+  `cf4388565546e14ab4c566e55495cd6757edd92e` under `sources/cix-binary` for
+  the ARM64 `pmtool` validation utility. Publish only the checked executable as
+  a direct build artifact; verify its architecture and SHA-256, and never run
+  its privileged hardware commands automatically.
 - Track `freedesktop_repo/mesa/drm` at branch `cix_libdrm_2.4.109_dev` under
   `sources/libdrm`.
 - Track `freedesktop_repo/mesa/libglvnd` at branch `cix_glvnd-v1.7.0_dev`
@@ -211,7 +222,7 @@ is confirmed.
   branch `master` under `build-scripts`.
 - Track the private GitHub repository `ClayStan404/cix-neo-debian` at branch
   `master` under `debian`.
-- The current manifest contains exactly forty-seven projects: forty-five source
+- The current manifest contains exactly forty-eight projects: forty-six source
   input repositories, the build scripts, and the Debian packaging metadata.
   Eleven revision-pinned dependency projects populate EDK2's twelve gitlink
   paths; Brotli is reused at two paths.
@@ -402,6 +413,14 @@ set, and publish a separately verified PM configuration block with their
 firmware images. Normal O6/O6N firmware builds do not apply the validation
 patch. Treat a board boot test as the acceptance gate for closed-firmware
 consumption; build-time binary validation alone is insufficient.
+
+The `radxa-o6-opp-validation` target extends only the O6 experiment with the
+stock 12-domain OPP tables supplied by CIX PackageTool. Its verifier compares
+every generated table field and confirms that no additional domain is enabled.
+The `pmtool` direct target publishes the exact manifest-pinned ARM64 inspection
+binary used to capture the effective firmware OPP table on the board. Neither
+target is included in a product build set, installs software, invokes `sudo`,
+or flashes firmware.
 
 ## Legacy Reference
 

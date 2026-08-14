@@ -71,12 +71,13 @@ cix_radxa_prepare_workspace() {
     local source_root="$1"
     local build_output="$2"
     local platform="$3"
-    local pm_validation="$4"
+    local validation_profile="$4"
     local source_uefi="${source_root}/uefi_release"
     local work_root="${build_output}/work"
     local work_uefi="${work_root}/uefi_release"
     local patch_root="${CIX_ROOT}/build-scripts/patches/radxa-o6n"
     local pm_patch_root="${CIX_ROOT}/build-scripts/patches/radxa-pm-validation"
+    local opp_patch_root="${CIX_ROOT}/build-scripts/patches/radxa-opp-validation"
     local dependency
     local dependency_target
 
@@ -114,9 +115,14 @@ cix_radxa_prepare_workspace() {
             "${patch_root}/0002-Platform-CIX-package-Orion-O6N-firmware.patch"
     fi
 
-    if [[ "${pm_validation}" == "true" ]]; then
+    if [[ "${validation_profile}" != "none" ]]; then
         cix_radxa_apply_patch "${work_uefi}/edk2-non-osi" \
             "${pm_patch_root}/0001-PackageTool-add-safe-PM-config-validation-mode.patch"
+    fi
+
+    if [[ "${validation_profile}" == "stock-opp" ]]; then
+        cix_radxa_apply_patch "${work_uefi}/edk2-platforms" \
+            "${opp_patch_root}/0001-Platform-Radxa-enable-stock-O6-OPP-table.patch"
     fi
 }
 
@@ -125,7 +131,7 @@ cix_direct_radxa_firmware_build() (
     local build_action="$2"
     local build_output="$3"
     local build_jobs="$4"
-    local pm_validation=false
+    local validation_profile=none
     local firmware_source="${CIX_ROOT}/${TARGET[source]}"
     local source_uefi="${firmware_source}/uefi_release"
     local uefi_source="${build_output}/work/uefi_release"
@@ -137,7 +143,9 @@ cix_direct_radxa_firmware_build() (
     local internal_package_script="${firmware_source}/cix_bsp_release/sky1/package_internal_flash_binary.sh"
 
     if [[ "${TARGET[flow]}" == "radxa-pm-validation" ]]; then
-        pm_validation=true
+        validation_profile=pmic
+    elif [[ "${TARGET[flow]}" == "radxa-opp-validation" ]]; then
+        validation_profile=stock-opp
     fi
 
     if [[ "${build_action}" == "clean" ]]; then
@@ -162,7 +170,8 @@ cix_direct_radxa_firmware_build() (
     fi
     mkdir -p -- "${image_output}/ocb"
     cix_radxa_prepare_workspace \
-        "${firmware_source}" "${build_output}" "${platform}" "${pm_validation}"
+        "${firmware_source}" "${build_output}" "${platform}" \
+        "${validation_profile}"
 
     [[ -x "${package_script}" ]] ||
         cix_die "Radxa firmware package script is missing: ${package_script}"
@@ -186,7 +195,7 @@ cix_direct_radxa_firmware_build() (
     make -C "${uefi_source}/tools/acpica" -j"${build_jobs}"
 
     cix_log "Build Radxa Orion ${platform} firmware with ${build_jobs} jobs"
-    if [[ "${pm_validation}" == "true" ]]; then
+    if [[ "${validation_profile}" != "none" ]]; then
         (
             cd "${uefi_source}" || exit
             CIX_PM_VALIDATION=1 NETWORK=open \
@@ -215,15 +224,17 @@ cix_direct_radxa_firmware_build() (
             cix_die "Radxa ${platform} firmware artifact is missing: ${artifact}"
     done
 
-    if [[ "${pm_validation}" == "true" ]]; then
+    if [[ "${validation_profile}" != "none" ]]; then
         local validation_config="${generated_output}/pr/Firmwares/csu_pm_config.bin"
+        local validation_output
 
         [[ -s "${validation_config}" ]] ||
             cix_die "PM validation config is missing: ${validation_config}"
         python3 "${CIX_ROOT}/build-scripts/ci/verify_pm_config.py" \
-            "${validation_config}"
+            --profile "${validation_profile}" "${validation_config}"
+        validation_output="${build_output}/csu_pm_config_${platform}_${validation_profile}.bin"
         cp -- "${validation_config}" \
-            "${build_output}/csu_pm_config_${platform}_validation.bin"
+            "${validation_output}"
     fi
 
     cp -- "${generated_output}/cix_flash_all.bin" \

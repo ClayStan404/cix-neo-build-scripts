@@ -22,8 +22,8 @@ def encode_rail(rail: tuple[int, ...]) -> bytes:
     return struct.pack("<II", first, second)
 
 
-def validation_block() -> bytes:
-    length = 128
+def validation_block(stock_opp: bool = False) -> bytes:
+    length = 2912 if stock_opp else 128
     data = bytearray(b"\xff" * verify_pm_config.PM_CONFIG_FILE_SIZE)
     struct.pack_into(
         "<HHIIIII",
@@ -43,6 +43,23 @@ def validation_block() -> bytes:
     for rail in verify_pm_config.EXPECTED_RAILS:
         data[offset : offset + 8] = encode_rail(rail)
         offset += 8
+    if stock_opp:
+        data[verify_pm_config.PM_CONFIG_OPP_OFFSET] = 0
+        domain_base = verify_pm_config.PM_CONFIG_OPP_OFFSET + 1
+        for domain, expected in enumerate(verify_pm_config.EXPECTED_OPP_TABLES):
+            domain_offset = domain_base + domain * verify_pm_config.OPP_DOMAIN_SIZE
+            data[domain_offset : domain_offset + verify_pm_config.OPP_DOMAIN_SIZE] = (
+                b"\0" * verify_pm_config.OPP_DOMAIN_SIZE
+            )
+            sustained_idx, *entries = expected
+            struct.pack_into("<HH", data, domain_offset, len(entries), sustained_idx)
+            for index, entry in enumerate(entries):
+                struct.pack_into(
+                    "<IIII",
+                    data,
+                    domain_offset + 4 + index * verify_pm_config.OPP_ENTRY_SIZE,
+                    *entry,
+                )
     crc1, crc2 = verify_pm_config.checksum(data[:length])
     struct.pack_into("<II", data, 16, crc1, crc2)
     return bytes(data)
@@ -71,6 +88,21 @@ class PmConfigVerifierTests(unittest.TestCase):
             verify_pm_config.VerificationError, "custom PMIC scheme is not valid"
         ):
             verify_pm_config.verify(bytes(data))
+
+    def test_accepts_stock_external_opp_tables(self) -> None:
+        result = verify_pm_config.verify(validation_block(stock_opp=True), "stock-opp")
+        self.assertIn("stock external OPP tables", result)
+
+    def test_rejects_changed_opp_level(self) -> None:
+        data = bytearray(validation_block(stock_opp=True))
+        first_entry = verify_pm_config.PM_CONFIG_OPP_OFFSET + 1 + 4
+        struct.pack_into("<I", data, first_entry, 73)
+        crc1, crc2 = verify_pm_config.checksum(data[:2912])
+        struct.pack_into("<II", data, 16, crc1, crc2)
+        with self.assertRaisesRegex(
+            verify_pm_config.VerificationError, "unexpected OPP domain 0 table"
+        ):
+            verify_pm_config.verify(bytes(data), "stock-opp")
 
 
 if __name__ == "__main__":

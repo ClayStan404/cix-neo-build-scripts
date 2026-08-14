@@ -13,6 +13,11 @@ PM_CONFIG_HEADER_SIZE = 24
 PM_CONFIG_SIGNATURE = int.from_bytes(b"PMCF", "little")
 PM_CONFIG_VERSION = (3, 0)
 OPP_NO_LIMIT = 4000
+PM_CONFIG_OPP_OFFSET = 152
+OPP_DOMAIN_COUNT = 13
+OPP_ENTRY_COUNT = 13
+OPP_ENTRY_SIZE = struct.calcsize("<IIII")
+OPP_DOMAIN_SIZE = struct.calcsize("<HH") + OPP_ENTRY_COUNT * OPP_ENTRY_SIZE
 
 EXPECTED_RAILS = (
     (2, 2500, 0, 0x45, 1, 790, 0),
@@ -23,6 +28,34 @@ EXPECTED_RAILS = (
     (2, 5500, 1, 0x45, 3, 790, 0),
     (2, 12000, 1, 0x45, 1, 790, 10),
     (2, 9000, 1, 0x45, 0, 790, 0),
+)
+
+# Stock tables shipped by the current CIX v3.4 PackageTool. Each entry is
+# (level, voltage, frequency, power); a table tuple starts with sustained_idx.
+EXPECTED_OPP_TABLES = (
+    (5, (72, 800, 350000, 0), (216, 800, 350000, 0), (350, 800, 350000, 0),
+     (600, 800, 0, 0), (800, 800, 0, 0), (1100, 800, 0, 0)),
+    (5, (72, 800, 350000, 0), (216, 800, 350000, 0), (350, 800, 350000, 0),
+     (600, 800, 0, 0), (800, 800, 0, 0), (1000, 800, 0, 0)),
+    (1, (800, 790, 0, 138), (1800, 790, 0, 790)),
+    (3, (800, 750, 0, 156), (1200, 750, 0, 372), (1500, 750, 0, 614),
+     (1800, 790, 0, 841), (2200, 790, 0, 1360), (2400, 850, 0, 1663),
+     (2500, 920, 0, 2292)),
+    (3, (800, 750, 0, 156), (1200, 750, 0, 372), (1500, 750, 0, 614),
+     (1800, 790, 0, 841), (2200, 790, 0, 1360), (2500, 850, 0, 1663),
+     (2600, 920, 0, 2292)),
+    (3, (800, 750, 0, 149), (1200, 750, 0, 355), (1500, 750, 0, 584),
+     (1800, 790, 0, 799), (2100, 790, 0, 1114), (2200, 850, 0, 1292),
+     (2300, 890, 0, 1396)),
+    (3, (800, 750, 0, 149), (1200, 750, 0, 355), (1500, 750, 0, 584),
+     (1800, 790, 0, 799), (2100, 850, 0, 1114), (2200, 890, 0, 1292)),
+    (1, (500, 790, 0, 0), (1300, 790, 0, 0)),
+    (2, (400, 0, 0, 0), (600, 0, 0, 0), (800, 0, 0, 0),
+     (1200, 0, 0, 0)),
+    (5, (150, 0, 0, 0), (300, 0, 0, 0), (480, 0, 0, 0),
+     (600, 0, 0, 0), (800, 0, 0, 0), (1200, 0, 0, 0)),
+    (1, (500, 0, 0, 0), (1500, 0, 0, 0)),
+    (2, (375, 0, 0, 0), (600, 0, 0, 0), (750, 0, 0, 0)),
 )
 
 
@@ -58,7 +91,42 @@ def decode_rail(data: bytes, offset: int) -> tuple[int, ...]:
     )
 
 
-def verify(data: bytes) -> str:
+def verify_stock_opp(data: bytes) -> None:
+    if len(EXPECTED_OPP_TABLES) != OPP_DOMAIN_COUNT - 1:
+        raise VerificationError("stock OPP verifier has an invalid domain count")
+    if data[PM_CONFIG_OPP_OFFSET] != 0:
+        raise VerificationError("external OPP table is not marked valid")
+
+    domain_base = PM_CONFIG_OPP_OFFSET + 1
+    empty_entry = (0, 0, 0, 0)
+    for domain, expected in enumerate(EXPECTED_OPP_TABLES):
+        offset = domain_base + domain * OPP_DOMAIN_SIZE
+        size, sustained_idx = struct.unpack_from("<HH", data, offset)
+        expected_sustained, *expected_entries = expected
+        if (size, sustained_idx) != (len(expected_entries), expected_sustained):
+            raise VerificationError(
+                f"unexpected OPP domain {domain} header: "
+                f"size={size}, sustained_idx={sustained_idx}"
+            )
+        entries = tuple(
+            struct.unpack_from("<IIII", data, offset + 4 + index * OPP_ENTRY_SIZE)
+            for index in range(OPP_ENTRY_COUNT)
+        )
+        expected_padded = tuple(expected_entries) + (empty_entry,) * (
+            OPP_ENTRY_COUNT - len(expected_entries)
+        )
+        if entries != expected_padded:
+            raise VerificationError(f"unexpected OPP domain {domain} table")
+
+    unused_offset = domain_base + len(EXPECTED_OPP_TABLES) * OPP_DOMAIN_SIZE
+    unused_domain = data[unused_offset : unused_offset + OPP_DOMAIN_SIZE]
+    if unused_domain != b"\xff" * OPP_DOMAIN_SIZE:
+        raise VerificationError(
+            f"unused OPP domain {OPP_DOMAIN_COUNT - 1} was unexpectedly configured"
+        )
+
+
+def verify(data: bytes, profile: str = "pmic") -> str:
     if len(data) != PM_CONFIG_FILE_SIZE:
         raise VerificationError(
             f"expected a {PM_CONFIG_FILE_SIZE}-byte block, got {len(data)} bytes"
@@ -98,17 +166,26 @@ def verify(data: bytes) -> str:
     if rails != EXPECTED_RAILS:
         raise VerificationError(f"unexpected PMIC rail configuration: {rails}")
 
-    return (
-        "PM config v3.0 checksum and stock-equivalent custom PMIC profile are valid"
-    )
+    if profile == "stock-opp":
+        verify_stock_opp(data)
+        return "PM config v3.0 custom PMIC and stock external OPP tables are valid"
+    if profile != "pmic":
+        raise VerificationError(f"unsupported validation profile: {profile}")
+    return "PM config v3.0 checksum and stock-equivalent custom PMIC profile are valid"
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--profile",
+        choices=("pmic", "stock-opp"),
+        default="pmic",
+        help="validation profile (default: pmic)",
+    )
     parser.add_argument("config", type=Path, help="csu_pm_config.bin to verify")
     args = parser.parse_args()
     try:
-        result = verify(args.config.read_bytes())
+        result = verify(args.config.read_bytes(), args.profile)
     except (OSError, VerificationError) as exc:
         parser.error(str(exc))
     print(result)

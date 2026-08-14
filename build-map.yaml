@@ -3,9 +3,11 @@ executor: build-scripts/cix-build
 
 build_sets:
   pm-validation:
-    description: Experimental stock-equivalent O6/O6N v3 PM configuration build
+    description: Experimental O6/O6N v3 PM configuration and inspection tools
     targets:
+      - pmtool
       - radxa-o6-pm-validation
+      - radxa-o6-opp-validation
       - radxa-o6n-pm-validation
 
   all-6.6:
@@ -100,12 +102,25 @@ targets:
     source: sources/radxa-o6
     board: O6
 
+  radxa-o6-opp-validation:
+    description: Radxa Orion O6 stock external OPP table validation image
+    builder: direct
+    flow: radxa-opp-validation
+    source: sources/radxa-o6
+    board: O6
+
   radxa-o6n-pm-validation:
     description: Radxa Orion O6N stock-equivalent custom PM config validation image
     builder: direct
     flow: radxa-pm-validation
     source: sources/radxa-o6
     board: O6N
+
+  pmtool:
+    description: CIX CSU PM firmware inspection tool
+    builder: direct
+    flow: pmtool
+    source: sources/cix-binary
 
   gpu-dkms:
     description: GPU DKMS package
@@ -425,6 +440,20 @@ targets:
     lfs: true
 
 projects:
+  tools/cix_binary:
+    path: sources/cix-binary
+    rules:
+      - paths: ["device/misc/**"]
+        targets: [pmtool]
+    ignore:
+      - "debug-tools/**"
+      - "device/fct_test/**"
+      - "device/images/**"
+      - "device/openssl/**"
+      - "device/sysdump/**"
+      - "device/vendor_misc/**"
+      - "host/**"
+
   cix_opensource/linux:
     path: sources/linux
     rules:
@@ -473,97 +502,97 @@ projects:
     path: sources/radxa-o6/uefi_release/edk2
     rules:
       - paths: ["**"]
-        targets: [radxa-o6-firmware, radxa-o6n-firmware, radxa-o6-pm-validation, radxa-o6n-pm-validation]
+        targets: [radxa-o6-firmware, radxa-o6n-firmware, radxa-o6-pm-validation, radxa-o6-opp-validation, radxa-o6n-pm-validation]
 
   cix_opensource/release/edk2-non-osi:
     path: sources/radxa-o6/uefi_release/edk2-non-osi
     rules:
       - paths: ["**"]
-        targets: [radxa-o6-firmware, radxa-o6n-firmware, radxa-o6-pm-validation, radxa-o6n-pm-validation]
+        targets: [radxa-o6-firmware, radxa-o6n-firmware, radxa-o6-pm-validation, radxa-o6-opp-validation, radxa-o6n-pm-validation]
 
   cix_opensource/release/edk2-platforms:
     path: sources/radxa-o6/uefi_release/edk2-platforms
     rules:
       - paths: ["**"]
-        targets: [radxa-o6-firmware, radxa-o6n-firmware, radxa-o6-pm-validation, radxa-o6n-pm-validation]
+        targets: [radxa-o6-firmware, radxa-o6n-firmware, radxa-o6-pm-validation, radxa-o6-opp-validation, radxa-o6n-pm-validation]
 
   cix_private/acpica:
     path: sources/radxa-o6/uefi_release/tools/acpica
     rules:
       - paths: ["**"]
-        targets: [radxa-o6-firmware, radxa-o6n-firmware, radxa-o6-pm-validation, radxa-o6n-pm-validation]
+        targets: [radxa-o6-firmware, radxa-o6n-firmware, radxa-o6-pm-validation, radxa-o6-opp-validation, radxa-o6n-pm-validation]
 
   cix_proprietary/cix_bsp_release:
     path: sources/radxa-o6/cix_bsp_release
     rules:
       - paths: ["**"]
-        targets: [radxa-o6-firmware, radxa-o6n-firmware, radxa-o6-pm-validation, radxa-o6n-pm-validation]
+        targets: [radxa-o6-firmware, radxa-o6n-firmware, radxa-o6-pm-validation, radxa-o6-opp-validation, radxa-o6n-pm-validation]
 
   github_mirror/google/brotli:
     path: sources/radxa-o6/uefi_release/edk2/BaseTools/Source/C/BrotliCompress/brotli
     rules:
       - paths: ["**"]
-        targets: [radxa-o6-firmware, radxa-o6n-firmware, radxa-o6-pm-validation, radxa-o6n-pm-validation]
+        targets: [radxa-o6-firmware, radxa-o6n-firmware, radxa-o6-pm-validation, radxa-o6-opp-validation, radxa-o6n-pm-validation]
 
   github_mirror/ARMmbed/mbedtls:
     path: sources/radxa-o6/uefi_release/edk2/CryptoPkg/Library/MbedTlsLib/mbedtls
     rules:
       - paths: ["**"]
-        targets: [radxa-o6-firmware, radxa-o6n-firmware, radxa-o6-pm-validation, radxa-o6n-pm-validation]
+        targets: [radxa-o6-firmware, radxa-o6n-firmware, radxa-o6-pm-validation, radxa-o6-opp-validation, radxa-o6n-pm-validation]
 
   github_mirror/openssl/openssl:
     path: sources/radxa-o6/uefi_release/edk2/CryptoPkg/Library/OpensslLib/openssl
     rules:
       - paths: ["**"]
-        targets: [radxa-o6-firmware, radxa-o6n-firmware, radxa-o6-pm-validation, radxa-o6n-pm-validation]
+        targets: [radxa-o6-firmware, radxa-o6n-firmware, radxa-o6-pm-validation, radxa-o6-opp-validation, radxa-o6n-pm-validation]
 
   github_mirror/kkos/oniguruma:
     path: sources/radxa-o6/uefi_release/edk2/MdeModulePkg/Universal/RegularExpressionDxe/oniguruma
     rules:
       - paths: ["**"]
-        targets: [radxa-o6-firmware, radxa-o6n-firmware, radxa-o6-pm-validation, radxa-o6n-pm-validation]
+        targets: [radxa-o6-firmware, radxa-o6n-firmware, radxa-o6-pm-validation, radxa-o6-opp-validation, radxa-o6n-pm-validation]
 
   github_mirror/devicetree-org/pylibfdt:
     path: sources/radxa-o6/uefi_release/edk2/MdePkg/Library/BaseFdtLib/libfdt
     rules:
       - paths: ["**"]
-        targets: [radxa-o6-firmware, radxa-o6n-firmware, radxa-o6-pm-validation, radxa-o6n-pm-validation]
+        targets: [radxa-o6-firmware, radxa-o6n-firmware, radxa-o6-pm-validation, radxa-o6-opp-validation, radxa-o6n-pm-validation]
 
   github_mirror/MIPI-Alliance/public-mipi-sys-t:
     path: sources/radxa-o6/uefi_release/edk2/MdePkg/Library/MipiSysTLib/mipisyst
     rules:
       - paths: ["**"]
-        targets: [radxa-o6-firmware, radxa-o6n-firmware, radxa-o6-pm-validation, radxa-o6n-pm-validation]
+        targets: [radxa-o6-firmware, radxa-o6n-firmware, radxa-o6-pm-validation, radxa-o6-opp-validation, radxa-o6n-pm-validation]
 
   github_mirror/akheron/jansson:
     path: sources/radxa-o6/uefi_release/edk2/RedfishPkg/Library/JsonLib/jansson
     rules:
       - paths: ["**"]
-        targets: [radxa-o6-firmware, radxa-o6n-firmware, radxa-o6-pm-validation, radxa-o6n-pm-validation]
+        targets: [radxa-o6-firmware, radxa-o6n-firmware, radxa-o6-pm-validation, radxa-o6-opp-validation, radxa-o6n-pm-validation]
 
   github_mirror/DMTF/libspdm:
     path: sources/radxa-o6/uefi_release/edk2/SecurityPkg/DeviceSecurity/SpdmLib/libspdm
     rules:
       - paths: ["**"]
-        targets: [radxa-o6-firmware, radxa-o6n-firmware, radxa-o6-pm-validation, radxa-o6n-pm-validation]
+        targets: [radxa-o6-firmware, radxa-o6n-firmware, radxa-o6-pm-validation, radxa-o6-opp-validation, radxa-o6n-pm-validation]
 
   github_mirror/tianocore/edk2-cmocka:
     path: sources/radxa-o6/uefi_release/edk2/UnitTestFrameworkPkg/Library/CmockaLib/cmocka
     rules:
       - paths: ["**"]
-        targets: [radxa-o6-firmware, radxa-o6n-firmware, radxa-o6-pm-validation, radxa-o6n-pm-validation]
+        targets: [radxa-o6-firmware, radxa-o6n-firmware, radxa-o6-pm-validation, radxa-o6-opp-validation, radxa-o6n-pm-validation]
 
   github_mirror/google/googletest:
     path: sources/radxa-o6/uefi_release/edk2/UnitTestFrameworkPkg/Library/GoogleTestLib/googletest
     rules:
       - paths: ["**"]
-        targets: [radxa-o6-firmware, radxa-o6n-firmware, radxa-o6-pm-validation, radxa-o6n-pm-validation]
+        targets: [radxa-o6-firmware, radxa-o6n-firmware, radxa-o6-pm-validation, radxa-o6-opp-validation, radxa-o6n-pm-validation]
 
   github_mirror/tianocore/edk2-subhook:
     path: sources/radxa-o6/uefi_release/edk2/UnitTestFrameworkPkg/Library/SubhookLib/subhook
     rules:
       - paths: ["**"]
-        targets: [radxa-o6-firmware, radxa-o6n-firmware, radxa-o6-pm-validation, radxa-o6n-pm-validation]
+        targets: [radxa-o6-firmware, radxa-o6n-firmware, radxa-o6-pm-validation, radxa-o6-opp-validation, radxa-o6n-pm-validation]
 
   cix_opensource/gpu_kernel:
     path: sources/gpu-kernel
@@ -711,17 +740,21 @@ projects:
       - paths: ["build-map.yaml", "cix-build", "builders/common.sh"]
         targets: ["*"]
       - paths: ["builders/direct.sh"]
-        targets: [kernel, stable-kernel, audio-sof, radxa-o6-firmware, radxa-o6n-firmware, radxa-o6-pm-validation, radxa-o6n-pm-validation]
+        targets: [kernel, stable-kernel, audio-sof, pmtool, radxa-o6-firmware, radxa-o6n-firmware, radxa-o6-pm-validation, radxa-o6-opp-validation, radxa-o6n-pm-validation]
       - paths: ["builders/direct/kernel.sh"]
         targets: [kernel, stable-kernel]
       - paths: ["builders/direct/audio-sof.sh"]
         targets: [audio-sof]
       - paths: ["builders/direct/firmware-radxa.sh"]
-        targets: [radxa-o6-firmware, radxa-o6n-firmware, radxa-o6-pm-validation, radxa-o6n-pm-validation]
+        targets: [radxa-o6-firmware, radxa-o6n-firmware, radxa-o6-pm-validation, radxa-o6-opp-validation, radxa-o6n-pm-validation]
+      - paths: ["builders/direct/pmtool.sh"]
+        targets: [pmtool]
       - paths: ["patches/radxa-o6n/**"]
         targets: [radxa-o6n-firmware, radxa-o6n-pm-validation]
       - paths: ["patches/radxa-pm-validation/**", "ci/verify_pm_config.py", "ci/test_pm_config.py"]
-        targets: [radxa-o6-pm-validation, radxa-o6n-pm-validation]
+        targets: [radxa-o6-pm-validation, radxa-o6-opp-validation, radxa-o6n-pm-validation]
+      - paths: ["patches/radxa-opp-validation/**"]
+        targets: [radxa-o6-opp-validation]
       - paths: ["builders/debian.sh"]
         targets: [gpu-dkms, bt-dkms, vpu-dkms, vpu-firmware, npu-dkms, grub-config, alsa-conf, cix-env, cix-firmware, audio-dsp, dpu-ddk, gpu-umd, isp-umd, isp-v4l2-dkms, isp-dkms, libdrm, libglvnd, libva, ffmpeg, mesa, libcme, cix-vaapi, noe-umd, npu-umd, ai-engine, mnn, gstreamer-6.6, gstreamer-base-7.0, gstreamer-good-7.0, nnstreamer, wlan-dkms]
       - paths: ["builders/debian/payload.sh"]

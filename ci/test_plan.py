@@ -572,6 +572,37 @@ Description: CIX VPU development files
                 self.assertEqual(target.board, board)
                 self.assertIsNone(target.control)
 
+    def test_radxa_stock_opp_validation_is_a_direct_firmware_flow(self) -> None:
+        target = plan._target_from_mapping(
+            "radxa-o6-opp-validation",
+            {
+                "description": "Radxa O6 stock OPP validation",
+                "builder": "direct",
+                "flow": "radxa-opp-validation",
+                "source": "sources/radxa-o6",
+                "board": "O6",
+            },
+        )
+
+        self.assertEqual(target.flow, "radxa-opp-validation")
+        self.assertEqual(target.board, "O6")
+        self.assertIsNone(target.control)
+
+    def test_pmtool_is_a_direct_artifact_flow(self) -> None:
+        target = plan._target_from_mapping(
+            "pmtool",
+            {
+                "description": "CIX PM inspection tool",
+                "builder": "direct",
+                "flow": "pmtool",
+                "source": "sources/cix-binary",
+            },
+        )
+
+        self.assertEqual(target.flow, "pmtool")
+        self.assertEqual(target.source, "sources/cix-binary")
+        self.assertIsNone(target.control)
+
     def test_package_names_are_not_builder_types(self) -> None:
         with self.assertRaisesRegex(plan.PlanError, "unsupported builder/flow"):
             plan._target_from_mapping(

@@ -324,6 +324,14 @@ def _target_from_mapping(name: str, entry: dict) -> Target:
             {"source", "board"},
             {"source", "board"},
         ),
+        ("direct", "radxa-opp-validation"): (
+            {"source", "board"},
+            {"source", "board"},
+        ),
+        ("direct", "pmtool"): (
+            {"source"},
+            {"source"},
+        ),
         ("debian", "quilt"): (
             {"source", "source_git", "debian"},
             {

@@ -21,7 +21,9 @@ Build an individual target with the same command:
 ./build-scripts/cix-build radxa-o6-firmware
 ./build-scripts/cix-build radxa-o6n-firmware
 ./build-scripts/cix-build radxa-o6-pm-validation
+./build-scripts/cix-build radxa-o6-opp-validation
 ./build-scripts/cix-build radxa-o6n-pm-validation
+./build-scripts/cix-build pmtool
 ./build-scripts/cix-build gpu-dkms
 ./build-scripts/cix-build bt-dkms
 ./build-scripts/cix-build vpu-dkms
@@ -124,17 +126,33 @@ each board's flash and OCB images under its own `output/TARGET/images`
 directory; it does not create Debian packages and is not affected by
 `--backend`.
 
-`radxa-o6-pm-validation` and `radxa-o6n-pm-validation` are deliberately kept
+`radxa-o6-pm-validation`, `radxa-o6-opp-validation`, and
+`radxa-o6n-pm-validation` are deliberately kept
 outside the `all-6.6` and `all-7.0` product sets and are grouped only by the
-explicit `pm-validation` set. They build the same firmware from isolated
+explicit `pm-validation` set. The PMIC targets build the same firmware from isolated
 worktrees, but enable the existing v3.0 custom PMIC section with the board's
 documented stock limits and voltage offsets. The flow verifies the PM config
 signature, checksum, limits, and rail fields before publishing
-`csu_pm_config_BOARD_validation.bin`. Use these images only to establish that
-the current closed firmware consumes v3 PM config; the normal firmware targets
-remain unaffected by this experiment. A successful build proves the config
-block is well formed, not that the closed firmware consumed it; that conclusion
+`csu_pm_config_BOARD_pmic.bin`. The O6 OPP target additionally enables the
+12 unmodified stock OPP tables already shipped by CIX PackageTool and verifies
+every table entry before publishing `csu_pm_config_O6_stock-opp.bin`. It does
+not increase a frequency or change a voltage. The normal firmware targets
+remain unaffected by these experiments. A successful build proves that the
+config block is well formed, not that PM firmware consumed it; that conclusion
 requires a board boot test.
+
+The same set publishes the manifest-pinned ARM64 CIX `pmtool` binary at
+`output/pmtool/pmtool`. On the O6 test board, capture the effective PM firmware
+table before and after flashing a validation image with:
+
+```bash
+sudo ./pmtool cli opp_config
+```
+
+Run it from the copied artifact's directory. The command needs privileged
+hardware access and is never executed automatically by the build system.
+The full recovery-gated board procedure is documented in
+[`docs/pm-validation.md`](docs/pm-validation.md).
 
 GPU, Bluetooth, WLAN, VPU, NPU, graphics, multimedia, firmware, boot
 configuration, ALSA configuration, and system environment targets create
@@ -177,7 +195,8 @@ source checkout, Debian metadata directory, and repository/path impact rules.
 The only builders are `direct` and `debian`.
 Direct flows run project-specific tools on the native host; the current flows
 are `kernel-worktree`, `kernel-stable-tarball`, `sof-firmware`,
-`radxa-firmware`, and `radxa-pm-validation`. Debian source flows are `quilt`,
+`radxa-firmware`, `radxa-pm-validation`, `radxa-opp-validation`, and `pmtool`.
+Debian source flows are `quilt`,
 `debian-git`, `native`, and `payload`, independently of the selected
 sbuild/local backend. `cix-build`
 resolves its target from this file, and the CI planner reads the same data.
