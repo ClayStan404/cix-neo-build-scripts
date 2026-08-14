@@ -385,6 +385,150 @@ cix_debian_quilt_package() (
         "${source_date_epoch}" "${work_root}" "${build_output}" "${build_jobs}"
 )
 
+cix_merge_debian_control_overlay() {
+    local base_control="$1"
+    local overlay_control="$2"
+
+    [[ -f "${overlay_control}" ]] || return 0
+    python3 - "${base_control}" "${overlay_control}" <<'PY'
+import sys
+from pathlib import Path
+
+from debian.deb822 import Deb822
+
+base_path = Path(sys.argv[1])
+overlay_path = Path(sys.argv[2])
+with base_path.open(encoding="utf-8") as stream:
+    paragraphs = list(Deb822.iter_paragraphs(stream))
+with overlay_path.open(encoding="utf-8") as stream:
+    overlays = list(Deb822.iter_paragraphs(stream))
+
+if not paragraphs or "Source" not in paragraphs[0]:
+    raise SystemExit(f"Debian control has no Source stanza: {base_path}")
+if len(overlays) != 1:
+    raise SystemExit(
+        f"Debian control overlay must contain exactly one Source stanza: {overlay_path}"
+    )
+
+source = paragraphs[0]
+overlay = overlays[0]
+build_fields = (
+    "Build-Depends",
+    "Build-Depends-Arch",
+    "Build-Depends-Indep",
+)
+unsupported = sorted(set(overlay) - {"Source"} - set(build_fields))
+if unsupported:
+    raise SystemExit(
+        f"Debian control overlay {overlay_path} has unsupported fields: "
+        + ", ".join(unsupported)
+    )
+if overlay.get("Source") != source.get("Source"):
+    raise SystemExit(
+        f"Debian control overlay Source in {overlay_path} does not match {base_path}"
+    )
+
+for field in build_fields:
+    addition = overlay.get(field)
+    if not addition:
+        continue
+    current = source.get(field, "").rstrip()
+    source[field] = f"{current},\n {addition.strip()}" if current else addition
+
+temporary_path = base_path.with_name(f".{base_path.name}.cix-new")
+with temporary_path.open("w", encoding="utf-8") as stream:
+    for index, paragraph in enumerate(paragraphs):
+        if index:
+            stream.write("\n")
+        paragraph.dump(stream, text_mode=True)
+temporary_path.replace(base_path)
+PY
+}
+
+cix_add_debian_git_overlay() {
+    local base_packaging_dir="$1"
+    local overlay_dir="$2"
+    local source_tree="$3"
+    local base_changelog
+    local base_source
+    local overlay_source
+
+    cix_validate_packaging "${base_packaging_dir}" "3.0 (quilt)"
+    [[ -f "${overlay_dir}/changelog" ]] ||
+        cix_die "Debian Git overlay changelog is missing: ${overlay_dir}/changelog"
+    [[ -f "${overlay_dir}/patches/series" ]] ||
+        cix_die "Debian Git overlay patch series is missing: ${overlay_dir}/patches/series"
+
+    base_source="$(dpkg-parsechangelog -l"${base_packaging_dir}/changelog" -S Source)"
+    overlay_source="$(dpkg-parsechangelog -l"${overlay_dir}/changelog" -S Source)"
+    [[ "${base_source}" == "${overlay_source}" ]] ||
+        cix_die "Debian Git overlay source ${overlay_source} does not match ${base_source}"
+
+    cix_add_debian_metadata "${base_packaging_dir}" "${source_tree}"
+    rsync -a \
+        --exclude=/README.md \
+        --exclude=/changelog \
+        --exclude=/control \
+        --exclude=/patches/ \
+        "${overlay_dir}/" "${source_tree}/debian/"
+    cix_merge_debian_control_overlay \
+        "${source_tree}/debian/control" "${overlay_dir}/control"
+    base_changelog="${source_tree}/debian/changelog.debian"
+    mv -- "${source_tree}/debian/changelog" "${base_changelog}"
+    {
+        cat "${overlay_dir}/changelog"
+        cat "${base_changelog}"
+    } > "${source_tree}/debian/changelog"
+    rm -- "${base_changelog}"
+
+    rsync -a --exclude=/series \
+        "${overlay_dir}/patches/" "${source_tree}/debian/patches/"
+    printf '\n' >> "${source_tree}/debian/patches/series"
+    cat "${overlay_dir}/patches/series" >> "${source_tree}/debian/patches/series"
+}
+
+cix_debian_git_package() (
+    local build_output="$1"
+    local build_jobs="$2"
+    local build_backend="$3"
+    local overlay_dir="${CIX_ROOT}/${TARGET[debian]}"
+    local source_dir="${CIX_ROOT}/${TARGET[source]}"
+    local source_date_epoch
+    local source_package
+    local source_tree
+    local upstream_version
+    local work_root=
+
+    [[ -d "${source_dir}/debian" ]] ||
+        cix_die "Debian Git packaging is missing: ${source_dir}/debian"
+    git -C "${source_dir}" rev-parse --is-inside-work-tree >/dev/null 2>&1 ||
+        cix_die "Debian Git source is not a Git worktree: ${source_dir}"
+    [[ -z "$(git -C "${source_dir}" status --porcelain)" ]] ||
+        cix_die "Debian Git source must be clean before packaging: ${source_dir}"
+
+    read -r source_package _ upstream_version < <(
+        cix_debian_metadata "${overlay_dir}"
+    )
+    work_root="$(mktemp -d "${build_output}/.${TARGET[name]}.XXXXXXXXXX")"
+    trap 'rm -rf -- "${work_root}"' EXIT
+    source_tree="${work_root}/${source_package}-${upstream_version}"
+    cix_log "Assemble ${TARGET[description]} from Debian Git"
+    mkdir -p -- "${source_tree}"
+    rsync -a --exclude=.git --exclude=/debian/ \
+        "${source_dir}/" "${source_tree}/"
+
+    source_date_epoch="$(git -C "${source_dir}" log -1 --format=%ct)"
+    cix_create_orig_tar \
+        "${source_package}" "${upstream_version}" "${source_date_epoch}" \
+        "${source_tree}" "${work_root}"
+    cix_add_debian_git_overlay \
+        "${source_dir}/debian" "${overlay_dir}" "${source_tree}"
+    cix_apply_quilt_patches "${source_tree}"
+    cix_run_debian_backend \
+        "${build_backend}" "${source_package}" "${source_tree}" \
+        "${source_date_epoch}" "${work_root}" "${build_output}" "${build_jobs}"
+)
+
 cix_debian_native_package() (
     local build_output="$1"
     local build_jobs="$2"
@@ -438,6 +582,10 @@ cix_debian_build() {
     mkdir -p -- "${build_output}"
     cix_clean_artifacts "${build_output}"
     case "${TARGET[flow]}" in
+        debian-git)
+            cix_debian_git_package \
+                "${build_output}" "${build_jobs}" "${build_backend}"
+            ;;
         quilt)
             cix_debian_quilt_package \
                 "${build_output}" "${build_jobs}" "${build_backend}"

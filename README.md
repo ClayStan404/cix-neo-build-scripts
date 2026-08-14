@@ -39,7 +39,9 @@ Build the current CIX kernel, DKMS, and boot configuration packages:
 ./build-scripts/cix-build npu-umd
 ./build-scripts/cix-build ai-engine
 ./build-scripts/cix-build mnn
-./build-scripts/cix-build gstreamer
+./build-scripts/cix-build gstreamer-6.6
+./build-scripts/cix-build gstreamer-base-7.0
+./build-scripts/cix-build gstreamer-good-7.0
 ./build-scripts/cix-build nnstreamer
 ./build-scripts/cix-build wlan-dkms
 ```
@@ -139,10 +141,11 @@ builder, source preparation flow, source checkout, Debian metadata directory,
 and repository/path impact rules. The only builders are `direct` and `debian`.
 Direct flows run project-specific tools on the native host; the current flows
 are `kernel-worktree`, `kernel-stable-tarball`, `sof-firmware`, and
-`radxa-firmware`. Debian source flows are `quilt`, `native`, and `payload`,
-independently of the selected sbuild/local backend. `cix-build` resolves its
-target from this file, and the CI planner reads the same data. Package names
-and source paths are therefore not duplicated in Shell dispatch tables.
+`radxa-firmware`. Debian source flows are `quilt`, `debian-git`, `native`, and
+`payload`, independently of the selected sbuild/local backend. `cix-build`
+resolves its target from this file, and the CI planner reads the same data.
+Package names and source paths are therefore not duplicated in Shell dispatch
+tables.
 
 The planner normally discovers produced package names from Debian `control`
 files used by the standard Debian builder. A direct target is outside that
@@ -185,12 +188,20 @@ The AI engine and MNN targets install their Python modules through Debian's
 package build, so installing their debs never invokes `pip` from a maintainer
 script. The MNN package is built for Debian 13's CPython 3.13 ABI and removes
 the upstream wheel's build-machine RPATH before packaging it.
-The GStreamer overlay retains the product's FDK-AAC plugin, so the canonical
+The `gstreamer-6.6` overlay retains the product's FDK-AAC plugin, so the canonical
 host dependency list and sbuild chroot enable Debian's `non-free` component in
 addition to `main`. Its private video development interface is shipped in
 `cix-gstreamer-dev`; NNStreamer consumes that interface, NOE, and libcme
 through normal `Build-Depends` and keeps its runtime plugins under
 `/usr/share/cix`.
+
+The Linux 7.0 media stack is independent. `gstreamer-base-7.0` and
+`gstreamer-good-7.0` start from revision-pinned Debian Salsa packaging, retain
+the Debian 13 stable/security patch level, and append the CIX AFBC and V4L2
+patch series in an isolated work directory. They rebuild Debian's standard
+binary package names and install to standard system paths; they do not include
+the private `cixsr`/NOE integration from the Linux 6.6 overlay. The build map
+derives the good-to-base ordering from the Salsa `debian/control` files.
 
 ## Adding a package
 
@@ -203,6 +214,15 @@ Quilt targets may declare `source_excludes` for repository paths that are not
 part of the source build or binary packages. NNStreamer uses this to omit its
 large demo-model and disabled test-data directories from the repacked source
 archive.
+
+For a source repository that already contains maintained Debian packaging,
+use the `debian-git` flow. Keep only the downstream changelog entries and
+additional quilt patches under the target's `debian/` overlay directory.
+Small packaging additions such as documented Lintian overrides may mirror
+their paths below that directory. The flow preserves the source repository's
+`debian/control`, package split, and build rules rather than copying them into
+this project.
+
 When one Debian source package genuinely combines multiple manifest projects,
 the same quilt flow may declare `source_overlays` entries as
 `WORKSPACE_SOURCE=SOURCE_SUBDIRECTORY`. Changes in every contributing project

@@ -279,6 +279,99 @@ Description: package C runtime
                 },
             )
 
+    def test_debian_git_uses_the_source_control_file(self) -> None:
+        target = plan._target_from_mapping(
+            "package",
+            {
+                "description": "Debian Git package",
+                "builder": "debian",
+                "flow": "debian-git",
+                "source": "sources/debian/package",
+                "debian": "debian/package-overlay",
+            },
+        )
+
+        self.assertEqual(target.control, "sources/debian/package/debian/control")
+        self.assertEqual(target.control_overlay, "debian/package-overlay/control")
+        self.assertIn("TARGET[flow]=debian-git", plan.target_shell(target))
+
+    def test_debian_git_control_overlay_adds_internal_build_dependency(self) -> None:
+        self.fixture.write("scripts/cix-build", "#!/bin/sh\n", executable=True)
+        self.fixture.write(
+            "sources/debian/package/debian/control",
+            """Source: package
+Build-Depends: debhelper-compat (= 13)
+
+Package: package
+Architecture: any
+Description: package
+ Test package.
+""",
+        )
+        self.fixture.write(
+            "debian/package-overlay/control",
+            """Source: package
+Build-Depends: cix-vpu-driver-dev (>= 1.0.1)
+""",
+        )
+        self.fixture.mkdir("sources/vpu")
+        self.fixture.write(
+            "debian/vpu/control",
+            """Source: cix-vpu-driver
+Build-Depends: debhelper-compat (= 13)
+
+Package: cix-vpu-driver-dev
+Architecture: all
+Description: CIX VPU development files
+ Test package.
+""",
+        )
+        build_map = self.fixture.mapping(
+            {
+                "version": 6,
+                "executor": "scripts/cix-build",
+                "targets": {
+                    "package": {
+                        "description": "Debian Git package",
+                        "builder": "debian",
+                        "flow": "debian-git",
+                        "source": "sources/debian/package",
+                        "debian": "debian/package-overlay",
+                    },
+                    "vpu-dkms": {
+                        "description": "VPU driver",
+                        "builder": "debian",
+                        "flow": "quilt",
+                        "source": "sources/vpu",
+                        "source_git": "sources/vpu",
+                        "debian": "debian/vpu",
+                    },
+                },
+                "projects": {
+                    "repo/package": {
+                        "path": "sources/debian/package",
+                        "rules": [{"paths": ["**"], "targets": ["package"]}],
+                    },
+                    "repo/vpu": {
+                        "path": "sources/vpu",
+                        "rules": [{"paths": ["**"], "targets": ["vpu-dkms"]}],
+                    },
+                    "repo/debian": {
+                        "path": "debian",
+                        "rules": [{"paths": ["**"], "targets": ["*"]}],
+                    },
+                },
+            }
+        )
+
+        graph = plan.build_dependency_graph(build_map)
+
+        self.assertEqual(graph.forward["package"], frozenset({"vpu-dkms"}))
+        self.assertEqual(
+            graph.edge_packages[("package", "vpu-dkms")],
+            frozenset({"cix-vpu-driver-dev"}),
+        )
+
     def test_target_shell_exposes_internal_build_package_set(self) -> None:
         build_map = self._dependency_fixture()
         graph = plan.build_dependency_graph(build_map)

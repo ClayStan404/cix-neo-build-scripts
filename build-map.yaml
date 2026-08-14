@@ -303,13 +303,27 @@ targets:
     source_git: sources/mnn
     debian: debian/mnn
 
-  gstreamer:
-    description: CIX GStreamer runtime overlay
+  gstreamer-6.6:
+    description: CIX GStreamer runtime overlay for Linux 6.6
     builder: debian
     flow: quilt
     source: sources/gstreamer
     source_git: sources/gstreamer
     debian: debian/gstreamer
+
+  gstreamer-base-7.0:
+    description: Debian GStreamer base with CIX Linux 7.0 patches
+    builder: debian
+    flow: debian-git
+    source: sources/debian/gst-plugins-base1.0
+    debian: debian/gstreamer-base-7.0
+
+  gstreamer-good-7.0:
+    description: Debian GStreamer good with CIX Linux 7.0 patches
+    builder: debian
+    flow: debian-git
+    source: sources/debian/gst-plugins-good1.0
+    debian: debian/gstreamer-good-7.0
 
   nnstreamer:
     description: CIX NNStreamer runtime
@@ -591,7 +605,19 @@ projects:
     path: sources/gstreamer
     rules:
       - paths: ["**"]
-        targets: [gstreamer]
+        targets: [gstreamer-6.6]
+
+  gstreamer-team/gst-plugins-base1.0:
+    path: sources/debian/gst-plugins-base1.0
+    rules:
+      - paths: ["**"]
+        targets: [gstreamer-base-7.0]
+
+  gstreamer-team/gst-plugins-good1.0:
+    path: sources/debian/gst-plugins-good1.0
+    rules:
+      - paths: ["**"]
+        targets: [gstreamer-good-7.0]
 
   cix_opensource/nnstreamer:
     path: sources/nnstreamer
@@ -627,7 +653,7 @@ projects:
       - paths: ["patches/radxa-o6n/**"]
         targets: [radxa-o6n-firmware]
       - paths: ["builders/debian.sh"]
-        targets: [gpu-dkms, bt-dkms, vpu-dkms, vpu-firmware, npu-dkms, grub-config, alsa-conf, cix-env, cix-firmware, audio-dsp, dpu-ddk, gpu-umd, isp-umd, isp-v4l2-dkms, isp-dkms, libdrm, libglvnd, libva, ffmpeg, mesa, libcme, cix-vaapi, noe-umd, npu-umd, ai-engine, mnn, gstreamer, nnstreamer, wlan-dkms]
+        targets: [gpu-dkms, bt-dkms, vpu-dkms, vpu-firmware, npu-dkms, grub-config, alsa-conf, cix-env, cix-firmware, audio-dsp, dpu-ddk, gpu-umd, isp-umd, isp-v4l2-dkms, isp-dkms, libdrm, libglvnd, libva, ffmpeg, mesa, libcme, cix-vaapi, noe-umd, npu-umd, ai-engine, mnn, gstreamer-6.6, gstreamer-base-7.0, gstreamer-good-7.0, nnstreamer, wlan-dkms]
       - paths: ["builders/debian/payload.sh"]
         targets: [vpu-firmware, cix-firmware, audio-dsp, dpu-ddk, gpu-umd, isp-umd, noe-umd, npu-umd]
       - paths: ["ci/plan.py"]
@@ -702,7 +728,11 @@ projects:
       - paths: ["mnn/**"]
         targets: [mnn]
       - paths: ["gstreamer/**"]
-        targets: [gstreamer]
+        targets: [gstreamer-6.6]
+      - paths: ["gstreamer-base-7.0/**"]
+        targets: [gstreamer-base-7.0]
+      - paths: ["gstreamer-good-7.0/**"]
+        targets: [gstreamer-good-7.0]
       - paths: ["nnstreamer/**"]
         targets: [nnstreamer]
       - paths: ["wlan-dkms/**"]

@@ -90,6 +90,16 @@ is confirmed.
 - Use external `3.0 (quilt)` Debian metadata for upstream DKMS source projects
   and proprietary firmware payloads. Use `3.0 (native)` for packages whose
   source is owned by the Debian metadata repository.
+- For Debian Salsa packaging repositories, preserve the repository-owned
+  `debian/` metadata and append only CIX changelog entries and quilt patches
+  in an isolated work directory. Do not copy the complete Salsa packaging into
+  the CIX Debian metadata repository. Permit small, documented packaging
+  additions such as Lintian overrides without duplicating upstream metadata.
+- Maintain separate GStreamer products for the two kernel stacks. Linux 6.6
+  uses the private vendor `cix-gstreamer` overlay. Linux 7.0 uses Debian 13's
+  standard GStreamer packages rebuilt from Salsa with CIX AFBC and V4L2
+  patches; it must not include `cixsr`, NOE, or other Linux 6.6 private-stack
+  dependencies.
 
 ### Source Management
 
@@ -147,7 +157,13 @@ is confirmed.
 - Track `github_mirror/alibaba/MNN` at branch `cix_3.6.1_dev` under
   `sources/mnn`.
 - Track `freedesktop_repo/gstreamer/gstreamer` at branch `cix_1.26.2_dev`
-  under `sources/gstreamer`.
+  under `sources/gstreamer` for the Linux 6.6 private media stack.
+- Track Debian Salsa `gstreamer-team/gst-plugins-base1.0` and
+  `gstreamer-team/gst-plugins-good1.0` under `sources/debian/` for the Linux
+  7.0 standard media stack. Pin the peeled Debian 13 release-tag commits in
+  the manifest instead of following Salsa `master`. Check Debian stable and
+  security source versions separately because those updates may be published
+  before an equivalent Salsa tag exists.
 - Track `cix_opensource/nnstreamer` at branch `cix_2.4.2_dev` under
   `sources/nnstreamer`.
 - Track `cix_opensource/wlan/fc6xe` at branch `cix_wlan_qcacld_dev` under
@@ -188,7 +204,7 @@ is confirmed.
   branch `master` under `build-scripts`.
 - Track the private GitHub repository `ClayStan404/cix-neo-debian` at branch
   `master` under `debian`.
-- The current manifest contains exactly forty-five projects: forty-three source
+- The current manifest contains exactly forty-seven projects: forty-five source
   input repositories, the build scripts, and the Debian packaging metadata.
   Eleven revision-pinned dependency projects populate EDK2's twelve gitlink
   paths; Brotli is reused at two paths.
@@ -330,7 +346,8 @@ The current build system contains these build targets:
 - Kernel drivers and firmware: `gpu-dkms`, `bt-dkms`, `wlan-dkms`,
   `vpu-dkms`, `vpu-firmware`, `npu-dkms`, `isp-v4l2-dkms`, `isp-dkms`
 - Graphics and media: `libdrm`, `libglvnd`, `mesa`, `libva`, `ffmpeg`,
-  `libcme`, `cix-vaapi`, `gstreamer`, `nnstreamer`
+  `libcme`, `cix-vaapi`, `gstreamer-6.6`, `gstreamer-base-7.0`,
+  `gstreamer-good-7.0`, `nnstreamer`
 - Proprietary userspace payloads: `gpu-umd`, `dpu-ddk`, `isp-umd`, `noe-umd`,
   `npu-umd`
 - AI runtimes: `ai-engine`, `mnn`

@@ -64,9 +64,23 @@ class Target:
 
     @property
     def control(self) -> str | None:
-        if self.builder != "debian" or self.debian is None:
+        if self.builder != "debian":
+            return None
+        if self.flow == "debian-git" and self.source is not None:
+            return f"{self.source}/debian/control"
+        if self.debian is None:
             return None
         return f"{self.debian}/control"
+
+    @property
+    def control_overlay(self) -> str | None:
+        if (
+            self.builder == "debian"
+            and self.flow == "debian-git"
+            and self.debian is not None
+        ):
+            return f"{self.debian}/control"
+        return None
 
 
 @dataclass(frozen=True)
@@ -308,6 +322,10 @@ def _target_from_mapping(name: str, entry: dict) -> Target:
                 "source_excludes",
                 "source_overlays",
             },
+        ),
+        ("debian", "debian-git"): (
+            {"source", "debian"},
+            {"source", "debian"},
         ),
         ("debian", "native"): (
             {"source_git", "debian"},
@@ -654,6 +672,7 @@ def _relation_names(value: str, context: str) -> set[str]:
 
 def _parse_control(
     control_path: Path,
+    control_overlay_path: Path | None = None,
 ) -> tuple[set[str], set[str], set[str], dict[str, set[str]]]:
     try:
         from debian.deb822 import Deb822
@@ -704,6 +723,44 @@ def _parse_control(
             build_dependencies.update(
                 _relation_names(value, f"{field} in {control_path}")
             )
+
+    if control_overlay_path is not None:
+        try:
+            with control_overlay_path.open(encoding="utf-8") as stream:
+                overlay_paragraphs = list(Deb822.iter_paragraphs(stream))
+        except OSError as exc:
+            raise PlanError(
+                f"cannot read Debian control overlay {control_overlay_path}: {exc}"
+            ) from exc
+
+        if len(overlay_paragraphs) != 1:
+            raise PlanError(
+                "Debian control overlay must contain exactly one Source stanza: "
+                f"{control_overlay_path}"
+            )
+        overlay = overlay_paragraphs[0]
+        build_fields = (
+            "Build-Depends",
+            "Build-Depends-Arch",
+            "Build-Depends-Indep",
+        )
+        unsupported = sorted(set(overlay) - {"Source"} - set(build_fields))
+        if unsupported:
+            raise PlanError(
+                f"Debian control overlay {control_overlay_path} has unsupported fields: "
+                + ", ".join(unsupported)
+            )
+        if overlay.get("Source") != source.get("Source"):
+            raise PlanError(
+                f"Debian control overlay Source in {control_overlay_path} does not "
+                f"match {control_path}"
+            )
+        for field in build_fields:
+            value = overlay.get(field)
+            if value:
+                build_dependencies.update(
+                    _relation_names(value, f"{field} in {control_overlay_path}")
+                )
     return (
         binary_packages,
         provided_packages,
@@ -723,12 +780,22 @@ def build_dependency_graph(build_map: BuildMap) -> DependencyGraph:
         package_identities.update(target.build_provides)
         if target.control:
             control_path = build_map.workspace / target.control
+            control_overlay_path = None
+            if target.control_overlay:
+                candidate = build_map.workspace / target.control_overlay
+                if candidate.exists():
+                    if not candidate.is_file():
+                        raise PlanError(
+                            f"target {target.name} control overlay is not a file: "
+                            f"{candidate}"
+                        )
+                    control_overlay_path = candidate
             (
                 control_packages,
                 provided_packages,
                 dependencies,
                 control_package_dependencies,
-            ) = _parse_control(control_path)
+            ) = _parse_control(control_path, control_overlay_path)
             binary_packages.update(control_packages)
             package_identities.update(control_packages)
             package_identities.update(provided_packages)

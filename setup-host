@@ -75,7 +75,10 @@ verify_debian_build_dependencies() {
 
     workspace="$(realpath "$(dirname "${BASH_SOURCE[0]}")/..")"
     shopt -s nullglob
-    controls=("${workspace}"/debian/*/control)
+    controls=(
+        "${workspace}"/debian/*/control
+        "${workspace}"/sources/debian/*/debian/control
+    )
     shopt -u nullglob
     ((${#controls[@]} > 0)) || return 0
 
@@ -86,8 +89,11 @@ from pathlib import Path
 
 from debian.deb822 import Deb822, PkgRelation
 
+workspace = Path(sys.argv[1])
+controls = list((workspace / "debian").glob("*/control"))
+controls += list((workspace / "sources/debian").glob("*/debian/control"))
 relations = set()
-for control in sorted((Path(sys.argv[1]) / "debian").glob("*/control")):
+for control in sorted(controls):
     with control.open(encoding="utf-8") as stream:
         source = next(Deb822.iter_paragraphs(stream))
     for field in ("Build-Depends", "Build-Depends-Arch", "Build-Depends-Indep"):
@@ -144,21 +150,39 @@ readonly host_packages=(
     gperf
     git
     git-lfs
+    gir1.2-freedesktop
+    gir1.2-glib-2.0
+    gir1.2-gstreamer-1.0
+    gstreamer1.0-tools
     help2man
+    iso-codes
     kmod
+    libaa1-dev
+    libaom-dev
+    libasound2-dev
+    libass-dev
+    libavc1394-dev
+    libbrotli-dev
+    libbz2-dev
+    libcaca-dev
+    libcairo2-dev
+    libcdparanoia-dev
+    libdav1d-dev
     libdrm-dev
     libdw-dev
+    libdv4-dev
+    libegl-dev
     libelf-dev
     libexpat1-dev
     libfdk-aac-dev
-    libaom-dev
-    libass-dev
-    libbz2-dev
-    libdav1d-dev
+    libflac-dev
     libfontconfig-dev
     libfreetype-dev
     libfribidi-dev
+    libgbm-dev
+    libgirepository1.0-dev
     libgl-dev
+    libgles-dev
     libglib2.0-dev
     libglvnd-core-dev
     libgnutls28-dev
@@ -167,21 +191,42 @@ readonly host_packages=(
     libgstreamer1.0-dev
     libgudev-1.0-dev
     libgtk-3-dev
+    libiec61883-dev
+    libjack-jackd2-dev
+    libjpeg-dev
     liblzma-dev
     libncurses-dev
     libmp3lame-dev
+    libmpg123-dev
+    libogg-dev
     libopenjp2-7-dev
+    libopencore-amrnb-dev
+    libopencore-amrwb-dev
     liborc-0.4-dev
     libopus-dev
+    libpango1.0-dev
+    libpng-dev
+    libpulse-dev
+    libqt5waylandclient5-dev
+    libqt5x11extras5-dev
+    libraw1394-dev
+    libshout-dev
+    libspeex-dev
     libssl-dev
+    libtag1-dev
+    libtheora-dev
+    libtwolame-dev
     libudev-dev
     libunwind-dev
     libvorbis-dev
     libvpx-dev
     libvulkan-dev
+    libv4l-dev
+    libvisual-0.4-dev
     libwayland-dev
     libwayland-egl-backend-dev
     libwebp-dev
+    libwavpack-dev
     libx11-dev
     libx11-xcb-dev
     libxcb-dri2-0-dev
@@ -193,11 +238,15 @@ readonly host_packages=(
     libxcb-sync-dev
     libxcb-xfixes0-dev
     libxcb1-dev
+    libxdamage-dev
     libxext-dev
     libxfixes-dev
+    libxi-dev
     libxkbcommon-dev
     libxrandr-dev
     libxshmfence-dev
+    libxt-dev
+    libxv-dev
     libxxf86vm-dev
     libx264-dev
     libx265-dev
@@ -217,6 +266,15 @@ readonly host_packages=(
     patch
     patchelf
     pkgconf
+    qt6-base-private-dev
+    qt6-declarative-dev
+    qt6-shader-baker
+    qt6-tools-dev
+    qt6-wayland-dev
+    qtbase5-dev
+    qtbase5-private-dev
+    qtdeclarative5-dev
+    qttools5-dev
     python-is-python3
     python3
     python3-build
@@ -239,7 +297,9 @@ readonly host_packages=(
     unzip
     uuid-dev
     wayland-protocols
+    xauth
     x11proto-dev
+    xvfb
     xz-utils
     wget
     zlib1g-dev
