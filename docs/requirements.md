@@ -50,6 +50,11 @@ is confirmed.
 - Compose the kernel configuration from the configuration targets stored in
   the kernel source tree. Do not maintain copied kernel configuration files in
   the external Debian metadata repository.
+- Make `cix-grub-config` recognize both development `vmlinuz-*-generic` and
+  stable `vmlinuz-*-cix` kernels, exclude release-candidate and debug kernels,
+  and select the highest eligible version for its CIX GRUB entry. Stable CIX
+  kernels use `acpi=force clk_ignore_unused`; development
+  `*-cix-build-generic` kernels use `acpi=force`.
 - Keep temporary downstream kernel fixes under `debian/kernel/patches/` and
   apply them to a disposable Git worktree. Do not modify the manifest-managed
   kernel checkout during a build.
