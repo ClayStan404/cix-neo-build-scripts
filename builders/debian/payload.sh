@@ -30,6 +30,7 @@ cix_materialize_payload_lfs() {
     local include=
     local item
     local item_path
+    local lfs_url
     local needs_pull=0
     local source_rel
 
@@ -56,8 +57,13 @@ cix_materialize_payload_lfs() {
         fi
         include+="${include:+,}${source_rel}/${item_path}"
     done
+    lfs_url="$(git -C "${source_git}" config --get lfs.url || true)"
+    if [[ -z "${lfs_url}" ]]; then
+        lfs_url="https://artifacts.cixtech.com/repository/gerrit-lfs/info/lfs"
+    fi
     cix_log "Fetch manifest-pinned Git LFS payloads for ${TARGET[description]}"
-    git -C "${source_git}" lfs pull --include="${include}" --exclude=''
+    git -C "${source_git}" -c "lfs.url=${lfs_url}" \
+        lfs pull --include="${include}" --exclude=''
 }
 
 cix_validate_payload() {

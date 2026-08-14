@@ -179,6 +179,8 @@ Payload targets package selected files and directories from the
 manifest-managed `cix_proprietary/cix_proprietary` repository. They fetch only
 the mapped paths' Git LFS objects when `repo sync` leaves pointer files in the
 checkout; they do not materialize every LFS object in the proprietary repo.
+An explicitly configured `lfs.url` is respected, while hosts without one use
+the central CIX artifact service for downloads instead of the Gitolite mirror.
 The AI engine and MNN targets install their Python modules through Debian's
 package build, so installing their debs never invokes `pip` from a maintainer
 script. The MNN package is built for Debian 13's CPython 3.13 ABI and removes

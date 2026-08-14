@@ -132,7 +132,9 @@ is confirmed.
 - Track `cix_proprietary/cix_proprietary` at branch `cix_master_linux_lfs`
   under `sources/cix-proprietary` for the proprietary VPU firmware payload.
   Keep this source on the internal server; do not mirror its binaries to the
-  temporary GitHub repositories.
+  temporary GitHub repositories. Respect a host-configured Git LFS download
+  URL and otherwise use the central CIX artifact service rather than relying
+  on the Gitolite mirror to implement the LFS authentication protocol.
 - Track `cix_opensource/npu_driver` at branch `cix_x2_r2p1_dev` under
   `sources/npu-driver`.
 - Track `cix_opensource/cix_ai_engine` at branch `cix_master` under
