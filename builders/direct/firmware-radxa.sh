@@ -31,8 +31,19 @@ cix_radxa_remove_worktree() {
 cix_radxa_remove_workspace() {
     local source_root="$1"
     local build_output="$2"
+    local source_edk2="${source_root}/uefi_release/edk2"
     local work_root="${build_output}/work"
     local work_uefi="${work_root}/uefi_release"
+    local dependency
+
+    while IFS= read -r dependency; do
+        cix_radxa_remove_worktree \
+            "${source_edk2}/${dependency}" \
+            "${work_uefi}/edk2/${dependency}"
+    done < <(
+        git -C "${source_edk2}" ls-files --stage |
+            awk '$1 == "160000" {print $4}'
+    )
 
     cix_radxa_remove_worktree \
         "${source_root}/uefi_release/edk2" "${work_uefi}/edk2"
@@ -102,7 +113,8 @@ cix_radxa_prepare_workspace() {
             rmdir "${dependency_target}"
         fi
         mkdir -p -- "$(dirname "${dependency_target}")"
-        ln -s -- "${source_uefi}/edk2/${dependency}" "${dependency_target}"
+        git -C "${source_uefi}/edk2/${dependency}" worktree add --detach \
+            "${dependency_target}" HEAD
     done < <(
         git -C "${source_uefi}/edk2" ls-files --stage |
             awk '$1 == "160000" {print $4}'
