@@ -1,24 +1,26 @@
-From 362e3cab3b1a5753d57bcdb4b17dfbdad6e8b3f3 Mon Sep 17 00:00:00 2001
+From 5f5ebec93eddb716fbbe25338d34016af2182f82 Mon Sep 17 00:00:00 2001
 From: Clay Stan <claystan97@gmail.com>
-Date: Mon, 17 Aug 2026 13:30:28 +0800
-Subject: [PATCH] Platform: add safe O6 PM profile selection
+Date: Mon, 17 Aug 2026 14:42:43 +0800
+Subject: [PATCH] Platform: add selectable O6 PM profiles
 
 Change-Id: I5e2491bbe7c707c371fa789af807978e8a5afefb
 ---
- .../PmConfigUpdateDxe/PmConfigUpdateDxe.c     | 791 ++++++++++++++++++
- .../PmConfigUpdateDxe/PmConfigUpdateDxe.h     |  65 ++
+ .../PmConfigUpdateDxe/PmConfigUpdateDxe.c     | 807 ++++++++++++++++++
+ .../PmConfigUpdateDxe/PmConfigUpdateDxe.h     |  68 ++
  .../PmConfigUpdateDxe/PmConfigUpdateDxe.inf   |  41 +
  Platform/Radxa/Orion/O6/O6.dsc                |   6 +-
- .../FirmwareConfigUpdateDxe.c                 |  70 +-
+ Platform/Radxa/Orion/O6/pm_config/csupm_bin_config.c | 4 ++--
+ Platform/Radxa/Orion/O6/pm_config/opp_config_custom.h | 1 +
+ .../FirmwareConfigUpdateDxe.c                 |  41 +-
  .../PlatformConfigDxe/PlatformConfigDxe.inf   |  12 +-
  .../PlatformConfigDxe/PlatformConfigHii.h     |   6 +-
  .../PlatformConfigDxe/PlatformConfigHii.uni   |   6 +-
  .../PlatformConfigDxe/PlatformConfigHii.vfr   |  38 +-
  .../PlatformConfigDxe/PmMenu/PmConfig.hfr     | 259 ++++++
  .../PlatformConfigDxe/PmMenu/PmConfig.uni     |  35 +
- .../CIX/Sky1/Include/RadxaSetupVar.h          |  20 +-
+ .../CIX/Sky1/Include/RadxaSetupVar.h          |  19 +-
  Platform/Radxa/Radxa.dec                      |   5 +-
- 13 files changed, 1313 insertions(+), 41 deletions(-)
+ 15 files changed, 1305 insertions(+), 43 deletions(-)
  create mode 100644 Platform/CIX/Sky1/Drivers/PmConfigUpdateDxe/PmConfigUpdateDxe.c
  create mode 100644 Platform/CIX/Sky1/Drivers/PmConfigUpdateDxe/PmConfigUpdateDxe.h
  create mode 100644 Platform/CIX/Sky1/Drivers/PmConfigUpdateDxe/PmConfigUpdateDxe.inf
@@ -27,12 +29,12 @@ Change-Id: I5e2491bbe7c707c371fa789af807978e8a5afefb
 
 diff --git a/Platform/CIX/Sky1/Drivers/PmConfigUpdateDxe/PmConfigUpdateDxe.c b/Platform/CIX/Sky1/Drivers/PmConfigUpdateDxe/PmConfigUpdateDxe.c
 new file mode 100644
-index 00000000..537fbba3
+index 00000000..be89723f
 --- /dev/null
 +++ b/Platform/CIX/Sky1/Drivers/PmConfigUpdateDxe/PmConfigUpdateDxe.c
-@@ -0,0 +1,791 @@
+@@ -0,0 +1,807 @@
 +/** @file
-+  Update the CIX v3 PM configuration from a validated BIOS profile.
++  Update the CIX v3 PM configuration from the selected BIOS profile.
 +
 +  The PM firmware consumes the dedicated 4 KiB PM configuration before UEFI
 +  starts. This DXE driver therefore updates that region, verifies the write,
@@ -220,7 +222,7 @@ index 00000000..537fbba3
 +  UINTN  Index;
 +
 +  ZeroMem (Settings, sizeof (*Settings));
-+  Settings->Profile = RADXA_PM_PROFILE_STOCK;
++  Settings->Profile = RADXA_PM_PROFILE_VENDOR;
 +  for (CpuDomain = 0; CpuDomain < ARRAY_SIZE (mCpuDomains); CpuDomain++) {
 +    for (Opp = 0; Opp < mCpuDomains[CpuDomain].Size; Opp++) {
 +      Index = PmSettingsIndex (CpuDomain, Opp);
@@ -492,8 +494,10 @@ index 00000000..537fbba3
 +    return FALSE;
 +  }
 +
-+  if ((Buffer[PM_CONFIG_OPP_VALID_OFFSET] != 0) ||
-+      !PmCpuTablesAreValid (Buffer) || !PmDsuIsStock (Buffer))
++  if (((Buffer[PM_CONFIG_OPP_VALID_OFFSET] != PM_CONFIG_OPP_EXTERNAL_VALID) &&
++       (Buffer[PM_CONFIG_OPP_VALID_OFFSET] != PM_CONFIG_OPP_EXTERNAL_INVALID)) ||
++      ((Buffer[PM_CONFIG_OPP_VALID_OFFSET] == PM_CONFIG_OPP_EXTERNAL_VALID) &&
++       (!PmCpuTablesAreValid (Buffer) || !PmDsuIsStock (Buffer))))
 +  {
 +    DEBUG ((DEBUG_ERROR, "[PmConfigUpdate] Unsupported external OPP table\n"));
 +    return FALSE;
@@ -552,6 +556,14 @@ index 00000000..537fbba3
 +  UINTN                     EntryOffset;
 +  UINTN                     Opp;
 +
++  if (Settings->Profile == RADXA_PM_PROFILE_VENDOR) {
++    return (Buffer[PM_CONFIG_OPP_VALID_OFFSET] == PM_CONFIG_OPP_EXTERNAL_INVALID);
++  }
++
++  if (Buffer[PM_CONFIG_OPP_VALID_OFFSET] != PM_CONFIG_OPP_EXTERNAL_VALID) {
++    return FALSE;
++  }
++
 +  for (CpuDomain = 0; CpuDomain < ARRAY_SIZE (mCpuDomains); CpuDomain++) {
 +    Domain = &mCpuDomains[CpuDomain];
 +    for (Opp = 0; Opp < Domain->Size; Opp++) {
@@ -588,21 +600,27 @@ index 00000000..537fbba3
 +  UINTN                     EntryOffset;
 +  UINTN                     Opp;
 +
-+  for (CpuDomain = 0; CpuDomain < ARRAY_SIZE (mCpuDomains); CpuDomain++) {
-+    Domain = &mCpuDomains[CpuDomain];
-+    for (Opp = 0; Opp < Domain->Size; Opp++) {
-+      if ((Settings->Profile == RADXA_PM_PROFILE_CUSTOM) &&
-+          (Opp == Domain->SustainedIndex))
-+      {
-+        continue;
-+      }
++  if (Settings->Profile == RADXA_PM_PROFILE_VENDOR) {
++    Buffer[PM_CONFIG_OPP_VALID_OFFSET] = PM_CONFIG_OPP_EXTERNAL_INVALID;
++  } else {
++    Buffer[PM_CONFIG_OPP_VALID_OFFSET] = PM_CONFIG_OPP_EXTERNAL_VALID;
 +
-+      PmExpectedOpp (Settings, CpuDomain, Opp, &Frequency, &Voltage, &Power);
-+      EntryOffset = PM_CONFIG_OPP_ENTRY_OFFSET (Domain->Domain, Opp);
-+      PmWrite32 (Buffer, EntryOffset + PM_CONFIG_OPP_LEVEL_OFFSET, Frequency);
-+      PmWrite32 (Buffer, EntryOffset + PM_CONFIG_OPP_VOLTAGE_OFFSET, Voltage);
-+      PmWrite32 (Buffer, EntryOffset + PM_CONFIG_OPP_FREQUENCY_OFFSET, 0);
-+      PmWrite32 (Buffer, EntryOffset + PM_CONFIG_OPP_POWER_OFFSET, Power);
++    for (CpuDomain = 0; CpuDomain < ARRAY_SIZE (mCpuDomains); CpuDomain++) {
++      Domain = &mCpuDomains[CpuDomain];
++      for (Opp = 0; Opp < Domain->Size; Opp++) {
++        if ((Settings->Profile == RADXA_PM_PROFILE_CUSTOM) &&
++            (Opp == Domain->SustainedIndex))
++        {
++          continue;
++        }
++
++        PmExpectedOpp (Settings, CpuDomain, Opp, &Frequency, &Voltage, &Power);
++        EntryOffset = PM_CONFIG_OPP_ENTRY_OFFSET (Domain->Domain, Opp);
++        PmWrite32 (Buffer, EntryOffset + PM_CONFIG_OPP_LEVEL_OFFSET, Frequency);
++        PmWrite32 (Buffer, EntryOffset + PM_CONFIG_OPP_VOLTAGE_OFFSET, Voltage);
++        PmWrite32 (Buffer, EntryOffset + PM_CONFIG_OPP_FREQUENCY_OFFSET, 0);
++        PmWrite32 (Buffer, EntryOffset + PM_CONFIG_OPP_POWER_OFFSET, Power);
++      }
 +    }
 +  }
 +
@@ -824,10 +842,10 @@ index 00000000..537fbba3
 +}
 diff --git a/Platform/CIX/Sky1/Drivers/PmConfigUpdateDxe/PmConfigUpdateDxe.h b/Platform/CIX/Sky1/Drivers/PmConfigUpdateDxe/PmConfigUpdateDxe.h
 new file mode 100644
-index 00000000..cd05c745
+index 00000000..8890391b
 --- /dev/null
 +++ b/Platform/CIX/Sky1/Drivers/PmConfigUpdateDxe/PmConfigUpdateDxe.h
-@@ -0,0 +1,65 @@
+@@ -0,0 +1,68 @@
 +/** @file
 +  CIX v3 PM configuration profile updater definitions.
 +
@@ -874,6 +892,9 @@ index 00000000..cd05c745
 +#define PM_CONFIG_OPP_FREQUENCY_OFFSET     8U
 +#define PM_CONFIG_OPP_POWER_OFFSET         12U
 +
++#define PM_CONFIG_OPP_EXTERNAL_VALID       0U
++#define PM_CONFIG_OPP_EXTERNAL_INVALID     1U
++
 +#define PM_CONFIG_CPU_DOMAIN_FIRST         3U
 +#define PM_CONFIG_CPU_DOMAIN_LAST          6U
 +#define PM_CONFIG_CPU_DOMAIN_COUNT         4U
@@ -883,9 +904,9 @@ index 00000000..cd05c745
 +  PM_CONFIG_OPP_DOMAIN_OFFSET (PM_CONFIG_DSU_DOMAIN_INDEX + 1U)
 +
 +#define PM_CONFIG_CPU_FREQUENCY_MIN        800U
-+#define PM_CONFIG_CPU_FREQUENCY_MAX        3000U
-+#define PM_CONFIG_CPU_VOLTAGE_MIN          700U
-+#define PM_CONFIG_CPU_VOLTAGE_MAX          1100U
++#define PM_CONFIG_CPU_FREQUENCY_MAX        3200U
++#define PM_CONFIG_CPU_VOLTAGE_MIN          550U
++#define PM_CONFIG_CPU_VOLTAGE_MAX          1250U
 +
 +#define PM_CONFIG_GB1_DOMAIN_INDEX         4U
 +#define PM_CONFIG_GB1_TOP_INDEX            6U
@@ -953,7 +974,7 @@ index 85b0d9d3..75f905c3 100644
    DEFINE MEM_CONFIG_UPDATE_SUPPORT  = TRUE
    DEFINE DYNAMIC_ACPI_CPU_ENABLE    = TRUE
    DEFINE SOC_SPI_ENABLE             = TRUE
-@@ -291,6 +291,10 @@
+@@ -291,5 +291,9 @@
    GCC:*_*_*_VFRPP_FLAGS       = -DFW_CONFIG_UPDATE_SUPPORT=1
  !endif
  
@@ -963,9 +984,31 @@ index 85b0d9d3..75f905c3 100644
 +
  ################################################################################
  #
- # Pcd Section - list of all EDK II PCD Entries defined by this Platform
+diff --git a/Platform/Radxa/Orion/O6/pm_config/csupm_bin_config.c b/Platform/Radxa/Orion/O6/pm_config/csupm_bin_config.c
+--- a/Platform/Radxa/Orion/O6/pm_config/csupm_bin_config.c
++++ b/Platform/Radxa/Orion/O6/pm_config/csupm_bin_config.c
+@@ -528,7 +528,7 @@ int main(int argc, char **argv)
+     }
+
+-    // update to valid which was invalid setting by memset()
++    // Preserve the complete table but boot with vendor automatic OPP selection.
+-    config->opp_config.opp_valid = PM_CONFIG_VALID;
++    config->opp_config.opp_valid = PM_OPP_TABLE_INITIAL_VALIDITY;
+
+     for (size_t i = 0; i < ARRAY_LENGTH(dom_opps); i++) {
+         if (dom_opps[i]) {
+diff --git a/Platform/Radxa/Orion/O6/pm_config/opp_config_custom.h b/Platform/Radxa/Orion/O6/pm_config/opp_config_custom.h
+--- a/Platform/Radxa/Orion/O6/pm_config/opp_config_custom.h
++++ b/Platform/Radxa/Orion/O6/pm_config/opp_config_custom.h
+@@ -9,5 +9,6 @@
+
+ #define PM_OPP_TABLE_CONFIG   1
++#define PM_OPP_TABLE_INITIAL_VALIDITY  PM_CONFIG_INVALID
+
+ #if PM_OPP_TABLE_CONFIG
+ /* V1.1, DFS */
 diff --git a/Platform/Radxa/Platforms/CIX/Sky1/Drivers/FirmwareConfigUpdateDxe/FirmwareConfigUpdateDxe.c b/Platform/Radxa/Platforms/CIX/Sky1/Drivers/FirmwareConfigUpdateDxe/FirmwareConfigUpdateDxe.c
-index de75870c..c3227576 100644
+index de75870c..2f987d30 100644
 --- a/Platform/Radxa/Platforms/CIX/Sky1/Drivers/FirmwareConfigUpdateDxe/FirmwareConfigUpdateDxe.c
 +++ b/Platform/Radxa/Platforms/CIX/Sky1/Drivers/FirmwareConfigUpdateDxe/FirmwareConfigUpdateDxe.c
 @@ -225,10 +225,10 @@ GetMemConfigAndUpdate (
@@ -983,7 +1026,7 @@ index de75870c..c3227576 100644
  {
    #define CIX_SIP_CPU_BOOST_TRIGGER 0xc2000011
    ARM_SMC_ARGS  SmcArgs;
-@@ -236,11 +236,49 @@ SetCpuBoostTriggerFlag (
+@@ -236,11 +236,20 @@ SetCpuBoostTriggerFlag (
    ZeroMem (&SmcArgs, sizeof (ARM_SMC_ARGS));
    SmcArgs.Arg0 = CIX_SIP_CPU_BOOST_TRIGGER;
    SmcArgs.Arg1 = Flag;
@@ -997,40 +1040,11 @@ index de75870c..c3227576 100644
 +
 +STATIC
 +VOID
-+ApplyPmProfileCpuLimit (
++RemoveLegacyCpuLimit (
 +  IN OUT RADXA_SETUP_DATA  *RadxaSetupData
 +  )
 +{
-+  EFI_STATUS            Status;
-+  UINTN                 Size;
-+  RADXA_PM_TUNING_DATA  PmTuningData;
-+
-+  ZeroMem (&PmTuningData, sizeof (PmTuningData));
-+  Size = sizeof (PmTuningData);
-+  Status = gRT->GetVariable (
-+                  RADXA_PM_TUNING_VAR,
-+                  &gRadxaSetupVariableGuid,
-+                  NULL,
-+                  &Size,
-+                  &PmTuningData
-+                  );
-+  if (Status == EFI_NOT_FOUND) {
-+    return;
-+  }
-+
-+  if (EFI_ERROR (Status) ||
-+      ((Size != sizeof (PmTuningData)) && (Size != sizeof (UINT8))) ||
-+      (PmTuningData.Profile > RADXA_PM_PROFILE_MAX))
-+  {
-+    DEBUG ((DEBUG_ERROR, "Invalid PM tuning profile: %r\n", Status));
-+    return;
-+  }
-+
-+  if (PmTuningData.Profile == RADXA_PM_PROFILE_STOCK) {
-+    RadxaSetupData->CpuFMax = RADXA_CPU_LIMIT_2600;
-+  } else {
-+    RadxaSetupData->CpuFMax = RADXA_CPU_LIMIT_MAX;
-+  }
++  RadxaSetupData->CpuFMax = RADXA_CPU_LIMIT_MAX;
 +}
 +
 +VOID
@@ -1038,7 +1052,7 @@ index de75870c..c3227576 100644
    IN EFI_EVENT  Event,
    IN VOID       *Context
    )
-@@ -272,12 +310,14 @@ FwConfigUpdateCallback (
+@@ -272,12 +281,14 @@ FwConfigUpdateCallback (
                    &VarSize,
                    pRadxaSetupVar
                    );
@@ -1053,7 +1067,7 @@ index de75870c..c3227576 100644
 +    goto Done;
 +  }
 +
-+  ApplyPmProfileCpuLimit (pRadxaSetupVar);
++  RemoveLegacyCpuLimit (pRadxaSetupVar);
 +
 +  DEBUG ((DEBUG_INFO, "Debug-------------------------------------------------------[%a][%d]\n", __FUNCTION__, __LINE__));
    pImage = AllocateZeroPool (Length);
@@ -1192,7 +1206,7 @@ index ab2a9371..eb5cdf3b 100644
  #include "I2cConfig.hfr"
 diff --git a/Platform/Radxa/Platforms/CIX/Sky1/Drivers/PlatformConfigDxe/PmMenu/PmConfig.hfr b/Platform/Radxa/Platforms/CIX/Sky1/Drivers/PlatformConfigDxe/PmMenu/PmConfig.hfr
 new file mode 100644
-index 00000000..a776dcee
+index 00000000..fb201e4f
 --- /dev/null
 +++ b/Platform/Radxa/Platforms/CIX/Sky1/Drivers/PlatformConfigDxe/PmMenu/PmConfig.hfr
 @@ -0,0 +1,259 @@
@@ -1201,7 +1215,7 @@ index 00000000..a776dcee
 +    prompt = STRING_TOKEN(STR_PM_FREQUENCY_PROMPT),                              \
 +    help = STRING_TOKEN(STR_PM_FREQUENCY_HELP),                                  \
 +    flags = DISPLAY_UINT_DEC | NUMERIC_SIZE_2 | RESET_REQUIRED,                  \
-+    minimum = 800, maximum = 3000, step = 10, default = DefaultValue,            \
++    minimum = 800, maximum = 3200, step = 10, default = DefaultValue,            \
 +    inconsistentif prompt = STRING_TOKEN(STR_PM_FREQUENCY_ORDER_ERROR),          \
 +      ideqid RadxaPmTuningVar.CpuFrequency[Index] >=                             \
 +        RadxaPmTuningVar.CpuFrequency[Next]                                      \
@@ -1213,7 +1227,7 @@ index 00000000..a776dcee
 +    prompt = STRING_TOKEN(STR_PM_FREQUENCY_PROMPT),                              \
 +    help = STRING_TOKEN(STR_PM_FREQUENCY_HELP),                                  \
 +    flags = DISPLAY_UINT_DEC | NUMERIC_SIZE_2 | RESET_REQUIRED,                  \
-+    minimum = 800, maximum = 3000, step = 10, default = DefaultValue,            \
++    minimum = 800, maximum = 3200, step = 10, default = DefaultValue,            \
 +    inconsistentif prompt = STRING_TOKEN(STR_PM_FREQUENCY_ORDER_ERROR),          \
 +      ideqid RadxaPmTuningVar.CpuFrequency[Index] <=                             \
 +        RadxaPmTuningVar.CpuFrequency[Previous] OR                               \
@@ -1227,7 +1241,7 @@ index 00000000..a776dcee
 +    prompt = STRING_TOKEN(STR_PM_FREQUENCY_PROMPT),                              \
 +    help = STRING_TOKEN(STR_PM_FREQUENCY_HELP),                                  \
 +    flags = DISPLAY_UINT_DEC | NUMERIC_SIZE_2 | RESET_REQUIRED,                  \
-+    minimum = 800, maximum = 3000, step = 10, default = DefaultValue,            \
++    minimum = 800, maximum = 3200, step = 10, default = DefaultValue,            \
 +    inconsistentif prompt = STRING_TOKEN(STR_PM_FREQUENCY_ORDER_ERROR),          \
 +      ideqid RadxaPmTuningVar.CpuFrequency[Index] <=                             \
 +        RadxaPmTuningVar.CpuFrequency[Previous] OR                               \
@@ -1240,7 +1254,7 @@ index 00000000..a776dcee
 +    prompt = STRING_TOKEN(STR_PM_FREQUENCY_PROMPT),                              \
 +    help = STRING_TOKEN(STR_PM_FREQUENCY_HELP),                                  \
 +    flags = DISPLAY_UINT_DEC | NUMERIC_SIZE_2 | RESET_REQUIRED,                  \
-+    minimum = 800, maximum = 3000, step = 10, default = DefaultValue,            \
++    minimum = 800, maximum = 3200, step = 10, default = DefaultValue,            \
 +    inconsistentif prompt = STRING_TOKEN(STR_PM_FREQUENCY_ORDER_ERROR),          \
 +      ideqval RadxaPmTuningVar.CpuFrequency[Index] <= 1800 OR                    \
 +      ideqid RadxaPmTuningVar.CpuFrequency[Index] >=                             \
@@ -1253,7 +1267,7 @@ index 00000000..a776dcee
 +    prompt = STRING_TOKEN(STR_PM_FREQUENCY_PROMPT),                              \
 +    help = STRING_TOKEN(STR_PM_FREQUENCY_HELP),                                  \
 +    flags = DISPLAY_UINT_DEC | NUMERIC_SIZE_2 | RESET_REQUIRED,                  \
-+    minimum = 800, maximum = 3000, step = 10, default = DefaultValue,            \
++    minimum = 800, maximum = 3200, step = 10, default = DefaultValue,            \
 +    inconsistentif prompt = STRING_TOKEN(STR_PM_FREQUENCY_ORDER_ERROR),          \
 +      ideqid RadxaPmTuningVar.CpuFrequency[Index] <=                             \
 +        RadxaPmTuningVar.CpuFrequency[Previous]                                  \
@@ -1265,7 +1279,7 @@ index 00000000..a776dcee
 +    prompt = STRING_TOKEN(STR_PM_VOLTAGE_PROMPT),                                \
 +    help = STRING_TOKEN(STR_PM_VOLTAGE_HELP),                                    \
 +    flags = DISPLAY_UINT_DEC | NUMERIC_SIZE_2 | RESET_REQUIRED,                  \
-+    minimum = 700, maximum = 1100, step = 10, default = DefaultValue,            \
++    minimum = 550, maximum = 1250, step = 10, default = DefaultValue,            \
 +    inconsistentif prompt = STRING_TOKEN(STR_PM_VOLTAGE_ORDER_ERROR),            \
 +      ideqid RadxaPmTuningVar.CpuVoltage[Index] >                                \
 +        RadxaPmTuningVar.CpuVoltage[Next]                                        \
@@ -1277,7 +1291,7 @@ index 00000000..a776dcee
 +    prompt = STRING_TOKEN(STR_PM_VOLTAGE_PROMPT),                                \
 +    help = STRING_TOKEN(STR_PM_VOLTAGE_HELP),                                    \
 +    flags = DISPLAY_UINT_DEC | NUMERIC_SIZE_2 | RESET_REQUIRED,                  \
-+    minimum = 700, maximum = 1100, step = 10, default = DefaultValue,            \
++    minimum = 550, maximum = 1250, step = 10, default = DefaultValue,            \
 +    inconsistentif prompt = STRING_TOKEN(STR_PM_VOLTAGE_ORDER_ERROR),            \
 +      ideqid RadxaPmTuningVar.CpuVoltage[Index] <                                \
 +        RadxaPmTuningVar.CpuVoltage[Previous] OR                                 \
@@ -1291,7 +1305,7 @@ index 00000000..a776dcee
 +    prompt = STRING_TOKEN(STR_PM_VOLTAGE_PROMPT),                                \
 +    help = STRING_TOKEN(STR_PM_VOLTAGE_HELP),                                    \
 +    flags = DISPLAY_UINT_DEC | NUMERIC_SIZE_2 | RESET_REQUIRED,                  \
-+    minimum = 700, maximum = 1100, step = 10, default = DefaultValue,            \
++    minimum = 550, maximum = 1250, step = 10, default = DefaultValue,            \
 +    inconsistentif prompt = STRING_TOKEN(STR_PM_VOLTAGE_ORDER_ERROR),            \
 +      ideqid RadxaPmTuningVar.CpuVoltage[Index] <                                \
 +        RadxaPmTuningVar.CpuVoltage[Previous] OR                                 \
@@ -1304,7 +1318,7 @@ index 00000000..a776dcee
 +    prompt = STRING_TOKEN(STR_PM_VOLTAGE_PROMPT),                                \
 +    help = STRING_TOKEN(STR_PM_VOLTAGE_HELP),                                    \
 +    flags = DISPLAY_UINT_DEC | NUMERIC_SIZE_2 | RESET_REQUIRED,                  \
-+    minimum = 700, maximum = 1100, step = 10, default = DefaultValue,            \
++    minimum = 550, maximum = 1250, step = 10, default = DefaultValue,            \
 +    inconsistentif prompt = STRING_TOKEN(STR_PM_VOLTAGE_ORDER_ERROR),            \
 +      ideqval RadxaPmTuningVar.CpuVoltage[Index] < 790 OR                        \
 +      ideqid RadxaPmTuningVar.CpuVoltage[Index] >                                \
@@ -1317,7 +1331,7 @@ index 00000000..a776dcee
 +    prompt = STRING_TOKEN(STR_PM_VOLTAGE_PROMPT),                                \
 +    help = STRING_TOKEN(STR_PM_VOLTAGE_HELP),                                    \
 +    flags = DISPLAY_UINT_DEC | NUMERIC_SIZE_2 | RESET_REQUIRED,                  \
-+    minimum = 700, maximum = 1100, step = 10, default = DefaultValue,            \
++    minimum = 550, maximum = 1250, step = 10, default = DefaultValue,            \
 +    inconsistentif prompt = STRING_TOKEN(STR_PM_VOLTAGE_ORDER_ERROR),            \
 +      ideqid RadxaPmTuningVar.CpuVoltage[Index] <                                \
 +        RadxaPmTuningVar.CpuVoltage[Previous]                                    \
@@ -1335,8 +1349,8 @@ index 00000000..a776dcee
 +      prompt = STRING_TOKEN(STR_PM_PROFILE_PROMPT),
 +      help = STRING_TOKEN(STR_PM_PROFILE_HELP),
 +      flags = NUMERIC_SIZE_1 | RESET_REQUIRED,
-+      default = RADXA_PM_PROFILE_STOCK,
-+      option text = STRING_TOKEN(STR_PM_PROFILE_STOCK), value = RADXA_PM_PROFILE_STOCK, flags = RESET_REQUIRED;
++      default = RADXA_PM_PROFILE_VENDOR,
++      option text = STRING_TOKEN(STR_PM_PROFILE_VENDOR), value = RADXA_PM_PROFILE_VENDOR, flags = RESET_REQUIRED;
 +      option text = STRING_TOKEN(STR_PM_PROFILE_2700), value = RADXA_PM_PROFILE_GB1_2700, flags = RESET_REQUIRED;
 +      option text = STRING_TOKEN(STR_PM_PROFILE_CUSTOM), value = RADXA_PM_PROFILE_CUSTOM, flags = RESET_REQUIRED;
 +    endoneof;
@@ -1457,25 +1471,25 @@ index 00000000..a776dcee
 +#undef PM_VOLT_LAST
 diff --git a/Platform/Radxa/Platforms/CIX/Sky1/Drivers/PlatformConfigDxe/PmMenu/PmConfig.uni b/Platform/Radxa/Platforms/CIX/Sky1/Drivers/PlatformConfigDxe/PmMenu/PmConfig.uni
 new file mode 100644
-index 00000000..db805c2c
+index 00000000..99799a98
 --- /dev/null
 +++ b/Platform/Radxa/Platforms/CIX/Sky1/Drivers/PlatformConfigDxe/PmMenu/PmConfig.uni
 @@ -0,0 +1,35 @@
 +#langdef en-US  "English"
 +
 +#string STR_PM_CONFIG_FORM_TITLE       #language en-US "Power Management"
-+#string STR_PM_CONFIG_FORM_HELP        #language en-US "Select a fixed or expert CPU operating point profile."
++#string STR_PM_CONFIG_FORM_HELP        #language en-US "Select the vendor automatic, fixed experimental, or expert CPU operating point profile."
 +#string STR_PM_CONFIG_WARNING          #language en-US "Saving a changed profile updates the dedicated PM configuration in SPI flash. The firmware performs one additional cold reset after a verified write."
 +#string STR_PM_PROFILE_PROMPT          #language en-US "CPU OPP Profile"
-+#string STR_PM_PROFILE_HELP            #language en-US "Stock and Validated restore complete known-good CPU tables. Expert/Custom applies the editable CPU OPP values below."
-+#string STR_PM_PROFILE_STOCK           #language en-US "Stock: GB1 up to 2600 MHz at 920 mV"
-+#string STR_PM_PROFILE_2700            #language en-US "Validated: GB1 up to 2700 MHz at 950 mV"
++#string STR_PM_PROFILE_HELP            #language en-US "Vendor/Automatic disables the external OPP table so PM firmware can generate its native per-part table. Experimental and Expert/Custom enable an external complete table."
++#string STR_PM_PROFILE_VENDOR          #language en-US "Vendor/Automatic (PM firmware native OPPs)"
++#string STR_PM_PROFILE_2700            #language en-US "Experimental: GB1 up to 2700 MHz at 950 mV"
 +#string STR_PM_PROFILE_CUSTOM          #language en-US "Expert/Custom CPU OPPs"
 +
 +#string STR_PM_CUSTOM_FORM_TITLE       #language en-US "Expert/Custom CPU OPPs"
 +#string STR_PM_CUSTOM_FORM_HELP        #language en-US "Edit the non-startup OPPs for the four performance CPU domains."
-+#string STR_PM_CUSTOM_WARNING          #language en-US "Expert settings can prevent the operating system from booting. Voltages above 1000 mV are high-risk experiments. Keep a tested SPI recovery path available."
-+#string STR_PM_CUSTOM_LIMITS           #language en-US "Allowed values: 800-3000 MHz and 700-1100 mV, in steps of 10. The 1100 mV limit is a stop boundary, not a target. Frequency must increase and voltage must not decrease within each domain."
++#string STR_PM_CUSTOM_WARNING          #language en-US "Expert settings can prevent boot or permanently damage hardware. Keep a tested SPI recovery path available."
++#string STR_PM_CUSTOM_LIMITS           #language en-US "Input boundaries: 800-3200 MHz and 550-1250 mV, in steps of 10. They are not safe operating guarantees. Frequency must increase and voltage must not decrease within each domain."
 +#string STR_PM_STARTUP_LOCKED          #language en-US "Startup OPP 3 is fixed at 1800 MHz / 790 mV and is intentionally not shown."
 +#string STR_PM_DSU_LOCKED              #language en-US "DSU and non-CPU domains are not editable."
 +#string STR_PM_FREQUENCY_PROMPT        #language en-US "Frequency (MHz)"
@@ -1497,7 +1511,7 @@ index 00000000..db805c2c
 +#string STR_PM_OPP5                    #language en-US "OPP 5"
 +#string STR_PM_OPP6                    #language en-US "OPP 6"
 diff --git a/Platform/Radxa/Platforms/CIX/Sky1/Include/RadxaSetupVar.h b/Platform/Radxa/Platforms/CIX/Sky1/Include/RadxaSetupVar.h
-index eb2f388c..2ccfbbb2 100644
+index eb2f388c..e27b48d1 100644
 --- a/Platform/Radxa/Platforms/CIX/Sky1/Include/RadxaSetupVar.h
 +++ b/Platform/Radxa/Platforms/CIX/Sky1/Include/RadxaSetupVar.h
 @@ -5,6 +5,7 @@
@@ -1508,15 +1522,14 @@ index eb2f388c..2ccfbbb2 100644
  
  extern EFI_GUID  gRadxaSetupVariableGuid;
  
-@@ -21,6 +22,23 @@ typedef struct {
+@@ -21,6 +22,22 @@ typedef struct {
    UINT8     UFSPowerMode;
  } RADXA_SETUP_DATA;
  
-+#define RADXA_PM_PROFILE_STOCK       0
++#define RADXA_PM_PROFILE_VENDOR      0
 +#define RADXA_PM_PROFILE_GB1_2700    1
 +#define RADXA_PM_PROFILE_CUSTOM      2
 +#define RADXA_PM_PROFILE_MAX         RADXA_PM_PROFILE_CUSTOM
-+#define RADXA_CPU_LIMIT_2600         0
 +#define RADXA_CPU_LIMIT_MAX          2
 +
 +#define RADXA_PM_CPU_DOMAIN_COUNT    4

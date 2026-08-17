@@ -60,7 +60,7 @@ EXPECTED_OPP_TABLES = (
 
 GB1_DOMAIN_INDEX = 4
 GB1_STOCK_TOP_OPP = EXPECTED_OPP_TABLES[GB1_DOMAIN_INDEX][-1]
-OPP_PROFILES = ("stock-opp", "gb1-2700")
+OPP_PROFILES = ("stock-opp", "gb1-2700", "vendor-auto")
 
 
 class VerificationError(RuntimeError):
@@ -96,7 +96,7 @@ def decode_rail(data: bytes, offset: int) -> tuple[int, ...]:
 
 
 def expected_opp_tables(profile: str) -> tuple:
-    if profile == "stock-opp":
+    if profile in ("stock-opp", "vendor-auto"):
         return EXPECTED_OPP_TABLES
     if profile == "gb1-2700":
         tables = list(EXPECTED_OPP_TABLES)
@@ -132,8 +132,10 @@ def verify_external_opp(data: bytes, profile: str) -> None:
     expected_tables = expected_opp_tables(profile)
     if len(expected_tables) != OPP_DOMAIN_COUNT - 1:
         raise VerificationError("OPP verifier has an invalid domain count")
-    if data[PM_CONFIG_OPP_OFFSET] != 0:
-        raise VerificationError("external OPP table is not marked valid")
+    expected_validity = 1 if profile == "vendor-auto" else 0
+    if data[PM_CONFIG_OPP_OFFSET] != expected_validity:
+        state = "disabled" if expected_validity else "valid"
+        raise VerificationError(f"external OPP table is not marked {state}")
 
     domain_base = PM_CONFIG_OPP_OFFSET + 1
     empty_entry = (0, 0, 0, 0)
@@ -206,6 +208,11 @@ def verify(data: bytes, profile: str = "pmic") -> str:
 
     if profile in OPP_PROFILES:
         verify_external_opp(data, profile)
+        if profile == "vendor-auto":
+            return (
+                "PM config v3.0 custom PMIC is valid, external OPP selection "
+                "is disabled, and source stock backup tables are valid"
+            )
         label = {
             "stock-opp": "source stock",
             "gb1-2700": "GB1 2.7 GHz experiment",

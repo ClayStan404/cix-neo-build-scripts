@@ -197,22 +197,25 @@ is confirmed.
   slots, and the unconfigured thirteenth domain match exactly. Do not introduce
   higher frequencies or new voltage points until the stock-table image has
   passed a recoverable board test.
-- Provide a separate O6 firmware target with BIOS-selectable Stock, Validated,
-  and Expert/Custom PM profiles. Keep source checkouts clean by carrying the
-  implementation as a build-time patch. Stock and Validated must restore the
-  complete known-good CPU tables. Expert/Custom may edit only the non-startup
-  OPPs of GB0, GB1, GM0, and GM1, within 800-3000 MHz and 700-1100 mV in steps
-  of 10. Treat values above 1000 mV as high-risk experiments and 1100 mV as a
-  hard stop boundary, not a target. Require strictly increasing frequencies
-  and non-decreasing voltages within each domain. Conservatively scale each
+- Provide a separate O6 firmware target with BIOS-selectable Vendor/Automatic,
+  Experimental, and Expert/Custom PM profiles. Keep source checkouts clean by
+  carrying the implementation as a build-time patch. Vendor/Automatic must
+  disable the external OPP table so PM firmware can use its native per-part
+  OPN/Vmin/guardband path. Experimental and Expert/Custom must enable a complete
+  external OPP table. Do not treat frequency/voltage evidence from the internal
+  K000086 EVB as qualification of the publicly sold Radxa O6 board.
+  Expert/Custom may edit only the non-startup OPPs of GB0, GB1, GM0, and GM1,
+  within 800-3200 MHz and 550-1250 mV in steps of 10. These are input boundaries,
+  not safe operating guarantees; the voltage boundary reflects the documented
+  Big/Mid CPU rail range. Require strictly increasing frequencies and
+  non-decreasing voltages within each domain. Conservatively scale each
   changed OPP power cost with frequency and voltage squared, rounding up and
   never reducing the value below the source-stock cost. Do not expose startup
   OPPs, DSU, or non-CPU domains.
   Validate both the submitted settings and the complete existing v3 PM block
   before writing; recalculate the checksum; read back and compare the complete
   PM entry; and cold-reset only after a verified write. The setup-save path
-  must also prevent the legacy CPU limit from masking Validated or Custom
-  profiles.
+  must also prevent the legacy CPU limit from masking any selected profile.
 - Track internal `tools/cix_binary` at commit
   `cf4388565546e14ab4c566e55495cd6757edd92e` under `sources/cix-binary` for
   the ARM64 `pmtool` validation utility. Publish only the checked executable as
@@ -439,8 +442,10 @@ target is included in a product build set, installs software, invokes `sudo`,
 or flashes firmware.
 
 The `radxa-o6-pm-tuning` direct target layers a BIOS profile selector and a v3
-PM update driver over the validated stock external OPP image. Stock and
-Validated provide recovery-friendly complete CPU tables; Expert/Custom exposes
+PM update driver over an image that contains a complete external OPP table.
+The image marks that table disabled by default, and Vendor/Automatic keeps it
+disabled so PM firmware can generate its native per-part table. Experimental
+and Expert/Custom re-enable a complete external table; Expert/Custom exposes
 only non-startup OPPs for GB0, GB1, GM0, and GM1 under bounded and monotonic
 input rules. Startup OPPs, DSU, and non-CPU domains remain locked. The updater
 validates the complete current and generated PM blocks and verifies the

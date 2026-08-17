@@ -17,7 +17,7 @@ build_sets:
       - radxa-o6-gb1-2700-experiment
 
   pm-tuning:
-    description: O6 firmware with BIOS-selectable validated PM profiles
+    description: O6 firmware with BIOS-selectable automatic and experimental PM profiles
     targets:
       - pmtool
       - radxa-o6-pm-tuning
@@ -129,7 +129,7 @@ targets:
     board: O6
 
   radxa-o6-pm-tuning:
-    description: Radxa Orion O6 firmware with BIOS-selectable validated PM profiles
+    description: Radxa Orion O6 firmware with BIOS-selectable automatic and experimental PM profiles
     builder: direct
     flow: radxa-pm-tuning
     source: sources/radxa-o6

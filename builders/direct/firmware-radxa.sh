@@ -136,6 +136,7 @@ cix_radxa_prepare_workspace() {
     fi
 
     if [[ "${validation_profile}" == "stock-opp" ||
+        "${validation_profile}" == "vendor-auto" ||
         "${validation_profile}" == "gb1-2700" ]]; then
         cix_radxa_apply_patch "${work_uefi}/edk2-platforms" \
             "${opp_patch_root}/0001-Platform-Radxa-enable-stock-O6-OPP-table.patch"
@@ -148,7 +149,7 @@ cix_radxa_prepare_workspace() {
 
     if [[ "${enable_pm_tuning}" == true ]]; then
         cix_radxa_apply_patch "${work_uefi}/edk2-platforms" \
-            "${pm_tuning_patch_root}/0001-Platform-add-safe-O6-PM-profile-selection.patch"
+            "${pm_tuning_patch_root}/0001-Platform-add-selectable-O6-PM-profiles.patch"
 
         local pm_form="${work_uefi}/edk2-platforms/Platform/Radxa/Platforms/CIX/Sky1/Drivers/PlatformConfigDxe/PmMenu/PmConfig.hfr"
         [[ -s "${pm_form}" ]] || cix_die "O6 Expert/Custom PM form is missing"
@@ -158,6 +159,16 @@ cix_radxa_prepare_workspace() {
             END { exit protected_opp }
         ' "${pm_form}" ||
             cix_die "O6 Expert/Custom PM form exposes a protected startup OPP"
+        awk '
+            /minimum = 800, maximum = 3200, step = 10/ {
+                frequency_boundary = 1
+            }
+            /minimum = 550, maximum = 1250, step = 10/ {
+                voltage_boundary = 1
+            }
+            END { exit !(frequency_boundary && voltage_boundary) }
+        ' "${pm_form}" ||
+            cix_die "O6 Expert/Custom PM form has unexpected input boundaries"
     fi
 }
 
@@ -186,7 +197,7 @@ cix_direct_radxa_firmware_build() (
     elif [[ "${TARGET[flow]}" == "radxa-opp-experiment" ]]; then
         validation_profile=gb1-2700
     elif [[ "${TARGET[flow]}" == "radxa-pm-tuning" ]]; then
-        validation_profile=stock-opp
+        validation_profile=vendor-auto
         enable_pm_tuning=true
     fi
 

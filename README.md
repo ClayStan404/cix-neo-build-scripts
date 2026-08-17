@@ -152,19 +152,24 @@ GB1 OPP changes from 2600 MHz at 920 mV to 2700 MHz at 950 mV. The verifier
 rejects any other OPP-table difference. This experiment is never included in
 a product build set and must be used only on a recoverable O6 test board.
 
-`radxa-o6-pm-tuning` provides Stock, Validated, and Expert/Custom profiles in
+`radxa-o6-pm-tuning` provides Vendor/Automatic, Experimental, and
+Expert/Custom profiles in
 the O6 UEFI setup menu under `Device Manager -> Platform Configuration ->
-Advanced Configuration -> Power Management`. Stock and Validated restore
-complete known-good CPU tables. Expert/Custom permits bounded edits to the
-non-startup OPPs of GB0, GB1, GM0, and GM1; it enforces increasing frequencies
-and non-decreasing voltages. CPU voltage is capped at 1100 mV, with values
-above 1000 mV explicitly treated as high-risk experiments. Changed OPP power
-costs are conservatively scaled with frequency and voltage squared. Startup
-OPPs, DSU, and non-CPU domains remain locked. Saving a profile also selects a
-compatible legacy CPU-limit mode. On the following boot, a DXE driver validates
-the submitted settings and complete current v3.0 PM block, updates the CPU
-tables, recalculates the checksum, writes the dedicated PM flash entry, reads
-back and compares the complete entry, then performs one additional cold reset.
+Advanced Configuration -> Power Management`. Vendor/Automatic disables the
+external OPP table so PM firmware can use its native OPN/Vmin/guardband path.
+Experimental and Expert/Custom enable a complete external table. The fixed
+2.7 GHz profile is experimental rather than validated for a retail Radxa O6;
+the available K000086 results came from a different internal EVB.
+Expert/Custom permits edits to the non-startup OPPs of GB0, GB1, GM0, and GM1
+within 800-3200 MHz and 550-1250 mV in steps of 10. These are input boundaries,
+not safe operating guarantees. It enforces increasing frequencies and
+non-decreasing voltages. Changed OPP power costs are conservatively scaled with
+frequency and voltage squared. Startup OPPs, DSU, and non-CPU domains remain
+locked. All profiles remove the legacy CPU cap so it cannot mask PM firmware's
+selected table. On the following boot, a DXE driver validates the submitted
+settings and complete current v3.0 PM block, updates the external-table state,
+recalculates the checksum, writes the dedicated PM flash entry, reads back and
+compares the complete entry, then performs one additional cold reset.
 This target is not part of a product build set and the ordinary O6 firmware
 target remains unchanged.
 

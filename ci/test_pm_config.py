@@ -44,7 +44,9 @@ def validation_block(opp_profile: str | None = None) -> bytes:
         data[offset : offset + 8] = encode_rail(rail)
         offset += 8
     if opp_profile:
-        data[verify_pm_config.PM_CONFIG_OPP_OFFSET] = 0
+        data[verify_pm_config.PM_CONFIG_OPP_OFFSET] = (
+            1 if opp_profile == "vendor-auto" else 0
+        )
         domain_base = verify_pm_config.PM_CONFIG_OPP_OFFSET + 1
         expected_tables = verify_pm_config.expected_opp_tables(opp_profile)
         for domain, expected in enumerate(expected_tables):
@@ -97,6 +99,22 @@ class PmConfigVerifierTests(unittest.TestCase):
     def test_accepts_gb1_2700_experiment(self) -> None:
         result = verify_pm_config.verify(validation_block("gb1-2700"), "gb1-2700")
         self.assertIn("GB1 2.7 GHz experiment", result)
+
+    def test_accepts_vendor_automatic_with_backup_tables(self) -> None:
+        result = verify_pm_config.verify(validation_block("vendor-auto"), "vendor-auto")
+        self.assertIn("external OPP selection is disabled", result)
+        self.assertIn("source stock backup tables are valid", result)
+
+    def test_rejects_enabled_table_as_vendor_automatic(self) -> None:
+        data = bytearray(validation_block("vendor-auto"))
+        data[verify_pm_config.PM_CONFIG_OPP_OFFSET] = 0
+        crc1, crc2 = verify_pm_config.checksum(data[:2912])
+        struct.pack_into("<II", data, 16, crc1, crc2)
+        with self.assertRaisesRegex(
+            verify_pm_config.VerificationError,
+            "external OPP table is not marked disabled",
+        ):
+            verify_pm_config.verify(bytes(data), "vendor-auto")
 
     def test_experiment_power_is_scaled_conservatively(self) -> None:
         self.assertEqual(verify_pm_config.GB1_2700_TOP_OPP, (2700, 950, 0, 2538))

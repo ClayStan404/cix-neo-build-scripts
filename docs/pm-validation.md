@@ -140,17 +140,27 @@ Flash only this recovery-gated O6 artifact:
 In UEFI setup, open `Device Manager -> Platform Configuration -> Advanced
 Configuration -> Power Management` and select a profile:
 
-- `Stock: 2600 MHz at 920 mV`
-- `Validated: 2700 MHz at 950 mV`
+- `Vendor/Automatic (PM firmware native OPPs)`
+- `Experimental: GB1 up to 2700 MHz at 950 mV`
 - `Expert/Custom CPU OPPs`
 
-Stock and Validated restore complete known-good CPU tables. Expert/Custom
-opens a separate form for the non-startup OPPs of GB0, GB1, GM0, and GM1. Each
-frequency must be 800-3000 MHz and each voltage must be 700-1100 mV, in steps
-of 10. Values above 1000 mV are high-risk experiments, and 1100 mV is a hard
-stop boundary rather than a target. Frequencies must strictly increase and
-voltages must not decrease within a domain. Startup OPP 3 remains fixed at
-1800 MHz / 790 mV and is not shown. DSU and non-CPU domains are not exposed.
+Vendor/Automatic sets the external OPP table invalid and leaves its contents
+unused, allowing PM firmware to use its native per-part OPN/Vmin/guardband
+path. Experimental and Expert/Custom set the external complete table valid.
+Expert/Custom opens a separate form for the non-startup OPPs of GB0, GB1, GM0,
+and GM1. Each frequency must be 800-3200 MHz and each voltage must be 550-1250
+mV, in steps of 10. These are input boundaries, not safe operating guarantees.
+The voltage boundary reflects the documented Big/Mid CPU rail range; it does
+not establish a safe voltage for the SoC or the retail board. Frequencies must
+strictly increase and voltages must not decrease within a domain. Startup OPP 3
+remains fixed at 1800 MHz / 790 mV and is not shown. DSU and non-CPU domains are
+not exposed.
+
+The available frequency/voltage test data for K000086 was collected on an
+internal EVB. The publicly sold Radxa O6 may differ in board revision, power
+delivery, cooling, firmware payload, and silicon population. The 2.7 GHz fixed
+profile and all Expert/Custom settings therefore remain experiments on the
+retail O6 until they pass board-specific validation.
 
 When an editable OPP changes, its power cost is rounded up from
 `stock_power * new_frequency * new_voltage^2 /
@@ -165,16 +175,18 @@ Do not interrupt power during that update. The updater rejects an unknown PM
 version, invalid checksum, unexpected OPP layout, modified startup OPP, changed
 DSU table, out-of-range value, or non-monotonic CPU table. It validates the
 complete generated block before writing and compares the complete flash entry
-afterwards. The setup-save path also maps Stock to the legacy 2.6 GHz CPU limit
-and removes that cap for Validated and Expert/Custom.
+afterwards. The setup-save path removes the legacy CPU limit for every profile
+so it cannot mask PM firmware's native or externally selected table.
 
 After the automatic cold reset, repeat the `pmtool` and Linux cpufreq captures
-from the controlled experiment. Then select the stock profile, save, allow the
-same additional reset, and confirm that both PM firmware and Linux return to
-2600 MHz at 920 mV. This bidirectional board test is the acceptance gate; a
-successful build alone does not approve the tuning image for product use.
+from the controlled experiment. Then select Vendor/Automatic, save, allow the
+same additional reset, and confirm that the external OPP table is disabled and
+the effective table returns to the board's PM-firmware-generated baseline. Do
+not require that baseline to equal the PackageTool source table or a fixed
+2600 MHz / 920 mV entry. This bidirectional board test is the acceptance gate;
+a successful build alone does not approve the tuning image for product use.
 
 Expert/Custom is a development interface, not a validated performance profile.
-Use it only after Stock recovery has been confirmed on a board with a tested
-SPI recovery path. Stability testing and board qualification remain separate
-acceptance work.
+Use it only after Vendor/Automatic recovery has been confirmed on a board with
+a tested SPI recovery path. Stability testing and board qualification remain
+separate acceptance work.
