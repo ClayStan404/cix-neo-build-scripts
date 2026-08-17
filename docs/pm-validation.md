@@ -104,8 +104,10 @@ The experiment artifacts are:
 The `gb1-2700` verifier profile requires the source-stock table except for one
 entry: the GB1 top OPP changes from 2600 MHz at 920 mV to 2700 MHz at 950 mV.
 The sustained OPP, DSU table, all other domains, PMIC rails, and OPP limits
-remain unchanged. The higher voltage follows the previously observed vendor
-table ceiling and is not a stability guarantee.
+remain unchanged. Its power cost is conservatively increased from 2292 mW to
+2538 mW using the frequency-times-voltage-squared model. The higher voltage
+follows the previously observed vendor table ceiling and is not a stability
+guarantee.
 
 Use the same recovery-aware full-image flashing procedure and perform a cold
 boot. Before applying CPU load, capture:
@@ -144,10 +146,18 @@ Configuration -> Power Management` and select a profile:
 
 Stock and Validated restore complete known-good CPU tables. Expert/Custom
 opens a separate form for the non-startup OPPs of GB0, GB1, GM0, and GM1. Each
-frequency must be 800-3000 MHz and each voltage must be 700-950 mV, in steps of
-10. Frequencies must strictly increase and voltages must not decrease within a
-domain. Startup OPP 3 remains fixed at 1800 MHz / 790 mV and is not shown.
-DSU and non-CPU domains are not exposed.
+frequency must be 800-3000 MHz and each voltage must be 700-1100 mV, in steps
+of 10. Values above 1000 mV are high-risk experiments, and 1100 mV is a hard
+stop boundary rather than a target. Frequencies must strictly increase and
+voltages must not decrease within a domain. Startup OPP 3 remains fixed at
+1800 MHz / 790 mV and is not shown. DSU and non-CPU domains are not exposed.
+
+When an editable OPP changes, its power cost is rounded up from
+`stock_power * new_frequency * new_voltage^2 /
+(stock_frequency * stock_voltage^2)`. The result is never allowed below the
+stock power cost. This keeps the closed PM firmware's power model conservative
+for undervolting and avoids retaining an underestimated stock cost when
+overclocking.
 
 Save and exit. The normal setup reset is followed by one additional cold reset
 after the firmware has updated and read back the dedicated PM configuration.

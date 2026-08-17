@@ -201,9 +201,13 @@ is confirmed.
   and Expert/Custom PM profiles. Keep source checkouts clean by carrying the
   implementation as a build-time patch. Stock and Validated must restore the
   complete known-good CPU tables. Expert/Custom may edit only the non-startup
-  OPPs of GB0, GB1, GM0, and GM1, within 800-3000 MHz and 700-950 mV in steps
-  of 10. Require strictly increasing frequencies and non-decreasing voltages
-  within each domain. Do not expose startup OPPs, DSU, or non-CPU domains.
+  OPPs of GB0, GB1, GM0, and GM1, within 800-3000 MHz and 700-1100 mV in steps
+  of 10. Treat values above 1000 mV as high-risk experiments and 1100 mV as a
+  hard stop boundary, not a target. Require strictly increasing frequencies
+  and non-decreasing voltages within each domain. Conservatively scale each
+  changed OPP power cost with frequency and voltage squared, rounding up and
+  never reducing the value below the source-stock cost. Do not expose startup
+  OPPs, DSU, or non-CPU domains.
   Validate both the submitted settings and the complete existing v3 PM block
   before writing; recalculate the checksum; read back and compare the complete
   PM entry; and cold-reset only after a verified write. The setup-save path

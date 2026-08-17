@@ -98,6 +98,25 @@ class PmConfigVerifierTests(unittest.TestCase):
         result = verify_pm_config.verify(validation_block("gb1-2700"), "gb1-2700")
         self.assertIn("GB1 2.7 GHz experiment", result)
 
+    def test_experiment_power_is_scaled_conservatively(self) -> None:
+        self.assertEqual(verify_pm_config.GB1_2700_TOP_OPP, (2700, 950, 0, 2538))
+        self.assertEqual(
+            verify_pm_config.estimate_opp_power(
+                verify_pm_config.GB1_STOCK_TOP_OPP,
+                2500,
+                900,
+            ),
+            2292,
+        )
+        self.assertEqual(
+            verify_pm_config.estimate_opp_power(
+                verify_pm_config.GB1_STOCK_TOP_OPP,
+                2800,
+                1080,
+            ),
+            3402,
+        )
+
     def test_experiment_changes_only_gb1_top_opp(self) -> None:
         stock = verify_pm_config.expected_opp_tables("stock-opp")
         experiment = verify_pm_config.expected_opp_tables("gb1-2700")

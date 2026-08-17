@@ -157,13 +157,16 @@ the O6 UEFI setup menu under `Device Manager -> Platform Configuration ->
 Advanced Configuration -> Power Management`. Stock and Validated restore
 complete known-good CPU tables. Expert/Custom permits bounded edits to the
 non-startup OPPs of GB0, GB1, GM0, and GM1; it enforces increasing frequencies
-and non-decreasing voltages. Startup OPPs, DSU, and non-CPU domains remain
-locked. Saving a profile also selects a compatible legacy CPU-limit mode. On
-the following boot, a DXE driver validates the submitted settings and complete
-current v3.0 PM block, updates the CPU tables, recalculates the checksum,
-writes the dedicated PM flash entry, reads back and compares the complete
-entry, then performs one additional cold reset. This target is not part of a
-product build set and the ordinary O6 firmware target remains unchanged.
+and non-decreasing voltages. CPU voltage is capped at 1100 mV, with values
+above 1000 mV explicitly treated as high-risk experiments. Changed OPP power
+costs are conservatively scaled with frequency and voltage squared. Startup
+OPPs, DSU, and non-CPU domains remain locked. Saving a profile also selects a
+compatible legacy CPU-limit mode. On the following boot, a DXE driver validates
+the submitted settings and complete current v3.0 PM block, updates the CPU
+tables, recalculates the checksum, writes the dedicated PM flash entry, reads
+back and compares the complete entry, then performs one additional cold reset.
+This target is not part of a product build set and the ordinary O6 firmware
+target remains unchanged.
 
 The same set publishes the manifest-pinned ARM64 CIX `pmtool` binary at
 `output/pmtool/pmtool`. On the O6 test board, capture the effective PM firmware

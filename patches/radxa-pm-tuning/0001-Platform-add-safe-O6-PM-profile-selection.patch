@@ -5,7 +5,7 @@ Subject: [PATCH] Platform: add safe O6 PM profile selection
 
 Change-Id: I5e2491bbe7c707c371fa789af807978e8a5afefb
 ---
- .../PmConfigUpdateDxe/PmConfigUpdateDxe.c     | 738 ++++++++++++++++++
+ .../PmConfigUpdateDxe/PmConfigUpdateDxe.c     | 791 ++++++++++++++++++
  .../PmConfigUpdateDxe/PmConfigUpdateDxe.h     |  65 ++
  .../PmConfigUpdateDxe/PmConfigUpdateDxe.inf   |  41 +
  Platform/Radxa/Orion/O6/O6.dsc                |   6 +-
@@ -18,7 +18,7 @@ Change-Id: I5e2491bbe7c707c371fa789af807978e8a5afefb
  .../PlatformConfigDxe/PmMenu/PmConfig.uni     |  35 +
  .../CIX/Sky1/Include/RadxaSetupVar.h          |  20 +-
  Platform/Radxa/Radxa.dec                      |   5 +-
- 13 files changed, 1260 insertions(+), 41 deletions(-)
+ 13 files changed, 1313 insertions(+), 41 deletions(-)
  create mode 100644 Platform/CIX/Sky1/Drivers/PmConfigUpdateDxe/PmConfigUpdateDxe.c
  create mode 100644 Platform/CIX/Sky1/Drivers/PmConfigUpdateDxe/PmConfigUpdateDxe.h
  create mode 100644 Platform/CIX/Sky1/Drivers/PmConfigUpdateDxe/PmConfigUpdateDxe.inf
@@ -30,7 +30,7 @@ new file mode 100644
 index 00000000..537fbba3
 --- /dev/null
 +++ b/Platform/CIX/Sky1/Drivers/PmConfigUpdateDxe/PmConfigUpdateDxe.c
-@@ -0,0 +1,738 @@
+@@ -0,0 +1,791 @@
 +/** @file
 +  Update the CIX v3 PM configuration from a validated BIOS profile.
 +
@@ -132,6 +132,48 @@ index 00000000..537fbba3
 +  )
 +{
 +  return (CpuDomain * RADXA_PM_OPP_COUNT) + Opp;
++}
++
++STATIC
++UINT32
++PmEstimatePower (
++  IN CONST PM_CPU_DOMAIN_DATA  *Domain,
++  IN UINTN                     Opp,
++  IN UINT16                    Frequency,
++  IN UINT16                    Voltage
++  )
++{
++  UINT64  Denominator;
++  UINT64  Estimate;
++  UINT64  Numerator;
++  UINT64  Remainder;
++  UINT32  StockPower;
++
++  StockPower = Domain->Power[Opp];
++  if ((Frequency == Domain->Frequency[Opp]) &&
++      (Voltage == Domain->Voltage[Opp]))
++  {
++    return StockPower;
++  }
++
++  Numerator = MultU64x32 (
++                MultU64x32 ((UINT64)StockPower, Frequency),
++                Voltage * Voltage
++                );
++  Denominator = MultU64x32 (
++                  MultU64x32 ((UINT64)Domain->Frequency[Opp], Domain->Voltage[Opp]),
++                  Domain->Voltage[Opp]
++                  );
++  Estimate = DivU64x64Remainder (Numerator, Denominator, &Remainder);
++  if (Remainder != 0) {
++    Estimate++;
++  }
++
++  if (Estimate < StockPower) {
++    return StockPower;
++  }
++
++  return (UINT32)Estimate;
 +}
 +
 +STATIC
@@ -332,6 +374,7 @@ index 00000000..537fbba3
 +  CONST PM_CPU_DOMAIN_DATA  *Domain;
 +  UINT32                    EntryOffset;
 +  UINT32                    Frequency;
++  UINT32                    Power;
 +  UINT32                    PreviousFrequency;
 +  UINT32                    PreviousVoltage;
 +  UINT32                    Voltage;
@@ -356,6 +399,7 @@ index 00000000..537fbba3
 +    for (Opp = 0; Opp < PM_CONFIG_OPP_ENTRY_COUNT; Opp++) {
 +      EntryOffset = PM_CONFIG_OPP_ENTRY_OFFSET (Domain->Domain, Opp);
 +      Frequency   = PmRead32 (Buffer, EntryOffset + PM_CONFIG_OPP_LEVEL_OFFSET);
++      Power       = PmRead32 (Buffer, EntryOffset + PM_CONFIG_OPP_POWER_OFFSET);
 +      Voltage     = PmRead32 (Buffer, EntryOffset + PM_CONFIG_OPP_VOLTAGE_OFFSET);
 +
 +      if (Opp >= Domain->Size) {
@@ -377,8 +421,12 @@ index 00000000..537fbba3
 +          (Voltage > PM_CONFIG_CPU_VOLTAGE_MAX) ||
 +          ((Voltage % 10U) != 0) ||
 +          (PmRead32 (Buffer, EntryOffset + PM_CONFIG_OPP_FREQUENCY_OFFSET) != 0) ||
-+          (PmRead32 (Buffer, EntryOffset + PM_CONFIG_OPP_POWER_OFFSET) !=
-+           Domain->Power[Opp]))
++          (Power != PmEstimatePower (
++                      Domain,
++                      Opp,
++                      (UINT16)Frequency,
++                      (UINT16)Voltage
++                      )))
 +      {
 +        DEBUG ((DEBUG_ERROR, "[PmConfigUpdate] Invalid %a OPP %u\n", Domain->Name, (UINT32)Opp));
 +        return FALSE;
@@ -461,7 +509,8 @@ index 00000000..537fbba3
 +  IN UINTN                       CpuDomain,
 +  IN UINTN                       Opp,
 +  OUT UINT16                     *Frequency,
-+  OUT UINT16                     *Voltage
++  OUT UINT16                     *Voltage,
++  OUT UINT32                     *Power
 +  )
 +{
 +  CONST PM_CPU_DOMAIN_DATA  *Domain;
@@ -484,6 +533,8 @@ index 00000000..537fbba3
 +    *Frequency = Settings->CpuFrequency[Index];
 +    *Voltage   = Settings->CpuVoltage[Index];
 +  }
++
++  *Power = PmEstimatePower (Domain, Opp, *Frequency, *Voltage);
 +}
 +
 +STATIC
@@ -495,6 +546,7 @@ index 00000000..537fbba3
 +{
 +  CONST PM_CPU_DOMAIN_DATA  *Domain;
 +  UINT16                    Frequency;
++  UINT32                    Power;
 +  UINT16                    Voltage;
 +  UINTN                     CpuDomain;
 +  UINTN                     EntryOffset;
@@ -503,12 +555,12 @@ index 00000000..537fbba3
 +  for (CpuDomain = 0; CpuDomain < ARRAY_SIZE (mCpuDomains); CpuDomain++) {
 +    Domain = &mCpuDomains[CpuDomain];
 +    for (Opp = 0; Opp < Domain->Size; Opp++) {
-+      PmExpectedOpp (Settings, CpuDomain, Opp, &Frequency, &Voltage);
++      PmExpectedOpp (Settings, CpuDomain, Opp, &Frequency, &Voltage, &Power);
 +      EntryOffset = PM_CONFIG_OPP_ENTRY_OFFSET (Domain->Domain, Opp);
 +      if ((PmRead32 (Buffer, EntryOffset + PM_CONFIG_OPP_LEVEL_OFFSET) != Frequency) ||
 +          (PmRead32 (Buffer, EntryOffset + PM_CONFIG_OPP_VOLTAGE_OFFSET) != Voltage) ||
 +          (PmRead32 (Buffer, EntryOffset + PM_CONFIG_OPP_FREQUENCY_OFFSET) != 0) ||
-+          (PmRead32 (Buffer, EntryOffset + PM_CONFIG_OPP_POWER_OFFSET) != Domain->Power[Opp]))
++          (PmRead32 (Buffer, EntryOffset + PM_CONFIG_OPP_POWER_OFFSET) != Power))
 +      {
 +        return FALSE;
 +      }
@@ -531,6 +583,7 @@ index 00000000..537fbba3
 +  UINT32                    Crc1;
 +  UINT32                    Crc2;
 +  UINT32                    Length;
++  UINT32                    Power;
 +  UINTN                     CpuDomain;
 +  UINTN                     EntryOffset;
 +  UINTN                     Opp;
@@ -544,12 +597,12 @@ index 00000000..537fbba3
 +        continue;
 +      }
 +
-+      PmExpectedOpp (Settings, CpuDomain, Opp, &Frequency, &Voltage);
++      PmExpectedOpp (Settings, CpuDomain, Opp, &Frequency, &Voltage, &Power);
 +      EntryOffset = PM_CONFIG_OPP_ENTRY_OFFSET (Domain->Domain, Opp);
 +      PmWrite32 (Buffer, EntryOffset + PM_CONFIG_OPP_LEVEL_OFFSET, Frequency);
 +      PmWrite32 (Buffer, EntryOffset + PM_CONFIG_OPP_VOLTAGE_OFFSET, Voltage);
 +      PmWrite32 (Buffer, EntryOffset + PM_CONFIG_OPP_FREQUENCY_OFFSET, 0);
-+      PmWrite32 (Buffer, EntryOffset + PM_CONFIG_OPP_POWER_OFFSET, Domain->Power[Opp]);
++      PmWrite32 (Buffer, EntryOffset + PM_CONFIG_OPP_POWER_OFFSET, Power);
 +    }
 +  }
 +
@@ -832,7 +885,7 @@ index 00000000..cd05c745
 +#define PM_CONFIG_CPU_FREQUENCY_MIN        800U
 +#define PM_CONFIG_CPU_FREQUENCY_MAX        3000U
 +#define PM_CONFIG_CPU_VOLTAGE_MIN          700U
-+#define PM_CONFIG_CPU_VOLTAGE_MAX          950U
++#define PM_CONFIG_CPU_VOLTAGE_MAX          1100U
 +
 +#define PM_CONFIG_GB1_DOMAIN_INDEX         4U
 +#define PM_CONFIG_GB1_TOP_INDEX            6U
@@ -1212,7 +1265,7 @@ index 00000000..a776dcee
 +    prompt = STRING_TOKEN(STR_PM_VOLTAGE_PROMPT),                                \
 +    help = STRING_TOKEN(STR_PM_VOLTAGE_HELP),                                    \
 +    flags = DISPLAY_UINT_DEC | NUMERIC_SIZE_2 | RESET_REQUIRED,                  \
-+    minimum = 700, maximum = 950, step = 10, default = DefaultValue,             \
++    minimum = 700, maximum = 1100, step = 10, default = DefaultValue,            \
 +    inconsistentif prompt = STRING_TOKEN(STR_PM_VOLTAGE_ORDER_ERROR),            \
 +      ideqid RadxaPmTuningVar.CpuVoltage[Index] >                                \
 +        RadxaPmTuningVar.CpuVoltage[Next]                                        \
@@ -1224,7 +1277,7 @@ index 00000000..a776dcee
 +    prompt = STRING_TOKEN(STR_PM_VOLTAGE_PROMPT),                                \
 +    help = STRING_TOKEN(STR_PM_VOLTAGE_HELP),                                    \
 +    flags = DISPLAY_UINT_DEC | NUMERIC_SIZE_2 | RESET_REQUIRED,                  \
-+    minimum = 700, maximum = 950, step = 10, default = DefaultValue,             \
++    minimum = 700, maximum = 1100, step = 10, default = DefaultValue,            \
 +    inconsistentif prompt = STRING_TOKEN(STR_PM_VOLTAGE_ORDER_ERROR),            \
 +      ideqid RadxaPmTuningVar.CpuVoltage[Index] <                                \
 +        RadxaPmTuningVar.CpuVoltage[Previous] OR                                 \
@@ -1238,7 +1291,7 @@ index 00000000..a776dcee
 +    prompt = STRING_TOKEN(STR_PM_VOLTAGE_PROMPT),                                \
 +    help = STRING_TOKEN(STR_PM_VOLTAGE_HELP),                                    \
 +    flags = DISPLAY_UINT_DEC | NUMERIC_SIZE_2 | RESET_REQUIRED,                  \
-+    minimum = 700, maximum = 950, step = 10, default = DefaultValue,             \
++    minimum = 700, maximum = 1100, step = 10, default = DefaultValue,            \
 +    inconsistentif prompt = STRING_TOKEN(STR_PM_VOLTAGE_ORDER_ERROR),            \
 +      ideqid RadxaPmTuningVar.CpuVoltage[Index] <                                \
 +        RadxaPmTuningVar.CpuVoltage[Previous] OR                                 \
@@ -1251,7 +1304,7 @@ index 00000000..a776dcee
 +    prompt = STRING_TOKEN(STR_PM_VOLTAGE_PROMPT),                                \
 +    help = STRING_TOKEN(STR_PM_VOLTAGE_HELP),                                    \
 +    flags = DISPLAY_UINT_DEC | NUMERIC_SIZE_2 | RESET_REQUIRED,                  \
-+    minimum = 700, maximum = 950, step = 10, default = DefaultValue,             \
++    minimum = 700, maximum = 1100, step = 10, default = DefaultValue,            \
 +    inconsistentif prompt = STRING_TOKEN(STR_PM_VOLTAGE_ORDER_ERROR),            \
 +      ideqval RadxaPmTuningVar.CpuVoltage[Index] < 790 OR                        \
 +      ideqid RadxaPmTuningVar.CpuVoltage[Index] >                                \
@@ -1264,7 +1317,7 @@ index 00000000..a776dcee
 +    prompt = STRING_TOKEN(STR_PM_VOLTAGE_PROMPT),                                \
 +    help = STRING_TOKEN(STR_PM_VOLTAGE_HELP),                                    \
 +    flags = DISPLAY_UINT_DEC | NUMERIC_SIZE_2 | RESET_REQUIRED,                  \
-+    minimum = 700, maximum = 950, step = 10, default = DefaultValue,             \
++    minimum = 700, maximum = 1100, step = 10, default = DefaultValue,            \
 +    inconsistentif prompt = STRING_TOKEN(STR_PM_VOLTAGE_ORDER_ERROR),            \
 +      ideqid RadxaPmTuningVar.CpuVoltage[Index] <                                \
 +        RadxaPmTuningVar.CpuVoltage[Previous]                                    \
@@ -1421,14 +1474,14 @@ index 00000000..db805c2c
 +
 +#string STR_PM_CUSTOM_FORM_TITLE       #language en-US "Expert/Custom CPU OPPs"
 +#string STR_PM_CUSTOM_FORM_HELP        #language en-US "Edit the non-startup OPPs for the four performance CPU domains."
-+#string STR_PM_CUSTOM_WARNING          #language en-US "Expert settings can prevent the operating system from booting. Keep a tested SPI recovery path available."
-+#string STR_PM_CUSTOM_LIMITS           #language en-US "Allowed values: 800-3000 MHz and 700-950 mV, in steps of 10. Frequency must increase and voltage must not decrease within each domain."
++#string STR_PM_CUSTOM_WARNING          #language en-US "Expert settings can prevent the operating system from booting. Voltages above 1000 mV are high-risk experiments. Keep a tested SPI recovery path available."
++#string STR_PM_CUSTOM_LIMITS           #language en-US "Allowed values: 800-3000 MHz and 700-1100 mV, in steps of 10. The 1100 mV limit is a stop boundary, not a target. Frequency must increase and voltage must not decrease within each domain."
 +#string STR_PM_STARTUP_LOCKED          #language en-US "Startup OPP 3 is fixed at 1800 MHz / 790 mV and is intentionally not shown."
 +#string STR_PM_DSU_LOCKED              #language en-US "DSU and non-CPU domains are not editable."
 +#string STR_PM_FREQUENCY_PROMPT        #language en-US "Frequency (MHz)"
 +#string STR_PM_VOLTAGE_PROMPT          #language en-US "Voltage (mV)"
 +#string STR_PM_FREQUENCY_HELP          #language en-US "CPU frequency in MHz. Values must be strictly increasing around the locked startup OPP."
-+#string STR_PM_VOLTAGE_HELP            #language en-US "CPU voltage in mV. Values must be monotonically non-decreasing around the locked startup OPP."
++#string STR_PM_VOLTAGE_HELP            #language en-US "CPU voltage in mV. Values must be monotonically non-decreasing around the locked startup OPP. Power cost is conservatively re-estimated when an OPP changes."
 +#string STR_PM_FREQUENCY_ORDER_ERROR   #language en-US "CPU frequencies must be strictly increasing, including around the locked 1800 MHz startup OPP."
 +#string STR_PM_VOLTAGE_ORDER_ERROR     #language en-US "CPU voltages must not decrease, including around the locked 790 mV startup OPP."
 +
@@ -1499,4 +1552,3 @@ index f8386918..0ff9b493 100644
    PdEcLib|Include/Library/PdEcLib.h
 -- 
 2.47.3
-

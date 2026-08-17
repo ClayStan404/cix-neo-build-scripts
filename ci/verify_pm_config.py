@@ -59,7 +59,7 @@ EXPECTED_OPP_TABLES = (
 )
 
 GB1_DOMAIN_INDEX = 4
-GB1_2700_TOP_OPP = (2700, 950, 0, 2292)
+GB1_STOCK_TOP_OPP = EXPECTED_OPP_TABLES[GB1_DOMAIN_INDEX][-1]
 OPP_PROFILES = ("stock-opp", "gb1-2700")
 
 
@@ -105,6 +105,27 @@ def expected_opp_tables(profile: str) -> tuple:
         tables[GB1_DOMAIN_INDEX] = tuple(gb1)
         return tuple(tables)
     raise VerificationError(f"unsupported OPP profile: {profile}")
+
+
+def estimate_opp_power(
+    stock_opp: tuple[int, int, int, int],
+    frequency: int,
+    voltage: int,
+) -> int:
+    """Conservatively scale OPP power with frequency and voltage squared."""
+    stock_frequency, stock_voltage, _unused_frequency, stock_power = stock_opp
+    numerator = stock_power * frequency * voltage * voltage
+    denominator = stock_frequency * stock_voltage * stock_voltage
+    estimate = (numerator + denominator - 1) // denominator
+    return max(stock_power, estimate)
+
+
+GB1_2700_TOP_OPP = (
+    2700,
+    950,
+    0,
+    estimate_opp_power(GB1_STOCK_TOP_OPP, 2700, 950),
+)
 
 
 def verify_external_opp(data: bytes, profile: str) -> None:
