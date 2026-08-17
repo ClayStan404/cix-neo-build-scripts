@@ -22,8 +22,8 @@ def encode_rail(rail: tuple[int, ...]) -> bytes:
     return struct.pack("<II", first, second)
 
 
-def validation_block(stock_opp: bool = False) -> bytes:
-    length = 2912 if stock_opp else 128
+def validation_block(opp_profile: str | None = None) -> bytes:
+    length = 2912 if opp_profile else 128
     data = bytearray(b"\xff" * verify_pm_config.PM_CONFIG_FILE_SIZE)
     struct.pack_into(
         "<HHIIIII",
@@ -43,10 +43,11 @@ def validation_block(stock_opp: bool = False) -> bytes:
     for rail in verify_pm_config.EXPECTED_RAILS:
         data[offset : offset + 8] = encode_rail(rail)
         offset += 8
-    if stock_opp:
+    if opp_profile:
         data[verify_pm_config.PM_CONFIG_OPP_OFFSET] = 0
         domain_base = verify_pm_config.PM_CONFIG_OPP_OFFSET + 1
-        for domain, expected in enumerate(verify_pm_config.EXPECTED_OPP_TABLES):
+        expected_tables = verify_pm_config.expected_opp_tables(opp_profile)
+        for domain, expected in enumerate(expected_tables):
             domain_offset = domain_base + domain * verify_pm_config.OPP_DOMAIN_SIZE
             data[domain_offset : domain_offset + verify_pm_config.OPP_DOMAIN_SIZE] = (
                 b"\0" * verify_pm_config.OPP_DOMAIN_SIZE
@@ -90,11 +91,45 @@ class PmConfigVerifierTests(unittest.TestCase):
             verify_pm_config.verify(bytes(data))
 
     def test_accepts_stock_external_opp_tables(self) -> None:
-        result = verify_pm_config.verify(validation_block(stock_opp=True), "stock-opp")
+        result = verify_pm_config.verify(validation_block("stock-opp"), "stock-opp")
         self.assertIn("stock external OPP tables", result)
 
+    def test_accepts_gb1_2700_experiment(self) -> None:
+        result = verify_pm_config.verify(validation_block("gb1-2700"), "gb1-2700")
+        self.assertIn("GB1 2.7 GHz experiment", result)
+
+    def test_experiment_changes_only_gb1_top_opp(self) -> None:
+        stock = verify_pm_config.expected_opp_tables("stock-opp")
+        experiment = verify_pm_config.expected_opp_tables("gb1-2700")
+        changes = []
+        for domain, (stock_table, experiment_table) in enumerate(
+            zip(stock, experiment, strict=True)
+        ):
+            for entry, (stock_value, experiment_value) in enumerate(
+                zip(stock_table, experiment_table, strict=True)
+            ):
+                if stock_value != experiment_value:
+                    changes.append((domain, entry, stock_value, experiment_value))
+        self.assertEqual(
+            changes,
+            [
+                (
+                    verify_pm_config.GB1_DOMAIN_INDEX,
+                    len(stock[verify_pm_config.GB1_DOMAIN_INDEX]) - 1,
+                    (2600, 920, 0, 2292),
+                    verify_pm_config.GB1_2700_TOP_OPP,
+                )
+            ],
+        )
+
+    def test_rejects_experiment_as_stock_profile(self) -> None:
+        with self.assertRaisesRegex(
+            verify_pm_config.VerificationError, "unexpected OPP domain 4 table"
+        ):
+            verify_pm_config.verify(validation_block("gb1-2700"), "stock-opp")
+
     def test_rejects_changed_opp_level(self) -> None:
-        data = bytearray(validation_block(stock_opp=True))
+        data = bytearray(validation_block("stock-opp"))
         first_entry = verify_pm_config.PM_CONFIG_OPP_OFFSET + 1 + 4
         struct.pack_into("<I", data, first_entry, 73)
         crc1, crc2 = verify_pm_config.checksum(data[:2912])

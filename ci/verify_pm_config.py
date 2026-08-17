@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify the stock-equivalent CIX v3 PM configuration validation block."""
+"""Verify CIX v3 PM configuration validation and experiment profiles."""
 
 from __future__ import annotations
 
@@ -58,6 +58,10 @@ EXPECTED_OPP_TABLES = (
     (2, (375, 0, 0, 0), (600, 0, 0, 0), (750, 0, 0, 0)),
 )
 
+GB1_DOMAIN_INDEX = 4
+GB1_2700_TOP_OPP = (2700, 950, 0, 2292)
+OPP_PROFILES = ("stock-opp", "gb1-2700")
+
 
 class VerificationError(RuntimeError):
     """The generated PM configuration is unsafe or malformed."""
@@ -91,15 +95,28 @@ def decode_rail(data: bytes, offset: int) -> tuple[int, ...]:
     )
 
 
-def verify_stock_opp(data: bytes) -> None:
-    if len(EXPECTED_OPP_TABLES) != OPP_DOMAIN_COUNT - 1:
-        raise VerificationError("stock OPP verifier has an invalid domain count")
+def expected_opp_tables(profile: str) -> tuple:
+    if profile == "stock-opp":
+        return EXPECTED_OPP_TABLES
+    if profile == "gb1-2700":
+        tables = list(EXPECTED_OPP_TABLES)
+        gb1 = list(tables[GB1_DOMAIN_INDEX])
+        gb1[-1] = GB1_2700_TOP_OPP
+        tables[GB1_DOMAIN_INDEX] = tuple(gb1)
+        return tuple(tables)
+    raise VerificationError(f"unsupported OPP profile: {profile}")
+
+
+def verify_external_opp(data: bytes, profile: str) -> None:
+    expected_tables = expected_opp_tables(profile)
+    if len(expected_tables) != OPP_DOMAIN_COUNT - 1:
+        raise VerificationError("OPP verifier has an invalid domain count")
     if data[PM_CONFIG_OPP_OFFSET] != 0:
         raise VerificationError("external OPP table is not marked valid")
 
     domain_base = PM_CONFIG_OPP_OFFSET + 1
     empty_entry = (0, 0, 0, 0)
-    for domain, expected in enumerate(EXPECTED_OPP_TABLES):
+    for domain, expected in enumerate(expected_tables):
         offset = domain_base + domain * OPP_DOMAIN_SIZE
         size, sustained_idx = struct.unpack_from("<HH", data, offset)
         expected_sustained, *expected_entries = expected
@@ -118,7 +135,7 @@ def verify_stock_opp(data: bytes) -> None:
         if entries != expected_padded:
             raise VerificationError(f"unexpected OPP domain {domain} table")
 
-    unused_offset = domain_base + len(EXPECTED_OPP_TABLES) * OPP_DOMAIN_SIZE
+    unused_offset = domain_base + len(expected_tables) * OPP_DOMAIN_SIZE
     unused_domain = data[unused_offset : unused_offset + OPP_DOMAIN_SIZE]
     if unused_domain != b"\xff" * OPP_DOMAIN_SIZE:
         raise VerificationError(
@@ -166,9 +183,13 @@ def verify(data: bytes, profile: str = "pmic") -> str:
     if rails != EXPECTED_RAILS:
         raise VerificationError(f"unexpected PMIC rail configuration: {rails}")
 
-    if profile == "stock-opp":
-        verify_stock_opp(data)
-        return "PM config v3.0 custom PMIC and stock external OPP tables are valid"
+    if profile in OPP_PROFILES:
+        verify_external_opp(data, profile)
+        label = {
+            "stock-opp": "source stock",
+            "gb1-2700": "GB1 2.7 GHz experiment",
+        }[profile]
+        return f"PM config v3.0 custom PMIC and {label} external OPP tables are valid"
     if profile != "pmic":
         raise VerificationError(f"unsupported validation profile: {profile}")
     return "PM config v3.0 checksum and stock-equivalent custom PMIC profile are valid"
@@ -178,7 +199,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--profile",
-        choices=("pmic", "stock-opp"),
+        choices=("pmic", *OPP_PROFILES),
         default="pmic",
         help="validation profile (default: pmic)",
     )

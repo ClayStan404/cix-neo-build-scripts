@@ -1,0 +1,10 @@
+--- a/Platform/Radxa/Orion/O6/pm_config/opp_config_custom.h
++++ b/Platform/Radxa/Orion/O6/pm_config/opp_config_custom.h
+@@ -69,6 +69,6 @@ static domain_opp_config_t dxs_gb1 = {
+         { .level = 1800UL, .voltage = 790, .power =  841 },   /* sustained */
+         { .level = 2200UL, .voltage = 790, .power = 1360 },
+         { .level = 2500UL, .voltage = 850, .power = 1663 },
+-        { .level = 2600UL, .voltage = 920, .power = 2292 },
++        { .level = 2700UL, .voltage = 950, .power = 2292 },   /* experimental */
+     },
+ };

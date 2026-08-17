@@ -78,6 +78,7 @@ cix_radxa_prepare_workspace() {
     local patch_root="${CIX_ROOT}/build-scripts/patches/radxa-o6n"
     local pm_patch_root="${CIX_ROOT}/build-scripts/patches/radxa-pm-validation"
     local opp_patch_root="${CIX_ROOT}/build-scripts/patches/radxa-opp-validation"
+    local opp_experiment_patch_root="${CIX_ROOT}/build-scripts/patches/radxa-opp-experiments"
     local dependency
     local dependency_target
 
@@ -120,9 +121,15 @@ cix_radxa_prepare_workspace() {
             "${pm_patch_root}/0001-PackageTool-add-safe-PM-config-validation-mode.patch"
     fi
 
-    if [[ "${validation_profile}" == "stock-opp" ]]; then
+    if [[ "${validation_profile}" == "stock-opp" ||
+        "${validation_profile}" == "gb1-2700" ]]; then
         cix_radxa_apply_patch "${work_uefi}/edk2-platforms" \
             "${opp_patch_root}/0001-Platform-Radxa-enable-stock-O6-OPP-table.patch"
+    fi
+
+    if [[ "${validation_profile}" == "gb1-2700" ]]; then
+        cix_radxa_apply_patch "${work_uefi}/edk2-platforms" \
+            "${opp_experiment_patch_root}/0001-Platform-Radxa-set-O6-GB1-max-to-2700-MHz.patch"
     fi
 }
 
@@ -146,6 +153,8 @@ cix_direct_radxa_firmware_build() (
         validation_profile=pmic
     elif [[ "${TARGET[flow]}" == "radxa-opp-validation" ]]; then
         validation_profile=stock-opp
+    elif [[ "${TARGET[flow]}" == "radxa-opp-experiment" ]]; then
+        validation_profile=gb1-2700
     fi
 
     if [[ "${build_action}" == "clean" ]]; then

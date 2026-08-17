@@ -19,7 +19,7 @@ cix_direct_build() {
             cix_direct_audio_sof_build \
                 "${requested_action}" "${target_output}" "${target_jobs}"
             ;;
-        radxa-firmware|radxa-pm-validation|radxa-opp-validation)
+        radxa-firmware|radxa-pm-validation|radxa-opp-validation|radxa-opp-experiment)
             # shellcheck source=builders/direct/firmware-radxa.sh
             source "${CIX_ROOT}/build-scripts/builders/direct/firmware-radxa.sh"
             cix_direct_radxa_firmware_build \

@@ -4,7 +4,10 @@
 
 This procedure validates that the Sky1 PM firmware consumes the external v3.0
 OPP table embedded by the EDK2 packaging flow. The first image deliberately
-uses the unmodified CIX stock OPP tables. It is not an overclocking image.
+uses the unmodified source-stock OPP tables shipped by the manifest-pinned CIX
+PackageTool. It is not an overclocking image. These source tables are not
+assumed to be identical to the effective tables in a separately released
+vendor firmware image.
 
 The build system never installs `pmtool`, invokes privileged hardware access,
 or flashes firmware automatically.
@@ -72,13 +75,49 @@ following:
 
 - Serial output reports a valid v3.0 PM config and the external/configured OPP
   source rather than a checksum or version rejection.
-- `pmtool cli opp_config` reports the same effective stock table values that
-  were captured before flashing.
+- `pmtool cli opp_config` reports all source-stock entries encoded in the
+  generated v3.0 config.
 - Linux exposes the same CPU frequency maxima as the baseline.
 - The board completes repeated cold boots without PM, thermal, or regulator
   errors.
 - The backed-up image can be restored with the documented recovery path.
 
-Only after this stock-equivalent test passes should a second experiment change
-one OPP value. That later image must use a separate target and verifier profile
-so it cannot be confused with product or stock-validation firmware.
+The initial O6 board test confirmed that the PM firmware consumed all 58 OPP
+entries from this external v3.0 config. The effective table differed from the
+previous vendor-firmware table, while Linux CPU frequency maxima remained
+unchanged. This proves the external-table mechanism, not equivalence with the
+vendor firmware.
+
+## Controlled GB1 2.7 GHz Experiment
+
+Build the separately gated experiment set:
+
+```bash
+./build-scripts/cix-build pm-gb1-2700
+```
+
+The experiment artifacts are:
+
+- `output/radxa-o6-gb1-2700-experiment/csu_pm_config_O6_gb1-2700.bin`
+- `output/radxa-o6-gb1-2700-experiment/images/cix_flash_all_O6_pr_debug.bin`
+
+The `gb1-2700` verifier profile requires the source-stock table except for one
+entry: the GB1 top OPP changes from 2600 MHz at 920 mV to 2700 MHz at 950 mV.
+The sustained OPP, DSU table, all other domains, PMIC rails, and OPP limits
+remain unchanged. The higher voltage follows the previously observed vendor
+table ceiling and is not a stability guarantee.
+
+Use the same recovery-aware full-image flashing procedure and perform a cold
+boot. Before applying CPU load, capture:
+
+```bash
+sudo /tmp/pmtool cli opp_config
+cat /sys/devices/system/cpu/cpufreq/policy0/scaling_max_freq
+cat /sys/devices/system/cpu/cpufreq/policy0/cpuinfo_max_freq
+```
+
+Acceptance for this stage requires `pmtool` to report the GB1 top OPP as
+2700 MHz at 950 mV, Linux policy 0 to expose the intended maximum, normal idle
+temperatures, and no new PM, regulator, thermal, or SCMI errors. Do not start a
+stress test until these checks pass. Restore the known-good full image if the
+board cannot complete a cold boot.

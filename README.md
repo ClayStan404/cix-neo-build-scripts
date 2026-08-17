@@ -10,6 +10,7 @@ Build one complete CIX kernel stack at a time:
 ./build-scripts/cix-build all-6.6
 ./build-scripts/cix-build all-7.0
 ./build-scripts/cix-build pm-validation
+./build-scripts/cix-build pm-gb1-2700
 ```
 
 Build an individual target with the same command:
@@ -22,6 +23,7 @@ Build an individual target with the same command:
 ./build-scripts/cix-build radxa-o6n-firmware
 ./build-scripts/cix-build radxa-o6-pm-validation
 ./build-scripts/cix-build radxa-o6-opp-validation
+./build-scripts/cix-build radxa-o6-gb1-2700-experiment
 ./build-scripts/cix-build radxa-o6n-pm-validation
 ./build-scripts/cix-build pmtool
 ./build-scripts/cix-build gpu-dkms
@@ -134,12 +136,19 @@ worktrees, but enable the existing v3.0 custom PMIC section with the board's
 documented stock limits and voltage offsets. The flow verifies the PM config
 signature, checksum, limits, and rail fields before publishing
 `csu_pm_config_BOARD_pmic.bin`. The O6 OPP target additionally enables the
-12 unmodified stock OPP tables already shipped by CIX PackageTool and verifies
+12 source-stock OPP tables already shipped by CIX PackageTool and verifies
 every table entry before publishing `csu_pm_config_O6_stock-opp.bin`. It does
-not increase a frequency or change a voltage. The normal firmware targets
-remain unaffected by these experiments. A successful build proves that the
-config block is well formed, not that PM firmware consumed it; that conclusion
-requires a board boot test.
+not increase a frequency or change a voltage relative to that source profile.
+The source-stock profile is not claimed to match an installed vendor firmware
+release. The normal firmware targets remain unaffected by these experiments.
+A successful build proves that the config block is well formed, not that PM
+firmware consumed it; that conclusion requires a board boot test.
+
+`radxa-o6-gb1-2700-experiment` is isolated in the explicit `pm-gb1-2700`
+set. It layers one controlled change over the source-stock profile: the final
+GB1 OPP changes from 2600 MHz at 920 mV to 2700 MHz at 950 mV. The verifier
+rejects any other OPP-table difference. This experiment is never included in
+a product build set and must be used only on a recoverable O6 test board.
 
 The same set publishes the manifest-pinned ARM64 CIX `pmtool` binary at
 `output/pmtool/pmtool`. On the O6 test board, capture the effective PM firmware
