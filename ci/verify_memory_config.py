@@ -25,6 +25,19 @@ BIOS_SETUP_SIGNATURE = 0x54455342
 MEMORY_FREQUENCY_AUTO = 0xFFFF
 MEMORY_FREQUENCY_6400 = 3200
 
+EXPLICIT_FREQUENCIES = {
+    800,
+    1067,
+    1375,
+    1600,
+    1867,
+    2133,
+    2400,
+    2750,
+    3000,
+    3200,
+}
+
 VENDOR_LIMITS = {
     0xFFFF: 2750,
     0x0001: 2750,
@@ -41,19 +54,7 @@ VENDOR_LIMITS = {
     0x1000: 3000,
 }
 
-ALLOWED_FREQUENCIES = {
-    800,
-    1067,
-    1375,
-    1600,
-    1867,
-    2133,
-    2400,
-    2750,
-    3000,
-    3200,
-    MEMORY_FREQUENCY_AUTO,
-}
+ALLOWED_FREQUENCIES = EXPLICIT_FREQUENCIES | {MEMORY_FREQUENCY_AUTO}
 
 TUNING_ENTRY_SIZES = {
     LPDDR5_BUS_GUID: 16,
@@ -72,10 +73,7 @@ def requested_limits(frequency: int) -> dict[int, int]:
         raise VerificationError(f"unsupported memory frequency value: {frequency}")
     if frequency == MEMORY_FREQUENCY_AUTO:
         return dict(VENDOR_LIMITS)
-    return {
-        board_mask: max(vendor_limit, frequency)
-        for board_mask, vendor_limit in VENDOR_LIMITS.items()
-    }
+    return {board_mask: frequency for board_mask in VENDOR_LIMITS}
 
 
 def _u16(data: bytes, offset: int) -> int:
@@ -185,13 +183,17 @@ def verify(data: bytes) -> str:
             f"expected 6 memory tuning blocks, found {tuning_blocks}"
         )
 
-    experimental = requested_limits(MEMORY_FREQUENCY_6400)
-    if set(experimental.values()) != {MEMORY_FREQUENCY_6400}:
-        raise VerificationError("6400 MT/s does not raise every known board ceiling")
+    for frequency in EXPLICIT_FREQUENCIES:
+        configured = requested_limits(frequency)
+        if set(configured.values()) != {frequency}:
+            raise VerificationError(
+                f"explicit frequency {frequency} does not synchronize every "
+                "known board ceiling"
+            )
 
     return (
         "O6 memory config is valid: vendor Auto limits are preserved and "
-        "all LPDDR5 tuning blocks cover 6400 MT/s"
+        "every explicit data rate synchronizes all known board ceilings"
     )
 
 

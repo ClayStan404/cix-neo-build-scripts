@@ -1,14 +1,14 @@
-From 638a2ff6c421d5d3ef700d264e1f2a48475c4763 Mon Sep 17 00:00:00 2001
+From 9cb2f03cc7267a74391069b39127873210420c41 Mon Sep 17 00:00:00 2001
 From: Clay Stan <claystan97@gmail.com>
-Date: Mon, 17 Aug 2026 16:34:24 +0800
-Subject: [PATCH] Enable explicit O6 memory data rates above vendor limits
+Date: Mon, 17 Aug 2026 16:51:52 +0800
+Subject: [PATCH] Enable every explicit O6 memory data rate
 
 Change-Id: If312e225cf969f974374eb89a8babdf92899c643
 ---
  .../FirmwareUpdateDxe/FwUpdateProtocolDxe.c   |   2 +-
- .../MemConfigUpdateDxe/MemConfigUpdateDxe.c   | 265 ++++++++++++++++--
+ .../MemConfigUpdateDxe/MemConfigUpdateDxe.c   | 261 ++++++++++++++++--
  .../MemMenu/MemoryConfig.uni                  |   2 +-
- 3 files changed, 250 insertions(+), 19 deletions(-)
+ 3 files changed, 246 insertions(+), 19 deletions(-)
 
 diff --git a/Platform/CIX/Sky1/Drivers/FirmwareUpdateDxe/FwUpdateProtocolDxe.c b/Platform/CIX/Sky1/Drivers/FirmwareUpdateDxe/FwUpdateProtocolDxe.c
 index e68b7c68..ead9636f 100644
@@ -24,7 +24,7 @@ index e68b7c68..ead9636f 100644
    UINT16                   ReturnCode;
    UINT32                   Index;
 diff --git a/Platform/CIX/Sky1/Drivers/MemConfigUpdateDxe/MemConfigUpdateDxe.c b/Platform/CIX/Sky1/Drivers/MemConfigUpdateDxe/MemConfigUpdateDxe.c
-index 4aecb441..20f3844c 100644
+index 4aecb441..4a8812be 100644
 --- a/Platform/CIX/Sky1/Drivers/MemConfigUpdateDxe/MemConfigUpdateDxe.c
 +++ b/Platform/CIX/Sky1/Drivers/MemConfigUpdateDxe/MemConfigUpdateDxe.c
 @@ -12,6 +12,32 @@
@@ -38,9 +38,9 @@ index 4aecb441..20f3844c 100644
 +  UINT16    MaxFrequency;
 +} O6_VENDOR_MEMORY_LIMIT;
 +
-+// Preserve the source board limits when Memory Data Rate is Auto.  An explicit
-+// setup value may raise the matching configuration ceiling so the request is
-+// not silently capped below the selected data rate.
++// Preserve the source board limits when Memory Data Rate is Auto.  Keep the
++// BSET request and every known board configuration ceiling synchronized for
++// any explicit setup value.
 +STATIC CONST O6_VENDOR_MEMORY_LIMIT  mO6VendorMemoryLimits[] = {
 +  { 0xFFFF, 2750 }, // Default
 +  { 0x0001, 2750 }, // 8 GB
@@ -60,7 +60,7 @@ index 4aecb441..20f3844c 100644
  // EFI_STATUS
  // CdcbLoadBuffer (
  //   UINT8  **buf,
-@@ -89,6 +115,131 @@ GenCheckSum (
+@@ -89,6 +115,127 @@ GenCheckSum (
    return ~CheckSum;
  }
  
@@ -157,12 +157,8 @@ index 4aecb441..20f3844c 100644
 +      continue;
 +    }
 +
-+    MaxFrequency = VendorLimit;
-+    if ((RequestedFrequency != O6_MEMORY_FREQUENCY_AUTO) &&
-+        (RequestedFrequency > MaxFrequency))
-+    {
-+      MaxFrequency = RequestedFrequency;
-+    }
++    MaxFrequency = (RequestedFrequency == O6_MEMORY_FREQUENCY_AUTO) ?
++                   VendorLimit : RequestedFrequency;
 +
 +    if (Config->MaxFreq != MaxFrequency) {
 +      DEBUG ((
@@ -192,7 +188,7 @@ index 4aecb441..20f3844c 100644
  EFI_STATUS
  GetBlockBufWithGuid (
    uint32_t  guid,
-@@ -112,15 +263,23 @@ EFI_STATUS
+@@ -112,15 +259,23 @@ EFI_STATUS
  GetMemConfigBiosBlockAndUpdate (
    PLATFORM_SETUP_DATA  *pPlatformSetupData,
    UINT8                *pImage,
@@ -217,7 +213,7 @@ index 4aecb441..20f3844c 100644
    GlobalHeader = (MEM_CONFIG_HEADER *)(pImage + CDCB_MEM_CONFIG_HEADER_OFFSET);
    if (GlobalHeader->Signature != MEM_CONFIG_HEADER_SIGNATURE) {
      // DDR_DRV_PRINT(BASE_INFO, "Error: Incorrect CDCB header signature!\n");
-@@ -128,28 +287,68 @@ GetMemConfigBiosBlockAndUpdate (
+@@ -128,28 +283,68 @@ GetMemConfigBiosBlockAndUpdate (
      return EFI_NOT_FOUND;
    }
  
@@ -292,7 +288,7 @@ index 4aecb441..20f3844c 100644
      }
  
      if (pPlatformSetupData->MemFreq != MemConfigBiosSetup->MemFreq) {
-@@ -291,7 +490,7 @@ GetMemConfigBiosBlockAndUpdate (
+@@ -291,7 +486,7 @@ GetMemConfigBiosBlockAndUpdate (
      }
    }
  
@@ -301,7 +297,7 @@ index 4aecb441..20f3844c 100644
  }
  
  VOID
-@@ -301,8 +500,12 @@ MemConfigUpdateCallback (
+@@ -301,8 +496,12 @@ MemConfigUpdateCallback (
    )
  {
    EFI_STATUS              Status;
@@ -315,7 +311,7 @@ index 4aecb441..20f3844c 100644
    BOOLEAN                 Update               = FALSE;
    UINTN                   VarSize              = 0;
    PLATFORM_SETUP_DATA     *pPlatformSetupVar   = NULL;
-@@ -367,16 +570,16 @@ MemConfigUpdateCallback (
+@@ -367,16 +566,16 @@ MemConfigUpdateCallback (
    }
  
    DEBUG ((DEBUG_INFO, "Debug-------------------------------------------------------[%a][%d]\n", __FUNCTION__, __LINE__));
@@ -336,7 +332,7 @@ index 4aecb441..20f3844c 100644
    if (EFI_ERROR (Status)) {
      DEBUG ((DEBUG_INFO, "GetMemConfigBiosBlockAndUpdate Status:%r\n", Status));
      goto Done;
-@@ -384,12 +587,36 @@ MemConfigUpdateCallback (
+@@ -384,12 +583,36 @@ MemConfigUpdateCallback (
  
    DEBUG ((DEBUG_INFO, "Debug-------------------------------------------------------[%a][%d]\n", __FUNCTION__, __LINE__));
    if (Update) {
@@ -348,8 +344,8 @@ index 4aecb441..20f3844c 100644
 +    Result = FlashUpdateProtocol->FirmwareRawEntryUpdate (FIRMWARE_TYPE_MEM_CONF, pImage, &Length, ENTRY_WRITE, NULL);
 +    if ((Result & 0xFF) != FIRMWARE_RET_SUCCESS) {
 +      DEBUG ((DEBUG_ERROR, "[%a][%d]: FirmwareRawEntryUpdate write failed: 0x%x\n", __FUNCTION__, __LINE__, Result));
-+      goto Done;
-+    }
+       goto Done;
+     }
 +
 +    VerifyLength = ExpectedLength;
 +    pVerifyImage = AllocateZeroPool (VerifyLength);
@@ -370,14 +366,14 @@ index 4aecb441..20f3844c 100644
 +        (CompareMem (pVerifyImage, pImage, ExpectedLength) != 0))
 +    {
 +      DEBUG ((DEBUG_ERROR, "Memory configuration write read-back mismatch: 0x%x\n", Result));
-       goto Done;
-     }
++      goto Done;
++    }
 +
 +    DEBUG ((DEBUG_INFO, "Memory configuration write verified\n"));
    }
  
    DEBUG ((DEBUG_INFO, "Debug-------------------------------------------------------[%a][%d]\n", __FUNCTION__, __LINE__));
-@@ -398,6 +625,10 @@ Done:
+@@ -398,6 +621,10 @@ Done:
      FreePool (pImage);
    }
  
@@ -389,7 +385,7 @@ index 4aecb441..20f3844c 100644
      FreePool (pPlatformSetupVar);
    }
 diff --git a/Platform/Radxa/Platforms/CIX/Sky1/Drivers/PlatformConfigDxe/MemMenu/MemoryConfig.uni b/Platform/Radxa/Platforms/CIX/Sky1/Drivers/PlatformConfigDxe/MemMenu/MemoryConfig.uni
-index 4ee6464a..e328b7ad 100644
+index 4ee6464a..474e4ce4 100644
 --- a/Platform/Radxa/Platforms/CIX/Sky1/Drivers/PlatformConfigDxe/MemMenu/MemoryConfig.uni
 +++ b/Platform/Radxa/Platforms/CIX/Sky1/Drivers/PlatformConfigDxe/MemMenu/MemoryConfig.uni
 @@ -18,7 +18,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
@@ -397,7 +393,7 @@ index 4ee6464a..e328b7ad 100644
  
  #string STR_MEM_FREQUENCY_PROMPT               #language en-US "Memory Data Rate"
 -#string STR_MEM_FREQUENCY_PROMPT_HELP          #language en-US "Memory Data Rate Config"
-+#string STR_MEM_FREQUENCY_PROMPT_HELP          #language en-US "Auto preserves the vendor board limit. Explicit values above that limit are experimental and may prevent the board from reaching UEFI setup."
++#string STR_MEM_FREQUENCY_PROMPT_HELP          #language en-US "Auto preserves the vendor board limit. Every explicit value selects that data rate; values above the vendor limit are experimental and may prevent the board from reaching UEFI setup."
  #string STR_DDR_1600                           #language en-US "1600MT/s"
  #string STR_DDR_2133                           #language en-US "2133MT/s"
  #string STR_DDR_2750                           #language en-US "2750MT/s"

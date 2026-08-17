@@ -181,11 +181,11 @@ so it cannot mask PM firmware's native or externally selected table.
 The tuning image also repairs the existing Memory Data Rate selector. Open
 `Device Manager -> Platform Configuration -> Advanced Configuration -> Memory
 Configuration`. `Auto` restores the source vendor maximum for every known O6
-memory population. Selecting 6000 or 6400 MT/s explicitly raises the selected
-BSET rate and the otherwise independent per-board CONF maximum, updates the
-block checksums, writes the memory configuration entry, and verifies it by
-reading the complete entry back. The image must still boot at the vendor limit
-until an explicit rate is selected.
+memory population. Selecting any explicit data rate from 1600 through 6400
+MT/s sets both the BSET rate and every known per-board CONF maximum to that
+rate, updates the block checksums, writes the memory configuration entry, and
+verifies it by reading the complete entry back. The image must still boot at
+the vendor limit until an explicit rate is selected.
 
 Memory training happens before UEFI setup. A failed experimental rate may
 therefore prevent access to the profile selector; recover by flashing the

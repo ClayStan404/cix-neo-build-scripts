@@ -177,26 +177,34 @@ cix_radxa_prepare_workspace() {
         ' "${pm_form}" ||
             cix_die "O6 Expert/Custom PM form has unexpected input boundaries"
         awk '
-            /STR_DDR_5500.*value = 2750/ { vendor_rate = 1 }
-            /STR_DDR_6000.*value = 3000/ { experimental_6000 = 1 }
-            /STR_DDR_6400.*value = 3200/ { experimental_6400 = 1 }
+            /STR_DDR_1600.*value = 800/ { rate_1600 = 1 }
+            /STR_DDR_2133.*value = 1067/ { rate_2133 = 1 }
+            /STR_DDR_2750.*value = 1375/ { rate_2750 = 1 }
+            /STR_DDR_3200.*value = 1600/ { rate_3200 = 1 }
+            /STR_DDR_3733.*value = 1867/ { rate_3733 = 1 }
+            /STR_DDR_4266.*value = 2133/ { rate_4266 = 1 }
+            /STR_DDR_4800.*value = 2400/ { rate_4800 = 1 }
+            /STR_DDR_5500.*value = 2750/ { rate_5500 = 1 }
+            /STR_DDR_6000.*value = 3000/ { rate_6000 = 1 }
+            /STR_DDR_6400.*value = 3200/ { rate_6400 = 1 }
             /STR_AUTO.*value = 0xFFFF/ { automatic = 1 }
             END {
-                exit !(vendor_rate && experimental_6000 &&
-                       experimental_6400 && automatic)
+                exit !(rate_1600 && rate_2133 && rate_2750 && rate_3200 &&
+                       rate_3733 && rate_4266 && rate_4800 && rate_5500 &&
+                       rate_6000 && rate_6400 && automatic)
             }
         ' "${memory_form}" ||
-            cix_die "O6 memory form is missing the expected Auto/5500/6000/6400 rates"
+            cix_die "O6 memory form is missing an expected explicit or Auto data rate"
         awk '
             /O6UpdateMemoryLimits \(/ { updater = 1 }
-            /RequestedFrequency > MaxFrequency/ { raises_limit = 1 }
+            /VendorLimit : RequestedFrequency/ { synchronizes_limit = 1 }
             /O6GetVendorMemoryLimit \(/ { vendor_restore = 1 }
             /Memory configuration write verified/ { readback = 1 }
             END {
-                exit !(updater && raises_limit && vendor_restore && readback)
+                exit !(updater && synchronizes_limit && vendor_restore && readback)
             }
         ' "${memory_updater}" ||
-            cix_die "O6 memory updater lacks limit extension or read-back verification"
+            cix_die "O6 memory updater lacks data-rate synchronization or read-back verification"
     fi
 }
 

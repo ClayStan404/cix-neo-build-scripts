@@ -177,13 +177,14 @@ The same recovery-gated image makes the existing `Advanced Configuration ->
 Memory Configuration -> Memory Data Rate` selector effective above each O6
 memory population's vendor ceiling. `Auto` restores the source board limit
 (normally 5500 MT/s, 4800 MT/s for the low-speed variants, and 6000 MT/s for
-the 32 GB Hynix variant). Explicit 6000 or 6400 MT/s selections raise both the
-BSET request and the per-board CONF ceiling, recalculate every changed block
-checksum, write the dedicated memory configuration entry, and verify the full
-entry by reading it back. The source image remains vendor-safe by default and
-contains the existing 6400 MT/s LPDDR5 bus, PHY-pad, and training entries.
-Rates above a board's vendor limit are experiments and may prevent the board
-from reaching UEFI setup; use them only with the tested USB recovery path.
+the 32 GB Hynix variant). Every explicit menu value from 1600 through 6400
+MT/s synchronizes both the BSET request and every known per-board CONF ceiling,
+recalculates every changed block checksum, writes the dedicated memory
+configuration entry, and verifies the full entry by reading it back. The
+source image remains vendor-safe by default and contains the existing 6400
+MT/s LPDDR5 bus, PHY-pad, and training entries. Rates above a board's vendor
+limit are experiments and may prevent the board from reaching UEFI setup; use
+them only with the tested USB recovery path.
 
 The same set publishes the manifest-pinned ARM64 CIX `pmtool` binary at
 `output/pmtool/pmtool`. On the O6 test board, capture the effective PM firmware

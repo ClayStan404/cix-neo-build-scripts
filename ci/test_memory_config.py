@@ -17,14 +17,14 @@ class MemoryConfigVerifierTests(unittest.TestCase):
             verify_memory_config.VENDOR_LIMITS,
         )
 
-    def test_6400_raises_all_known_board_limits(self) -> None:
-        limits = verify_memory_config.requested_limits(3200)
-        self.assertEqual(set(limits), set(verify_memory_config.VENDOR_LIMITS))
-        self.assertEqual(set(limits.values()), {3200})
-
-    def test_lower_request_does_not_reduce_vendor_limit(self) -> None:
-        limits = verify_memory_config.requested_limits(2400)
-        self.assertEqual(limits, verify_memory_config.VENDOR_LIMITS)
+    def test_every_explicit_rate_synchronizes_all_known_board_limits(self) -> None:
+        for frequency in verify_memory_config.EXPLICIT_FREQUENCIES:
+            with self.subTest(frequency=frequency):
+                limits = verify_memory_config.requested_limits(frequency)
+                self.assertEqual(
+                    set(limits), set(verify_memory_config.VENDOR_LIMITS)
+                )
+                self.assertEqual(set(limits.values()), {frequency})
 
     def test_rejects_unknown_frequency(self) -> None:
         with self.assertRaisesRegex(
