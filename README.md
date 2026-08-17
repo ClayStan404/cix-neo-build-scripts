@@ -154,13 +154,14 @@ a product build set and must be used only on a recoverable O6 test board.
 
 `radxa-o6-pm-tuning` packages the same two tested GB1 operating points into an
 explicit `pm-tuning` build set and exposes them as profiles in the O6 UEFI
-setup menu under `Advanced -> Power Management`. The only choices are the
-source-stock 2600 MHz at 920 mV profile and the validated 2700 MHz at 950 mV
-profile; arbitrary frequency and voltage values are not accepted. Saving a
-profile also selects the matching legacy CPU-limit mode. On the following
-boot, a DXE driver validates the current v3.0 PM block, changes only the GB1
-top OPP, recalculates its checksum, writes the dedicated PM flash entry, reads
-back and compares the complete entry, then performs one additional cold reset.
+setup menu under `Device Manager -> Platform Configuration -> Advanced
+Configuration -> Power Management`. The only choices are the source-stock
+2600 MHz at 920 mV profile and the validated 2700 MHz at 950 mV profile;
+arbitrary frequency and voltage values are not accepted. Saving a profile
+also selects the matching legacy CPU-limit mode. On the following boot, a DXE
+driver validates the current v3.0 PM block, changes only the GB1 top OPP,
+recalculates its checksum, writes the dedicated PM flash entry, reads back and
+compares the complete entry, then performs one additional cold reset.
 It refuses unknown PM blocks or OPP values. This target is not part of a
 product build set and the ordinary O6 firmware target remains unchanged.
 

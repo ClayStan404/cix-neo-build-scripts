@@ -156,6 +156,7 @@ cix_direct_radxa_firmware_build() (
     local package_script="${uefi_source}/edk2-non-osi/Platform/CIX/Sky1/PackageTool/build_and_package.sh"
     local package_tool="${uefi_source}/edk2-non-osi/Platform/CIX/Sky1/PackageTool/AARCH64/cix_package_tool"
     local internal_package_script="${firmware_source}/cix_bsp_release/sky1/package_internal_flash_binary.sh"
+    local platform_config_ifr
 
     if [[ "${TARGET[flow]}" == "radxa-pm-validation" ]]; then
         validation_profile=pmic
@@ -226,6 +227,23 @@ cix_direct_radxa_firmware_build() (
             cd "${uefi_source}" || exit
             NETWORK=open "${package_script}" "${platform}"
         )
+    fi
+
+    if [[ "${enable_pm_tuning}" == true ]]; then
+        platform_config_ifr="$(
+            find "${uefi_source}/Build/${platform}" \
+                -path '*/PlatformConfigDxe/PlatformConfigDxe/OUTPUT/PlatformConfigHii.i' \
+                -print -quit
+        )"
+        [[ -s "${platform_config_ifr}" ]] ||
+            cix_die "compiled O6 platform configuration form is missing"
+        awk '
+            /form formid = 0x2017,/ { form = 1 }
+            /oneof varid = RadxaPmTuningVar.Gb1Profile,/ { selector = 1 }
+            END { exit !(form && selector) }
+        ' "${platform_config_ifr}" ||
+            cix_die "compiled O6 firmware does not contain the PM profile menu"
+        cix_log "Verified O6 PM profile menu in compiled HII form"
     fi
 
     cix_log "Generate CIX internal Radxa ${platform} debug images"

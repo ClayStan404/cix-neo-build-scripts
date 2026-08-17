@@ -135,8 +135,8 @@ Flash only this recovery-gated O6 artifact:
 
 - `output/radxa-o6-pm-tuning/images/cix_flash_all_O6_pr_debug.bin`
 
-In UEFI setup, open `Advanced -> Power Management` and select one of the two
-fixed profiles:
+In UEFI setup, open `Device Manager -> Platform Configuration -> Advanced
+Configuration -> Power Management` and select one of the two fixed profiles:
 
 - `Stock: 2600 MHz at 920 mV`
 - `Validated: 2700 MHz at 950 mV`

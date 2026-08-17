@@ -1,21 +1,21 @@
-From bef90c820eb802bedb2befdf0ee21d17aa772017 Mon Sep 17 00:00:00 2001
+From 43810461ec4affb6d4bb926cb6a975d624522d42 Mon Sep 17 00:00:00 2001
 From: Clay Stan <claystan97@gmail.com>
-Date: Mon, 17 Aug 2026 12:10:21 +0800
+Date: Mon, 17 Aug 2026 12:34:07 +0800
 Subject: [PATCH] Platform: add safe O6 PM profile selection
 
-Change-Id: I8fa22712aa19ca0dc5eaa0c798a616faab5796d4
+Change-Id: Ic57ee33766a69dd937b70699fbca2e5001aba501
 ---
  .../PmConfigUpdateDxe/PmConfigUpdateDxe.c     | 443 ++++++++++++++++++
  .../PmConfigUpdateDxe/PmConfigUpdateDxe.h     |  59 +++
  .../PmConfigUpdateDxe/PmConfigUpdateDxe.inf   |  41 ++
- Platform/Radxa/Orion/O6/O6.dsc                |   2 +-
+ Platform/Radxa/Orion/O6/O6.dsc                |   6 +-
  .../FirmwareConfigUpdateDxe.c                 |  69 ++-
  .../PlatformConfigDxe/PlatformConfigHii.h     |   5 +-
  .../PlatformConfigDxe/PlatformConfigHii.uni   |  10 +-
  .../PlatformConfigDxe/PlatformConfigHii.vfr   |  56 ++-
  .../CIX/Sky1/Include/RadxaSetupVar.h          |  13 +-
  Platform/Radxa/Radxa.dec                      |   5 +-
- 10 files changed, 670 insertions(+), 33 deletions(-)
+ 10 files changed, 674 insertions(+), 33 deletions(-)
  create mode 100644 Platform/CIX/Sky1/Drivers/PmConfigUpdateDxe/PmConfigUpdateDxe.c
  create mode 100644 Platform/CIX/Sky1/Drivers/PmConfigUpdateDxe/PmConfigUpdateDxe.h
  create mode 100644 Platform/CIX/Sky1/Drivers/PmConfigUpdateDxe/PmConfigUpdateDxe.inf
@@ -582,7 +582,7 @@ index 00000000..0e6ac781
 +[Depex]
 +  gCixFirmwareUpdateProtocolGuid AND gRadxaSetupVariableGuid
 diff --git a/Platform/Radxa/Orion/O6/O6.dsc b/Platform/Radxa/Orion/O6/O6.dsc
-index 85b0d9d3..da24c0f5 100644
+index 85b0d9d3..75f905c3 100644
 --- a/Platform/Radxa/Orion/O6/O6.dsc
 +++ b/Platform/Radxa/Orion/O6/O6.dsc
 @@ -70,7 +70,7 @@
@@ -594,6 +594,17 @@ index 85b0d9d3..da24c0f5 100644
    DEFINE MEM_CONFIG_UPDATE_SUPPORT  = TRUE
    DEFINE DYNAMIC_ACPI_CPU_ENABLE    = TRUE
    DEFINE SOC_SPI_ENABLE             = TRUE
+@@ -291,6 +291,10 @@
+   GCC:*_*_*_VFRPP_FLAGS       = -DFW_CONFIG_UPDATE_SUPPORT=1
+ !endif
+ 
++!if $(PM_CONFIG_UPDATE_SUPPORT) == TRUE
++  GCC:*_*_*_VFRPP_FLAGS       = -DPM_CONFIG_UPDATE_SUPPORT=1
++!endif
++
+ ################################################################################
+ #
+ # Pcd Section - list of all EDK II PCD Entries defined by this Platform
 diff --git a/Platform/Radxa/Platforms/CIX/Sky1/Drivers/FirmwareConfigUpdateDxe/FirmwareConfigUpdateDxe.c b/Platform/Radxa/Platforms/CIX/Sky1/Drivers/FirmwareConfigUpdateDxe/FirmwareConfigUpdateDxe.c
 index de75870c..1414834a 100644
 --- a/Platform/Radxa/Platforms/CIX/Sky1/Drivers/FirmwareConfigUpdateDxe/FirmwareConfigUpdateDxe.c
