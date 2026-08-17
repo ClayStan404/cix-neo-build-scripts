@@ -92,6 +92,7 @@ cix_radxa_prepare_workspace() {
     local opp_patch_root="${CIX_ROOT}/build-scripts/patches/radxa-opp-validation"
     local opp_experiment_patch_root="${CIX_ROOT}/build-scripts/patches/radxa-opp-experiments"
     local pm_tuning_patch_root="${CIX_ROOT}/build-scripts/patches/radxa-pm-tuning"
+    local memory_tuning_patch_root="${CIX_ROOT}/build-scripts/patches/radxa-memory-tuning"
     local dependency
     local dependency_target
 
@@ -150,9 +151,15 @@ cix_radxa_prepare_workspace() {
     if [[ "${enable_pm_tuning}" == true ]]; then
         cix_radxa_apply_patch "${work_uefi}/edk2-platforms" \
             "${pm_tuning_patch_root}/0001-Platform-add-selectable-O6-PM-profiles.patch"
+        cix_radxa_apply_patch "${work_uefi}/edk2-platforms" \
+            "${memory_tuning_patch_root}/0001-Platform-Radxa-enable-explicit-O6-memory-rates.patch"
 
         local pm_form="${work_uefi}/edk2-platforms/Platform/Radxa/Platforms/CIX/Sky1/Drivers/PlatformConfigDxe/PmMenu/PmConfig.hfr"
+        local memory_form="${work_uefi}/edk2-platforms/Platform/Radxa/Platforms/CIX/Sky1/Drivers/PlatformConfigDxe/MemMenu/MemoryConfig.hfr"
+        local memory_updater="${work_uefi}/edk2-platforms/Platform/CIX/Sky1/Drivers/MemConfigUpdateDxe/MemConfigUpdateDxe.c"
         [[ -s "${pm_form}" ]] || cix_die "O6 Expert/Custom PM form is missing"
+        [[ -s "${memory_form}" ]] || cix_die "O6 memory configuration form is missing"
+        [[ -s "${memory_updater}" ]] || cix_die "O6 memory updater is missing"
         awk '
             /CpuFrequency\[(3|16|29|42)\]/ ||
             /CpuVoltage\[(3|16|29|42)\]/ { protected_opp = 1 }
@@ -169,6 +176,27 @@ cix_radxa_prepare_workspace() {
             END { exit !(frequency_boundary && voltage_boundary) }
         ' "${pm_form}" ||
             cix_die "O6 Expert/Custom PM form has unexpected input boundaries"
+        awk '
+            /STR_DDR_5500.*value = 2750/ { vendor_rate = 1 }
+            /STR_DDR_6000.*value = 3000/ { experimental_6000 = 1 }
+            /STR_DDR_6400.*value = 3200/ { experimental_6400 = 1 }
+            /STR_AUTO.*value = 0xFFFF/ { automatic = 1 }
+            END {
+                exit !(vendor_rate && experimental_6000 &&
+                       experimental_6400 && automatic)
+            }
+        ' "${memory_form}" ||
+            cix_die "O6 memory form is missing the expected Auto/5500/6000/6400 rates"
+        awk '
+            /O6UpdateMemoryLimits \(/ { updater = 1 }
+            /RequestedFrequency > MaxFrequency/ { raises_limit = 1 }
+            /O6GetVendorMemoryLimit \(/ { vendor_restore = 1 }
+            /Memory configuration write verified/ { readback = 1 }
+            END {
+                exit !(updater && raises_limit && vendor_restore && readback)
+            }
+        ' "${memory_updater}" ||
+            cix_die "O6 memory updater lacks limit extension or read-back verification"
     fi
 }
 
@@ -295,7 +323,9 @@ cix_direct_radxa_firmware_build() (
             }
         ' "${platform_config_ifr}" ||
             cix_die "compiled O6 firmware does not contain the safe Expert/Custom PM menu"
-        cix_log "Verified fixed and Expert/Custom O6 PM menus in compiled HII form"
+        python3 "${CIX_ROOT}/build-scripts/ci/verify_memory_config.py" \
+            "${generated_output}/pr/Firmwares/memory_config.bin"
+        cix_log "Verified O6 PM and experimental memory tuning firmware"
     fi
 
     cix_log "Generate CIX internal Radxa ${platform} debug images"

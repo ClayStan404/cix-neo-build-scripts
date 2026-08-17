@@ -17,7 +17,7 @@ build_sets:
       - radxa-o6-gb1-2700-experiment
 
   pm-tuning:
-    description: O6 firmware with BIOS-selectable automatic and experimental PM profiles
+    description: O6 firmware with BIOS-selectable PM and experimental memory tuning
     targets:
       - pmtool
       - radxa-o6-pm-tuning
@@ -129,7 +129,7 @@ targets:
     board: O6
 
   radxa-o6-pm-tuning:
-    description: Radxa Orion O6 firmware with BIOS-selectable automatic and experimental PM profiles
+    description: Radxa Orion O6 firmware with BIOS-selectable PM and experimental memory tuning
     builder: direct
     flow: radxa-pm-tuning
     source: sources/radxa-o6
@@ -784,6 +784,8 @@ projects:
       - paths: ["patches/radxa-opp-experiments/**"]
         targets: [radxa-o6-gb1-2700-experiment]
       - paths: ["patches/radxa-pm-tuning/**"]
+        targets: [radxa-o6-pm-tuning]
+      - paths: ["patches/radxa-memory-tuning/**", "ci/verify_memory_config.py", "ci/test_memory_config.py"]
         targets: [radxa-o6-pm-tuning]
       - paths: ["builders/debian.sh"]
         targets: [gpu-dkms, bt-dkms, vpu-dkms, vpu-firmware, npu-dkms, grub-config, alsa-conf, cix-env, cix-firmware, audio-dsp, dpu-ddk, gpu-umd, isp-umd, isp-v4l2-dkms, isp-dkms, libdrm, libglvnd, libva, ffmpeg, mesa, libcme, cix-vaapi, noe-umd, npu-umd, ai-engine, mnn, gstreamer-6.6, gstreamer-base-7.0, gstreamer-good-7.0, nnstreamer, wlan-dkms]

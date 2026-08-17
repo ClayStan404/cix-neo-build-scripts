@@ -216,6 +216,15 @@ is confirmed.
   before writing; recalculate the checksum; read back and compare the complete
   PM entry; and cold-reset only after a verified write. The setup-save path
   must also prevent the legacy CPU limit from masking any selected profile.
+- In that same recovery-gated O6 tuning target, make the existing Memory Data
+  Rate selector update both the BSET request and the per-board CONF maximum.
+  `Auto` must restore every source vendor limit; explicit values must never
+  reduce that limit and may raise it only to one of the menu's existing memory
+  rates. Validate the complete current memory configuration, preserve the
+  source image's vendor-safe defaults and 6400-capable tuning blocks,
+  recalculate every changed block checksum, and verify the dedicated memory
+  configuration entry by reading it back. Treat 6000/6400 MT/s above a board's
+  vendor limit as recovery-gated experiments rather than product defaults.
 - Track internal `tools/cix_binary` at commit
   `cf4388565546e14ab4c566e55495cd6757edd92e` under `sources/cix-binary` for
   the ARM64 `pmtool` validation utility. Publish only the checked executable as
@@ -452,6 +461,14 @@ validates the complete current and generated PM blocks and verifies the
 dedicated PM flash entry after every update. It belongs only to the explicit
 `pm-tuning` set. The normal O6 firmware target and both product build sets do
 not apply this patch.
+
+That target also layers an isolated memory updater fix. The checked-in source
+memory configuration remains Automatic with its original per-population
+limits. An explicit setup rate above the selected board's limit raises the
+CONF ceiling to match, while Automatic restores the complete vendor limit map.
+All LPDDR5 bus, PHY-pad, and training blocks must retain 6400 MT/s entries, and
+every memory write must pass checksum validation and complete read-back
+comparison. This behavior is not enabled in the normal O6 firmware target.
 
 ## Legacy Reference
 

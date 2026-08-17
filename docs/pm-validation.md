@@ -178,6 +178,29 @@ complete generated block before writing and compares the complete flash entry
 afterwards. The setup-save path removes the legacy CPU limit for every profile
 so it cannot mask PM firmware's native or externally selected table.
 
+The tuning image also repairs the existing Memory Data Rate selector. Open
+`Device Manager -> Platform Configuration -> Advanced Configuration -> Memory
+Configuration`. `Auto` restores the source vendor maximum for every known O6
+memory population. Selecting 6000 or 6400 MT/s explicitly raises the selected
+BSET rate and the otherwise independent per-board CONF maximum, updates the
+block checksums, writes the memory configuration entry, and verifies it by
+reading the complete entry back. The image must still boot at the vendor limit
+until an explicit rate is selected.
+
+Memory training happens before UEFI setup. A failed experimental rate may
+therefore prevent access to the profile selector; recover by flashing the
+known-good image over USB. After a successful boot, verify the controller PLL
+with:
+
+```bash
+sudo ./pmtool cli pllst | grep ddrc_pll
+```
+
+Approximately 2748 MHz corresponds to 5500 MT/s, 3000 MHz to 6000 MT/s, and
+3200 MHz to 6400 MT/s. Also confirm `Configured Memory Speed` with
+`sudo dmidecode --type memory`. A successful boot is not memory-stability
+qualification.
+
 After the automatic cold reset, repeat the `pmtool` and Linux cpufreq captures
 from the controlled experiment. Then select Vendor/Automatic, save, allow the
 same additional reset, and confirm that the external OPP table is disabled and
