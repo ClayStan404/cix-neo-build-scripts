@@ -152,17 +152,17 @@ GB1 OPP changes from 2600 MHz at 920 mV to 2700 MHz at 950 mV. The verifier
 rejects any other OPP-table difference. This experiment is never included in
 a product build set and must be used only on a recoverable O6 test board.
 
-`radxa-o6-pm-tuning` packages the same two tested GB1 operating points into an
-explicit `pm-tuning` build set and exposes them as profiles in the O6 UEFI
-setup menu under `Device Manager -> Platform Configuration -> Advanced
-Configuration -> Power Management`. The only choices are the source-stock
-2600 MHz at 920 mV profile and the validated 2700 MHz at 950 mV profile;
-arbitrary frequency and voltage values are not accepted. Saving a profile
-also selects the matching legacy CPU-limit mode. On the following boot, a DXE
-driver validates the current v3.0 PM block, changes only the GB1 top OPP,
-recalculates its checksum, writes the dedicated PM flash entry, reads back and
-compares the complete entry, then performs one additional cold reset.
-It refuses unknown PM blocks or OPP values. This target is not part of a
+`radxa-o6-pm-tuning` provides Stock, Validated, and Expert/Custom profiles in
+the O6 UEFI setup menu under `Device Manager -> Platform Configuration ->
+Advanced Configuration -> Power Management`. Stock and Validated restore
+complete known-good CPU tables. Expert/Custom permits bounded edits to the
+non-startup OPPs of GB0, GB1, GM0, and GM1; it enforces increasing frequencies
+and non-decreasing voltages. Startup OPPs, DSU, and non-CPU domains remain
+locked. Saving a profile also selects a compatible legacy CPU-limit mode. On
+the following boot, a DXE driver validates the submitted settings and complete
+current v3.0 PM block, updates the CPU tables, recalculates the checksum,
+writes the dedicated PM flash entry, reads back and compares the complete
+entry, then performs one additional cold reset. This target is not part of a
 product build set and the ordinary O6 firmware target remains unchanged.
 
 The same set publishes the manifest-pinned ARM64 CIX `pmtool` binary at

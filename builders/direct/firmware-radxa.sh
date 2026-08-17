@@ -149,6 +149,15 @@ cix_radxa_prepare_workspace() {
     if [[ "${enable_pm_tuning}" == true ]]; then
         cix_radxa_apply_patch "${work_uefi}/edk2-platforms" \
             "${pm_tuning_patch_root}/0001-Platform-add-safe-O6-PM-profile-selection.patch"
+
+        local pm_form="${work_uefi}/edk2-platforms/Platform/Radxa/Platforms/CIX/Sky1/Drivers/PlatformConfigDxe/PmMenu/PmConfig.hfr"
+        [[ -s "${pm_form}" ]] || cix_die "O6 Expert/Custom PM form is missing"
+        awk '
+            /CpuFrequency\[(3|16|29|42)\]/ ||
+            /CpuVoltage\[(3|16|29|42)\]/ { protected_opp = 1 }
+            END { exit protected_opp }
+        ' "${pm_form}" ||
+            cix_die "O6 Expert/Custom PM form exposes a protected startup OPP"
     fi
 }
 
@@ -250,12 +259,32 @@ cix_direct_radxa_firmware_build() (
         [[ -s "${platform_config_ifr}" ]] ||
             cix_die "compiled O6 platform configuration form is missing"
         awk '
-            /form formid = 0x2017,/ { form = 1 }
-            /oneof varid = RadxaPmTuningVar.Gb1Profile,/ { selector = 1 }
-            END { exit !(form && selector) }
+            /form formid = 0x2017,/ { profile_form = 1 }
+            /form formid = 0x2018,/ { custom_form = 1 }
+            /oneof varid = RadxaPmTuningVar.Profile,/ { selector = 1 }
+            /numeric varid = RadxaPmTuningVar.CpuFrequency\[0\],/ {
+                first_frequency = 1
+            }
+            /numeric varid = RadxaPmTuningVar.CpuFrequency\[[0-9]+\],/ {
+                frequency_fields++
+            }
+            /numeric varid = RadxaPmTuningVar.CpuVoltage\[44\],/ {
+                last_voltage = 1
+            }
+            /numeric varid = RadxaPmTuningVar.CpuVoltage\[[0-9]+\],/ {
+                voltage_fields++
+            }
+            /CpuFrequency\[(3|16|29|42)\]/ ||
+            /CpuVoltage\[(3|16|29|42)\]/ { protected_opp = 1 }
+            END {
+                exit !(profile_form && custom_form && selector &&
+                       first_frequency && last_voltage &&
+                       frequency_fields == 23 && voltage_fields == 23 &&
+                       !protected_opp)
+            }
         ' "${platform_config_ifr}" ||
-            cix_die "compiled O6 firmware does not contain the PM profile menu"
-        cix_log "Verified O6 PM profile menu in compiled HII form"
+            cix_die "compiled O6 firmware does not contain the safe Expert/Custom PM menu"
+        cix_log "Verified fixed and Expert/Custom O6 PM menus in compiled HII form"
     fi
 
     cix_log "Generate CIX internal Radxa ${platform} debug images"

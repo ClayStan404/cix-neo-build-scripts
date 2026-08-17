@@ -136,22 +136,35 @@ Flash only this recovery-gated O6 artifact:
 - `output/radxa-o6-pm-tuning/images/cix_flash_all_O6_pr_debug.bin`
 
 In UEFI setup, open `Device Manager -> Platform Configuration -> Advanced
-Configuration -> Power Management` and select one of the two fixed profiles:
+Configuration -> Power Management` and select a profile:
 
 - `Stock: 2600 MHz at 920 mV`
 - `Validated: 2700 MHz at 950 mV`
+- `Expert/Custom CPU OPPs`
+
+Stock and Validated restore complete known-good CPU tables. Expert/Custom
+opens a separate form for the non-startup OPPs of GB0, GB1, GM0, and GM1. Each
+frequency must be 800-3000 MHz and each voltage must be 700-950 mV, in steps of
+10. Frequencies must strictly increase and voltages must not decrease within a
+domain. Startup OPP 3 remains fixed at 1800 MHz / 790 mV and is not shown.
+DSU and non-CPU domains are not exposed.
 
 Save and exit. The normal setup reset is followed by one additional cold reset
 after the firmware has updated and read back the dedicated PM configuration.
 Do not interrupt power during that update. The updater rejects an unknown PM
-version, invalid checksum, unexpected GB1 table shape, or a top OPP other than
-the two known profiles. It changes only the GB1 top frequency/voltage pair and
-the checksum. The setup-save path also maps the selected profile to the
-matching legacy CPU-limit value so the memory configuration does not cap the
-2.7 GHz profile at 2.6 GHz.
+version, invalid checksum, unexpected OPP layout, modified startup OPP, changed
+DSU table, out-of-range value, or non-monotonic CPU table. It validates the
+complete generated block before writing and compares the complete flash entry
+afterwards. The setup-save path also maps Stock to the legacy 2.6 GHz CPU limit
+and removes that cap for Validated and Expert/Custom.
 
 After the automatic cold reset, repeat the `pmtool` and Linux cpufreq captures
 from the controlled experiment. Then select the stock profile, save, allow the
 same additional reset, and confirm that both PM firmware and Linux return to
 2600 MHz at 920 mV. This bidirectional board test is the acceptance gate; a
 successful build alone does not approve the tuning image for product use.
+
+Expert/Custom is a development interface, not a validated performance profile.
+Use it only after Stock recovery has been confirmed on a board with a tested
+SPI recovery path. Stability testing and board qualification remain separate
+acceptance work.

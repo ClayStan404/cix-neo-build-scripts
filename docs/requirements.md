@@ -197,15 +197,18 @@ is confirmed.
   slots, and the unconfigured thirteenth domain match exactly. Do not introduce
   higher frequencies or new voltage points until the stock-table image has
   passed a recoverable board test.
-- Provide a separate O6 firmware target with BIOS-selectable, fixed PM profiles
-  after the stock and 2.7 GHz profiles have passed recoverable board tests. Keep
-  source checkouts clean by carrying the implementation as a build-time patch.
-  Do not permit arbitrary frequency or voltage input. The updater must validate
-  the existing v3 PM header, checksum, GB1 table shape, and known top OPP before
-  writing; update only the selected GB1 top OPP; recalculate the checksum;
-  read back and compare the complete PM entry; and cold-reset only after a
-  verified write. The setup-save path must also select the matching legacy CPU
-  limit so that the memory configuration does not mask the chosen profile.
+- Provide a separate O6 firmware target with BIOS-selectable Stock, Validated,
+  and Expert/Custom PM profiles. Keep source checkouts clean by carrying the
+  implementation as a build-time patch. Stock and Validated must restore the
+  complete known-good CPU tables. Expert/Custom may edit only the non-startup
+  OPPs of GB0, GB1, GM0, and GM1, within 800-3000 MHz and 700-950 mV in steps
+  of 10. Require strictly increasing frequencies and non-decreasing voltages
+  within each domain. Do not expose startup OPPs, DSU, or non-CPU domains.
+  Validate both the submitted settings and the complete existing v3 PM block
+  before writing; recalculate the checksum; read back and compare the complete
+  PM entry; and cold-reset only after a verified write. The setup-save path
+  must also prevent the legacy CPU limit from masking Validated or Custom
+  profiles.
 - Track internal `tools/cix_binary` at commit
   `cf4388565546e14ab4c566e55495cd6757edd92e` under `sources/cix-binary` for
   the ARM64 `pmtool` validation utility. Publish only the checked executable as
@@ -432,11 +435,14 @@ target is included in a product build set, installs software, invokes `sudo`,
 or flashes firmware.
 
 The `radxa-o6-pm-tuning` direct target layers a BIOS profile selector and a v3
-PM update driver over the validated stock external OPP image. It offers only
-2600 MHz at 920 mV and 2700 MHz at 950 mV for GB1, synchronizes the legacy CPU
-limit during setup save, and verifies the dedicated PM flash entry before and
-after every update. It belongs only to the explicit `pm-tuning` set. The normal
-O6 firmware target and both product build sets do not apply this patch.
+PM update driver over the validated stock external OPP image. Stock and
+Validated provide recovery-friendly complete CPU tables; Expert/Custom exposes
+only non-startup OPPs for GB0, GB1, GM0, and GM1 under bounded and monotonic
+input rules. Startup OPPs, DSU, and non-CPU domains remain locked. The updater
+validates the complete current and generated PM blocks and verifies the
+dedicated PM flash entry after every update. It belongs only to the explicit
+`pm-tuning` set. The normal O6 firmware target and both product build sets do
+not apply this patch.
 
 ## Legacy Reference
 
