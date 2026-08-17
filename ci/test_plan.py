@@ -588,6 +588,22 @@ Description: CIX VPU development files
         self.assertEqual(target.board, "O6")
         self.assertIsNone(target.control)
 
+    def test_radxa_pm_tuning_is_a_direct_firmware_flow(self) -> None:
+        target = plan._target_from_mapping(
+            "radxa-o6-pm-tuning",
+            {
+                "description": "Radxa O6 BIOS PM profile selection",
+                "builder": "direct",
+                "flow": "radxa-pm-tuning",
+                "source": "sources/radxa-o6",
+                "board": "O6",
+            },
+        )
+
+        self.assertEqual(target.flow, "radxa-pm-tuning")
+        self.assertEqual(target.board, "O6")
+        self.assertIsNone(target.control)
+
     def test_pmtool_is_a_direct_artifact_flow(self) -> None:
         target = plan._target_from_mapping(
             "pmtool",

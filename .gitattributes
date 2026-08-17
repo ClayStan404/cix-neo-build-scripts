@@ -1,1 +1,2 @@
 patches/radxa-o6n/*.patch -whitespace
+patches/radxa-pm-tuning/*.patch -whitespace

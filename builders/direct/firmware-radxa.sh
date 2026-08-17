@@ -72,6 +72,7 @@ cix_radxa_prepare_workspace() {
     local build_output="$2"
     local platform="$3"
     local validation_profile="$4"
+    local enable_pm_tuning="$5"
     local source_uefi="${source_root}/uefi_release"
     local work_root="${build_output}/work"
     local work_uefi="${work_root}/uefi_release"
@@ -79,6 +80,7 @@ cix_radxa_prepare_workspace() {
     local pm_patch_root="${CIX_ROOT}/build-scripts/patches/radxa-pm-validation"
     local opp_patch_root="${CIX_ROOT}/build-scripts/patches/radxa-opp-validation"
     local opp_experiment_patch_root="${CIX_ROOT}/build-scripts/patches/radxa-opp-experiments"
+    local pm_tuning_patch_root="${CIX_ROOT}/build-scripts/patches/radxa-pm-tuning"
     local dependency
     local dependency_target
 
@@ -131,6 +133,11 @@ cix_radxa_prepare_workspace() {
         cix_radxa_apply_patch "${work_uefi}/edk2-platforms" \
             "${opp_experiment_patch_root}/0001-Platform-Radxa-set-O6-GB1-max-to-2700-MHz.patch"
     fi
+
+    if [[ "${enable_pm_tuning}" == true ]]; then
+        cix_radxa_apply_patch "${work_uefi}/edk2-platforms" \
+            "${pm_tuning_patch_root}/0001-Platform-add-safe-O6-PM-profile-selection.patch"
+    fi
 }
 
 cix_direct_radxa_firmware_build() (
@@ -139,6 +146,7 @@ cix_direct_radxa_firmware_build() (
     local build_output="$3"
     local build_jobs="$4"
     local validation_profile=none
+    local enable_pm_tuning=false
     local firmware_source="${CIX_ROOT}/${TARGET[source]}"
     local source_uefi="${firmware_source}/uefi_release"
     local uefi_source="${build_output}/work/uefi_release"
@@ -155,6 +163,9 @@ cix_direct_radxa_firmware_build() (
         validation_profile=stock-opp
     elif [[ "${TARGET[flow]}" == "radxa-opp-experiment" ]]; then
         validation_profile=gb1-2700
+    elif [[ "${TARGET[flow]}" == "radxa-pm-tuning" ]]; then
+        validation_profile=stock-opp
+        enable_pm_tuning=true
     fi
 
     if [[ "${build_action}" == "clean" ]]; then
@@ -180,7 +191,7 @@ cix_direct_radxa_firmware_build() (
     mkdir -p -- "${image_output}/ocb"
     cix_radxa_prepare_workspace \
         "${firmware_source}" "${build_output}" "${platform}" \
-        "${validation_profile}"
+        "${validation_profile}" "${enable_pm_tuning}"
 
     [[ -x "${package_script}" ]] ||
         cix_die "Radxa firmware package script is missing: ${package_script}"

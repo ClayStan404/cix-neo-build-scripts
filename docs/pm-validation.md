@@ -121,3 +121,37 @@ Acceptance for this stage requires `pmtool` to report the GB1 top OPP as
 temperatures, and no new PM, regulator, thermal, or SCMI errors. Do not start a
 stress test until these checks pass. Restore the known-good full image if the
 board cannot complete a cold boot.
+
+## BIOS-Selectable Profiles
+
+Build the separate tuning image after the controlled 2.7 GHz profile has
+passed the board checks above:
+
+```bash
+./build-scripts/cix-build pm-tuning
+```
+
+Flash only this recovery-gated O6 artifact:
+
+- `output/radxa-o6-pm-tuning/images/cix_flash_all_O6_pr_debug.bin`
+
+In UEFI setup, open `Advanced -> Power Management` and select one of the two
+fixed profiles:
+
+- `Stock: 2600 MHz at 920 mV`
+- `Validated: 2700 MHz at 950 mV`
+
+Save and exit. The normal setup reset is followed by one additional cold reset
+after the firmware has updated and read back the dedicated PM configuration.
+Do not interrupt power during that update. The updater rejects an unknown PM
+version, invalid checksum, unexpected GB1 table shape, or a top OPP other than
+the two known profiles. It changes only the GB1 top frequency/voltage pair and
+the checksum. The setup-save path also maps the selected profile to the
+matching legacy CPU-limit value so the memory configuration does not cap the
+2.7 GHz profile at 2.6 GHz.
+
+After the automatic cold reset, repeat the `pmtool` and Linux cpufreq captures
+from the controlled experiment. Then select the stock profile, save, allow the
+same additional reset, and confirm that both PM firmware and Linux return to
+2600 MHz at 920 mV. This bidirectional board test is the acceptance gate; a
+successful build alone does not approve the tuning image for product use.

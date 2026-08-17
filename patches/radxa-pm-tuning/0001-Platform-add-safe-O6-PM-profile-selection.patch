@@ -1,0 +1,864 @@
+From bef90c820eb802bedb2befdf0ee21d17aa772017 Mon Sep 17 00:00:00 2001
+From: Clay Stan <claystan97@gmail.com>
+Date: Mon, 17 Aug 2026 12:10:21 +0800
+Subject: [PATCH] Platform: add safe O6 PM profile selection
+
+Change-Id: I8fa22712aa19ca0dc5eaa0c798a616faab5796d4
+---
+ .../PmConfigUpdateDxe/PmConfigUpdateDxe.c     | 443 ++++++++++++++++++
+ .../PmConfigUpdateDxe/PmConfigUpdateDxe.h     |  59 +++
+ .../PmConfigUpdateDxe/PmConfigUpdateDxe.inf   |  41 ++
+ Platform/Radxa/Orion/O6/O6.dsc                |   2 +-
+ .../FirmwareConfigUpdateDxe.c                 |  69 ++-
+ .../PlatformConfigDxe/PlatformConfigHii.h     |   5 +-
+ .../PlatformConfigDxe/PlatformConfigHii.uni   |  10 +-
+ .../PlatformConfigDxe/PlatformConfigHii.vfr   |  56 ++-
+ .../CIX/Sky1/Include/RadxaSetupVar.h          |  13 +-
+ Platform/Radxa/Radxa.dec                      |   5 +-
+ 10 files changed, 670 insertions(+), 33 deletions(-)
+ create mode 100644 Platform/CIX/Sky1/Drivers/PmConfigUpdateDxe/PmConfigUpdateDxe.c
+ create mode 100644 Platform/CIX/Sky1/Drivers/PmConfigUpdateDxe/PmConfigUpdateDxe.h
+ create mode 100644 Platform/CIX/Sky1/Drivers/PmConfigUpdateDxe/PmConfigUpdateDxe.inf
+
+diff --git a/Platform/CIX/Sky1/Drivers/PmConfigUpdateDxe/PmConfigUpdateDxe.c b/Platform/CIX/Sky1/Drivers/PmConfigUpdateDxe/PmConfigUpdateDxe.c
+new file mode 100644
+index 00000000..adeb33bb
+--- /dev/null
++++ b/Platform/CIX/Sky1/Drivers/PmConfigUpdateDxe/PmConfigUpdateDxe.c
+@@ -0,0 +1,443 @@
++/** @file
++  Update the CIX v3 PM configuration from a validated BIOS profile.
++
++  The PM firmware consumes the dedicated 4 KiB PM configuration before UEFI
++  starts. This DXE driver therefore updates that region, verifies the write,
++  and requests a cold reset so the selected profile is consumed on next boot.
++
++  SPDX-License-Identifier: BSD-2-Clause-Patent
++**/
++
++#include "PmConfigUpdateDxe.h"
++
++#include <Library/BaseLib.h>
++#include <Library/BaseMemoryLib.h>
++#include <Library/DebugLib.h>
++#include <Library/MemoryAllocationLib.h>
++#include <Library/UefiBootServicesTableLib.h>
++#include <Library/UefiRuntimeServicesTableLib.h>
++
++STATIC
++UINT16
++PmRead16 (
++  IN CONST UINT8  *Buffer,
++  IN UINTN        Offset
++  )
++{
++  UINT16  Value;
++
++  CopyMem (&Value, Buffer + Offset, sizeof (Value));
++  return Value;
++}
++
++STATIC
++UINT32
++PmRead32 (
++  IN CONST UINT8  *Buffer,
++  IN UINTN        Offset
++  )
++{
++  UINT32  Value;
++
++  CopyMem (&Value, Buffer + Offset, sizeof (Value));
++  return Value;
++}
++
++STATIC
++VOID
++PmWrite32 (
++  IN OUT UINT8  *Buffer,
++  IN UINTN      Offset,
++  IN UINT32     Value
++  )
++{
++  CopyMem (Buffer + Offset, &Value, sizeof (Value));
++}
++
++STATIC
++VOID
++PmCalculateChecksum (
++  IN CONST UINT8  *Buffer,
++  IN UINT32       Length,
++  OUT UINT32      *Crc1,
++  OUT UINT32      *Crc2
++  )
++{
++  UINT32  Cka;
++  UINT32  Ckb;
++  UINT32  Offset;
++  UINT32  Word;
++
++  Cka = 0;
++  Ckb = 0;
++  for (Offset = 0; Offset < Length; Offset += sizeof (UINT32)) {
++    if ((Offset == PM_CONFIG_CRC1_OFFSET) ||
++        (Offset == PM_CONFIG_CRC2_OFFSET))
++    {
++      Word = 0;
++    } else {
++      Word = PmRead32 (Buffer, Offset);
++    }
++
++    Cka += Word;
++    Ckb += Cka;
++  }
++
++  *Crc1 = Cka;
++  *Crc2 = Ckb;
++}
++
++STATIC
++BOOLEAN
++PmTopOppIsKnown (
++  IN CONST UINT8  *Buffer
++  )
++{
++  UINT32  Level;
++  UINT32  Voltage;
++  UINT32  Frequency;
++  UINT32  Power;
++
++  Level = PmRead32 (
++            Buffer,
++            PM_CONFIG_GB1_TOP_OFFSET + PM_CONFIG_OPP_LEVEL_OFFSET
++            );
++  Voltage = PmRead32 (
++              Buffer,
++              PM_CONFIG_GB1_TOP_OFFSET + PM_CONFIG_OPP_VOLTAGE_OFFSET
++              );
++  Frequency = PmRead32 (
++                Buffer,
++                PM_CONFIG_GB1_TOP_OFFSET + PM_CONFIG_OPP_FREQUENCY_OFFSET
++                );
++  Power = PmRead32 (
++            Buffer,
++            PM_CONFIG_GB1_TOP_OFFSET + PM_CONFIG_OPP_POWER_OFFSET
++            );
++
++  if ((Frequency != 0) || (Power != PM_CONFIG_GB1_TOP_POWER)) {
++    return FALSE;
++  }
++
++  return (((Level == PM_CONFIG_GB1_STOCK_LEVEL) &&
++           (Voltage == PM_CONFIG_GB1_STOCK_VOLTAGE)) ||
++          ((Level == PM_CONFIG_GB1_2700_LEVEL) &&
++           (Voltage == PM_CONFIG_GB1_2700_VOLTAGE)));
++}
++
++STATIC
++BOOLEAN
++PmValidateConfig (
++  IN CONST UINT8  *Buffer
++  )
++{
++  UINT32  Length;
++  UINT32  ExpectedCrc1;
++  UINT32  ExpectedCrc2;
++
++  if ((PmRead16 (Buffer, PM_CONFIG_VERSION_MAJOR_OFFSET) !=
++       PM_CONFIG_VERSION_MAJOR) ||
++      (PmRead16 (Buffer, PM_CONFIG_VERSION_MINOR_OFFSET) !=
++       PM_CONFIG_VERSION_MINOR) ||
++      (PmRead32 (Buffer, PM_CONFIG_SIGNATURE_OFFSET) != PM_CONFIG_SIGNATURE))
++  {
++    DEBUG ((DEBUG_ERROR, "[PmConfigUpdate] Unsupported PM config header\n"));
++    return FALSE;
++  }
++
++  Length = PmRead32 (Buffer, PM_CONFIG_LENGTH_OFFSET);
++  if ((Length < PM_CONFIG_GB1_TOP_END) ||
++      (Length > PM_CONFIG_BIN_SIZE) ||
++      ((Length & (sizeof (UINT32) - 1)) != 0))
++  {
++    DEBUG ((DEBUG_ERROR, "[PmConfigUpdate] Invalid PM config length: %u\n", Length));
++    return FALSE;
++  }
++
++  PmCalculateChecksum (Buffer, Length, &ExpectedCrc1, &ExpectedCrc2);
++  if ((PmRead32 (Buffer, PM_CONFIG_CRC1_OFFSET) != ExpectedCrc1) ||
++      (PmRead32 (Buffer, PM_CONFIG_CRC2_OFFSET) != ExpectedCrc2))
++  {
++    DEBUG ((DEBUG_ERROR, "[PmConfigUpdate] PM config checksum mismatch\n"));
++    return FALSE;
++  }
++
++  if ((Buffer[PM_CONFIG_OPP_VALID_OFFSET] != 0) ||
++      (PmRead16 (Buffer, PM_CONFIG_GB1_DOMAIN_OFFSET) !=
++       PM_CONFIG_GB1_SIZE) ||
++      (PmRead16 (Buffer, PM_CONFIG_GB1_DOMAIN_OFFSET + sizeof (UINT16)) !=
++       PM_CONFIG_GB1_SUSTAINED_INDEX) ||
++      !PmTopOppIsKnown (Buffer))
++  {
++    DEBUG ((DEBUG_ERROR, "[PmConfigUpdate] Unsupported GB1 OPP table\n"));
++    return FALSE;
++  }
++
++  return TRUE;
++}
++
++STATIC
++BOOLEAN
++PmProfileMatches (
++  IN CONST UINT8  *Buffer,
++  IN UINT8        Profile
++  )
++{
++  UINT32  ExpectedLevel;
++  UINT32  ExpectedVoltage;
++
++  if (Profile == RADXA_PM_PROFILE_STOCK) {
++    ExpectedLevel   = PM_CONFIG_GB1_STOCK_LEVEL;
++    ExpectedVoltage = PM_CONFIG_GB1_STOCK_VOLTAGE;
++  } else {
++    ExpectedLevel   = PM_CONFIG_GB1_2700_LEVEL;
++    ExpectedVoltage = PM_CONFIG_GB1_2700_VOLTAGE;
++  }
++
++  return ((PmRead32 (
++             Buffer,
++             PM_CONFIG_GB1_TOP_OFFSET + PM_CONFIG_OPP_LEVEL_OFFSET
++             ) == ExpectedLevel) &&
++          (PmRead32 (
++             Buffer,
++             PM_CONFIG_GB1_TOP_OFFSET + PM_CONFIG_OPP_VOLTAGE_OFFSET
++             ) == ExpectedVoltage));
++}
++
++STATIC
++VOID
++PmApplyProfile (
++  IN OUT UINT8  *Buffer,
++  IN UINT8      Profile
++  )
++{
++  UINT32  Level;
++  UINT32  Voltage;
++  UINT32  Length;
++  UINT32  Crc1;
++  UINT32  Crc2;
++
++  if (Profile == RADXA_PM_PROFILE_STOCK) {
++    Level   = PM_CONFIG_GB1_STOCK_LEVEL;
++    Voltage = PM_CONFIG_GB1_STOCK_VOLTAGE;
++  } else {
++    Level   = PM_CONFIG_GB1_2700_LEVEL;
++    Voltage = PM_CONFIG_GB1_2700_VOLTAGE;
++  }
++
++  PmWrite32 (
++    Buffer,
++    PM_CONFIG_GB1_TOP_OFFSET + PM_CONFIG_OPP_LEVEL_OFFSET,
++    Level
++    );
++  PmWrite32 (
++    Buffer,
++    PM_CONFIG_GB1_TOP_OFFSET + PM_CONFIG_OPP_VOLTAGE_OFFSET,
++    Voltage
++    );
++  PmWrite32 (
++    Buffer,
++    PM_CONFIG_GB1_TOP_OFFSET + PM_CONFIG_OPP_FREQUENCY_OFFSET,
++    0
++    );
++  PmWrite32 (
++    Buffer,
++    PM_CONFIG_GB1_TOP_OFFSET + PM_CONFIG_OPP_POWER_OFFSET,
++    PM_CONFIG_GB1_TOP_POWER
++    );
++
++  Length = PmRead32 (Buffer, PM_CONFIG_LENGTH_OFFSET);
++  PmCalculateChecksum (Buffer, Length, &Crc1, &Crc2);
++  PmWrite32 (Buffer, PM_CONFIG_CRC1_OFFSET, Crc1);
++  PmWrite32 (Buffer, PM_CONFIG_CRC2_OFFSET, Crc2);
++}
++
++STATIC
++EFI_STATUS
++PmGetProfile (
++  OUT UINT8  *Profile
++  )
++{
++  EFI_STATUS            Status;
++  UINTN                 Size;
++  RADXA_PM_TUNING_DATA  Setup;
++
++  Size = sizeof (Setup);
++  ZeroMem (&Setup, sizeof (Setup));
++  Status = gRT->GetVariable (
++                  RADXA_PM_TUNING_VAR,
++                  &gRadxaSetupVariableGuid,
++                  NULL,
++                  &Size,
++                  &Setup
++                  );
++  if (Status == EFI_NOT_FOUND) {
++    Setup.Gb1Profile = RADXA_PM_PROFILE_STOCK;
++    Status = gRT->SetVariable (
++                    RADXA_PM_TUNING_VAR,
++                    &gRadxaSetupVariableGuid,
++                    EFI_VARIABLE_NON_VOLATILE |
++                    EFI_VARIABLE_BOOTSERVICE_ACCESS,
++                    sizeof (Setup),
++                    &Setup
++                    );
++    if (EFI_ERROR (Status)) {
++      DEBUG ((DEBUG_ERROR, "[PmConfigUpdate] Cannot create setup variable: %r\n", Status));
++      return Status;
++    }
++  } else if (EFI_ERROR (Status)) {
++    DEBUG ((DEBUG_ERROR, "[PmConfigUpdate] Cannot read setup variable: %r\n", Status));
++    return Status;
++  }
++
++  if ((Size != sizeof (Setup)) ||
++      (Setup.Gb1Profile > RADXA_PM_PROFILE_MAX))
++  {
++    DEBUG ((DEBUG_ERROR, "[PmConfigUpdate] Invalid setup profile\n"));
++    return EFI_COMPROMISED_DATA;
++  }
++
++  *Profile = Setup.Gb1Profile;
++  return EFI_SUCCESS;
++}
++
++STATIC
++EFI_STATUS
++PmReadFlash (
++  IN CIX_FW_UPDATE_PROTOCOL  *FwUpdate,
++  OUT UINT8                  *Buffer
++  )
++{
++  UINTN   Size;
++  UINT16  Result;
++
++  Size   = PM_CONFIG_BIN_SIZE;
++  Result = FwUpdate->FirmwareRawEntryUpdate (
++                       FIRMWARE_TYPE_PM_CONF,
++                       Buffer,
++                       &Size,
++                       ENTRY_READ,
++                       NULL
++                       );
++
++  // The vendor read implementation may return an undefined low status byte.
++  // Validate the returned buffer instead of trusting Result alone.
++  DEBUG ((
++    DEBUG_INFO,
++    "[PmConfigUpdate] PM read result: 0x%x, size: %u\n",
++    Result,
++    (UINT32)Size
++    ));
++  if ((Size != PM_CONFIG_BIN_SIZE) || !PmValidateConfig (Buffer)) {
++    return EFI_COMPROMISED_DATA;
++  }
++
++  return EFI_SUCCESS;
++}
++
++STATIC
++EFI_STATUS
++PmWriteAndVerify (
++  IN CIX_FW_UPDATE_PROTOCOL  *FwUpdate,
++  IN CONST UINT8             *Expected
++  )
++{
++  EFI_STATUS  Status;
++  UINT8       *Verify;
++  UINTN       Size;
++  UINT16      Result;
++
++  Size   = PM_CONFIG_BIN_SIZE;
++  Result = FwUpdate->FirmwareRawEntryUpdate (
++                       FIRMWARE_TYPE_PM_CONF,
++                       (UINT8 *)Expected,
++                       &Size,
++                       ENTRY_WRITE,
++                       NULL
++                       );
++  if ((Result & 0xFF) != FIRMWARE_RET_SUCCESS) {
++    DEBUG ((DEBUG_ERROR, "[PmConfigUpdate] PM write failed: 0x%x\n", Result));
++    return EFI_DEVICE_ERROR;
++  }
++
++  Verify = AllocateZeroPool (PM_CONFIG_BIN_SIZE);
++  if (Verify == NULL) {
++    return EFI_OUT_OF_RESOURCES;
++  }
++
++  Status = PmReadFlash (FwUpdate, Verify);
++  if (!EFI_ERROR (Status) &&
++      (CompareMem (Verify, Expected, PM_CONFIG_BIN_SIZE) != 0))
++  {
++    DEBUG ((DEBUG_ERROR, "[PmConfigUpdate] PM write read-back mismatch\n"));
++    Status = EFI_DEVICE_ERROR;
++  }
++
++  FreePool (Verify);
++  return Status;
++}
++
++EFI_STATUS
++EFIAPI
++PmConfigUpdateDxeEntryPoint (
++  IN EFI_HANDLE        ImageHandle,
++  IN EFI_SYSTEM_TABLE  *SystemTable
++  )
++{
++  EFI_STATUS              Status;
++  CIX_FW_UPDATE_PROTOCOL  *FwUpdate;
++  UINT8                   *Buffer;
++  UINT8                   Profile;
++
++  Status = PmGetProfile (&Profile);
++  if (EFI_ERROR (Status)) {
++    return EFI_SUCCESS;
++  }
++
++  Status = gBS->LocateProtocol (
++                  &gCixFirmwareUpdateProtocolGuid,
++                  NULL,
++                  (VOID **)&FwUpdate
++                  );
++  if (EFI_ERROR (Status)) {
++    DEBUG ((DEBUG_ERROR, "[PmConfigUpdate] Firmware update protocol unavailable: %r\n", Status));
++    return EFI_SUCCESS;
++  }
++
++  Buffer = AllocateZeroPool (PM_CONFIG_BIN_SIZE);
++  if (Buffer == NULL) {
++    return EFI_OUT_OF_RESOURCES;
++  }
++
++  Status = PmReadFlash (FwUpdate, Buffer);
++  if (EFI_ERROR (Status)) {
++    DEBUG ((DEBUG_ERROR, "[PmConfigUpdate] Refusing to modify invalid PM config\n"));
++    FreePool (Buffer);
++    return EFI_SUCCESS;
++  }
++
++  if (PmProfileMatches (Buffer, Profile)) {
++    DEBUG ((DEBUG_INFO, "[PmConfigUpdate] Profile %u already active\n", Profile));
++    FreePool (Buffer);
++    return EFI_SUCCESS;
++  }
++
++  PmApplyProfile (Buffer, Profile);
++  if (!PmValidateConfig (Buffer)) {
++    DEBUG ((DEBUG_ERROR, "[PmConfigUpdate] Refusing to write invalid generated config\n"));
++    FreePool (Buffer);
++    return EFI_SUCCESS;
++  }
++
++  Status = PmWriteAndVerify (FwUpdate, Buffer);
++  FreePool (Buffer);
++  if (EFI_ERROR (Status)) {
++    DEBUG ((DEBUG_ERROR, "[PmConfigUpdate] PM update verification failed: %r\n", Status));
++    return EFI_SUCCESS;
++  }
++
++  DEBUG ((DEBUG_INFO, "[PmConfigUpdate] Profile %u written; cold resetting\n", Profile));
++  gRT->ResetSystem (EfiResetCold, EFI_SUCCESS, 0, NULL);
++  CpuDeadLoop ();
++  return EFI_SUCCESS;
++}
+diff --git a/Platform/CIX/Sky1/Drivers/PmConfigUpdateDxe/PmConfigUpdateDxe.h b/Platform/CIX/Sky1/Drivers/PmConfigUpdateDxe/PmConfigUpdateDxe.h
+new file mode 100644
+index 00000000..265dec68
+--- /dev/null
++++ b/Platform/CIX/Sky1/Drivers/PmConfigUpdateDxe/PmConfigUpdateDxe.h
+@@ -0,0 +1,59 @@
++/** @file
++  CIX v3 PM configuration profile updater definitions.
++
++  SPDX-License-Identifier: BSD-2-Clause-Patent
++**/
++
++#ifndef CIX_PM_CONFIG_UPDATE_DXE_H_
++#define CIX_PM_CONFIG_UPDATE_DXE_H_
++
++#include <Uefi.h>
++#include <Protocol/CixFwUpdateProtocol.h>
++#include <RadxaSetupVar.h>
++
++#define PM_CONFIG_BIN_SIZE                 4096U
++#define PM_CONFIG_VERSION_MAJOR_OFFSET     0U
++#define PM_CONFIG_VERSION_MINOR_OFFSET     2U
++#define PM_CONFIG_LENGTH_OFFSET            8U
++#define PM_CONFIG_SIGNATURE_OFFSET         12U
++#define PM_CONFIG_CRC1_OFFSET              16U
++#define PM_CONFIG_CRC2_OFFSET              20U
++#define PM_CONFIG_SIGNATURE                SIGNATURE_32 ('P', 'M', 'C', 'F')
++#define PM_CONFIG_VERSION_MAJOR            3U
++#define PM_CONFIG_VERSION_MINOR            0U
++
++#define PM_CONFIG_OPP_VALID_OFFSET         152U
++#define PM_CONFIG_OPP_DOMAIN_BASE_OFFSET   153U
++#define PM_CONFIG_OPP_ENTRY_COUNT          13U
++#define PM_CONFIG_OPP_ENTRY_SIZE           16U
++#define PM_CONFIG_OPP_DOMAIN_HEADER_SIZE   4U
++#define PM_CONFIG_OPP_DOMAIN_SIZE          \
++  (PM_CONFIG_OPP_DOMAIN_HEADER_SIZE +      \
++   PM_CONFIG_OPP_ENTRY_COUNT * PM_CONFIG_OPP_ENTRY_SIZE)
++
++#define PM_CONFIG_GB1_DOMAIN_INDEX         4U
++#define PM_CONFIG_GB1_DOMAIN_OFFSET        \
++  (PM_CONFIG_OPP_DOMAIN_BASE_OFFSET +      \
++   PM_CONFIG_GB1_DOMAIN_INDEX * PM_CONFIG_OPP_DOMAIN_SIZE)
++#define PM_CONFIG_GB1_SIZE                 7U
++#define PM_CONFIG_GB1_SUSTAINED_INDEX      3U
++#define PM_CONFIG_GB1_TOP_INDEX            6U
++#define PM_CONFIG_GB1_TOP_OFFSET           \
++  (PM_CONFIG_GB1_DOMAIN_OFFSET +           \
++   PM_CONFIG_OPP_DOMAIN_HEADER_SIZE +      \
++   PM_CONFIG_GB1_TOP_INDEX * PM_CONFIG_OPP_ENTRY_SIZE)
++#define PM_CONFIG_GB1_TOP_END              \
++  (PM_CONFIG_GB1_TOP_OFFSET + PM_CONFIG_OPP_ENTRY_SIZE)
++
++#define PM_CONFIG_OPP_LEVEL_OFFSET         0U
++#define PM_CONFIG_OPP_VOLTAGE_OFFSET       4U
++#define PM_CONFIG_OPP_FREQUENCY_OFFSET     8U
++#define PM_CONFIG_OPP_POWER_OFFSET         12U
++
++#define PM_CONFIG_GB1_STOCK_LEVEL          2600U
++#define PM_CONFIG_GB1_STOCK_VOLTAGE        920U
++#define PM_CONFIG_GB1_2700_LEVEL           2700U
++#define PM_CONFIG_GB1_2700_VOLTAGE         950U
++#define PM_CONFIG_GB1_TOP_POWER            2292U
++
++#endif
+diff --git a/Platform/CIX/Sky1/Drivers/PmConfigUpdateDxe/PmConfigUpdateDxe.inf b/Platform/CIX/Sky1/Drivers/PmConfigUpdateDxe/PmConfigUpdateDxe.inf
+new file mode 100644
+index 00000000..0e6ac781
+--- /dev/null
++++ b/Platform/CIX/Sky1/Drivers/PmConfigUpdateDxe/PmConfigUpdateDxe.inf
+@@ -0,0 +1,41 @@
++## @file
++#  CIX v3 PM configuration profile updater.
++#
++#  SPDX-License-Identifier: BSD-2-Clause-Patent
++##
++
++[Defines]
++  INF_VERSION                    = 0x0001001A
++  BASE_NAME                      = PmConfigUpdateDxe
++  FILE_GUID                      = 8a3c2f7e-d614-4b8a-9e05-6f7d3c1a4b2e
++  MODULE_TYPE                    = DXE_DRIVER
++  VERSION_STRING                 = 1.0
++  ENTRY_POINT                    = PmConfigUpdateDxeEntryPoint
++
++[Sources]
++  PmConfigUpdateDxe.c
++  PmConfigUpdateDxe.h
++
++[Packages]
++  MdePkg/MdePkg.dec
++  Platform/CIX/Sky1/Sky1.dec
++  Platform/Radxa/Radxa.dec
++  Silicon/CIX/CixSiliconCommonPkg/CixSiliconCommonPkg.dec
++
++[LibraryClasses]
++  BaseLib
++  BaseMemoryLib
++  DebugLib
++  MemoryAllocationLib
++  UefiBootServicesTableLib
++  UefiDriverEntryPoint
++  UefiRuntimeServicesTableLib
++
++[Protocols]
++  gCixFirmwareUpdateProtocolGuid        ## CONSUMES
++
++[Guids]
++  gRadxaSetupVariableGuid
++
++[Depex]
++  gCixFirmwareUpdateProtocolGuid AND gRadxaSetupVariableGuid
+diff --git a/Platform/Radxa/Orion/O6/O6.dsc b/Platform/Radxa/Orion/O6/O6.dsc
+index 85b0d9d3..da24c0f5 100644
+--- a/Platform/Radxa/Orion/O6/O6.dsc
++++ b/Platform/Radxa/Orion/O6/O6.dsc
+@@ -70,7 +70,7 @@
+   DEFINE VARIABLE_SUPPORT           = $(COMPILE_VARIABLE_TYPE)
+   DEFINE STMM_SUPPORT               = $(COMPILE_STMM_SUPPORT)
+   DEFINE REALTEK_LAN_DRIVER_SUPPORT = FALSE
+-  DEFINE PM_CONFIG_UPDATE_SUPPORT   = FALSE
++  DEFINE PM_CONFIG_UPDATE_SUPPORT   = TRUE
+   DEFINE MEM_CONFIG_UPDATE_SUPPORT  = TRUE
+   DEFINE DYNAMIC_ACPI_CPU_ENABLE    = TRUE
+   DEFINE SOC_SPI_ENABLE             = TRUE
+diff --git a/Platform/Radxa/Platforms/CIX/Sky1/Drivers/FirmwareConfigUpdateDxe/FirmwareConfigUpdateDxe.c b/Platform/Radxa/Platforms/CIX/Sky1/Drivers/FirmwareConfigUpdateDxe/FirmwareConfigUpdateDxe.c
+index de75870c..1414834a 100644
+--- a/Platform/Radxa/Platforms/CIX/Sky1/Drivers/FirmwareConfigUpdateDxe/FirmwareConfigUpdateDxe.c
++++ b/Platform/Radxa/Platforms/CIX/Sky1/Drivers/FirmwareConfigUpdateDxe/FirmwareConfigUpdateDxe.c
+@@ -225,10 +225,10 @@ GetMemConfigAndUpdate (
+   return EFI_SUCCESS;
+ }
+ 
+-VOID
+-SetCpuBoostTriggerFlag (
+-  UINT8 Flag
+-)
++VOID
++SetCpuBoostTriggerFlag (
++  UINT8 Flag
++)
+ {
+   #define CIX_SIP_CPU_BOOST_TRIGGER 0xc2000011
+   ARM_SMC_ARGS  SmcArgs;
+@@ -236,11 +236,48 @@ SetCpuBoostTriggerFlag (
+   ZeroMem (&SmcArgs, sizeof (ARM_SMC_ARGS));
+   SmcArgs.Arg0 = CIX_SIP_CPU_BOOST_TRIGGER;
+   SmcArgs.Arg1 = Flag;
+-  ArmCallSmc (&SmcArgs);
+-}
+-
+-VOID
+-FwConfigUpdateCallback (
++  ArmCallSmc (&SmcArgs);
++}
++
++STATIC
++VOID
++ApplyPmProfileCpuLimit (
++  IN OUT RADXA_SETUP_DATA  *RadxaSetupData
++  )
++{
++  EFI_STATUS            Status;
++  UINTN                 Size;
++  RADXA_PM_TUNING_DATA  PmTuningData;
++
++  Size = sizeof (PmTuningData);
++  Status = gRT->GetVariable (
++                  RADXA_PM_TUNING_VAR,
++                  &gRadxaSetupVariableGuid,
++                  NULL,
++                  &Size,
++                  &PmTuningData
++                  );
++  if (Status == EFI_NOT_FOUND) {
++    return;
++  }
++
++  if (EFI_ERROR (Status) ||
++      (Size != sizeof (PmTuningData)) ||
++      (PmTuningData.Gb1Profile > RADXA_PM_PROFILE_MAX))
++  {
++    DEBUG ((DEBUG_ERROR, "Invalid PM tuning profile: %r\n", Status));
++    return;
++  }
++
++  if (PmTuningData.Gb1Profile == RADXA_PM_PROFILE_GB1_2700) {
++    RadxaSetupData->CpuFMax = RADXA_CPU_LIMIT_MAX;
++  } else {
++    RadxaSetupData->CpuFMax = RADXA_CPU_LIMIT_2600;
++  }
++}
++
++VOID
++FwConfigUpdateCallback (
+   IN EFI_EVENT  Event,
+   IN VOID       *Context
+   )
+@@ -272,12 +309,14 @@ FwConfigUpdateCallback (
+                   &VarSize,
+                   pRadxaSetupVar
+                   );
+-  if (EFI_ERROR (Status)) {
+-    DEBUG ((DEBUG_ERROR, "[%a][%d]: GetVariable failed, Status = %r\n", __FUNCTION__, __LINE__, Status));
+-    goto Done;
+-  }
+-
+-  DEBUG ((DEBUG_INFO, "Debug-------------------------------------------------------[%a][%d]\n", __FUNCTION__, __LINE__));
++  if (EFI_ERROR (Status)) {
++    DEBUG ((DEBUG_ERROR, "[%a][%d]: GetVariable failed, Status = %r\n", __FUNCTION__, __LINE__, Status));
++    goto Done;
++  }
++
++  ApplyPmProfileCpuLimit (pRadxaSetupVar);
++
++  DEBUG ((DEBUG_INFO, "Debug-------------------------------------------------------[%a][%d]\n", __FUNCTION__, __LINE__));
+   pImage = AllocateZeroPool (Length);
+   if (pImage == NULL) {
+     DEBUG ((DEBUG_ERROR, "[%a][%d]: AllocateZeroPool failed\n", __FUNCTION__, __LINE__));
+diff --git a/Platform/Radxa/Platforms/CIX/Sky1/Drivers/PlatformConfigDxe/PlatformConfigHii.h b/Platform/Radxa/Platforms/CIX/Sky1/Drivers/PlatformConfigDxe/PlatformConfigHii.h
+index ffaa4fa3..2fce0fa8 100644
+--- a/Platform/Radxa/Platforms/CIX/Sky1/Drivers/PlatformConfigDxe/PlatformConfigHii.h
++++ b/Platform/Radxa/Platforms/CIX/Sky1/Drivers/PlatformConfigDxe/PlatformConfigHii.h
+@@ -53,8 +53,9 @@ extern EFI_GUID  gPlatformConfigFormSetGuid;
+ #define USB_CONFIG_FORM_ID          0x2012
+ #define I2C_CONFIG_FORM_ID          0x2013
+ #define CPU_CONFIG_FORM_ID          0x2014
+-#define GMAC_CONFIG_FORM_ID         0x2015
+-#define COMPLIANCE_CONFIG_FORM_ID   0x2016
++#define GMAC_CONFIG_FORM_ID         0x2015
++#define COMPLIANCE_CONFIG_FORM_ID   0x2016
++#define PM_CONFIG_FORM_ID           0x2017
+ 
+ #define PCIE_ROOT_PORT0_CONFIG_FORM_ID  0x2100
+ #define PCIE_ROOT_PORT1_CONFIG_FORM_ID  0x2101
+diff --git a/Platform/Radxa/Platforms/CIX/Sky1/Drivers/PlatformConfigDxe/PlatformConfigHii.uni b/Platform/Radxa/Platforms/CIX/Sky1/Drivers/PlatformConfigDxe/PlatformConfigHii.uni
+index b05e3747..5c4eeb24 100644
+--- a/Platform/Radxa/Platforms/CIX/Sky1/Drivers/PlatformConfigDxe/PlatformConfigHii.uni
++++ b/Platform/Radxa/Platforms/CIX/Sky1/Drivers/PlatformConfigDxe/PlatformConfigHii.uni
+@@ -37,7 +37,15 @@
+ #string STR_CPU_BOOST_TRIGGER_PROMPT            #language en-US "Trigger Boost Freq Once"
+ #string STR_CPU_BOOST_TRIGGER_PROMPT_HELP       #language en-US "Trigger cpu run as boost freq at next startup once"
+ #string STR_CPU_BOOST_NOTSET                    #language en-US "Not Set"
+-#string STR_CPU_BOOST_TRIGGER                   #language en-US "Trigger"
++#string STR_CPU_BOOST_TRIGGER                   #language en-US "Trigger"
++
++#string STR_PM_CONFIG_FORM_TITLE                #language en-US "Power Management"
++#string STR_PM_CONFIG_FORM_HELP                 #language en-US "Select a validated CPU operating point profile."
++#string STR_PM_CONFIG_WARNING                   #language en-US "Changing this setting updates the dedicated PM configuration in SPI flash. The firmware will perform one additional cold reset before the new profile becomes active."
++#string STR_PM_GB1_PROFILE_PROMPT                #language en-US "CPU Big G1 OPP Profile"
++#string STR_PM_GB1_PROFILE_HELP                  #language en-US "Select the maximum operating point for CPU Big G1 (CPU 0-1). Only validated frequency and voltage pairs are available."
++#string STR_PM_GB1_PROFILE_STOCK                 #language en-US "Stock: 2600 MHz at 920 mV"
++#string STR_PM_GB1_PROFILE_2700                  #language en-US "Validated: 2700 MHz at 950 mV"
+ 
+ #string STR_NETWORK_STACK_PROMPT        #language en-US "Network Stack"
+ #string STR_NETWORK_STACK_PROMPT_HELP   #language en-US "Enable/Disable the network stack"
+diff --git a/Platform/Radxa/Platforms/CIX/Sky1/Drivers/PlatformConfigDxe/PlatformConfigHii.vfr b/Platform/Radxa/Platforms/CIX/Sky1/Drivers/PlatformConfigDxe/PlatformConfigHii.vfr
+index ab2a9371..c43b83e2 100644
+--- a/Platform/Radxa/Platforms/CIX/Sky1/Drivers/PlatformConfigDxe/PlatformConfigHii.vfr
++++ b/Platform/Radxa/Platforms/CIX/Sky1/Drivers/PlatformConfigDxe/PlatformConfigHii.vfr
+@@ -34,10 +34,15 @@ formset
+     name  = NetworkStackVar,
+     guid  = NETWORK_STACK_SETUP_VARIABLE_GUID;
+ 
+-  efivarstore RADXA_SETUP_DATA,
+-    attribute = EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_NON_VOLATILE,
+-    name  = RadxaSetupVar,
+-    guid  = RADXA_SETUP_VARIABLE_GUID;
++  efivarstore RADXA_SETUP_DATA,
++    attribute = EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_NON_VOLATILE,
++    name  = RadxaSetupVar,
++    guid  = RADXA_SETUP_VARIABLE_GUID;
++
++  efivarstore RADXA_PM_TUNING_DATA,
++    attribute = EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_NON_VOLATILE,
++    name  = RadxaPmTuningVar,
++    guid  = RADXA_SETUP_VARIABLE_GUID;
+ 
+   efivarstore CONSOLE_PREF_VARSTORE_DATA,
+     attribute = EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_NON_VOLATILE,
+@@ -182,7 +187,7 @@ endif;
+ 
+     subtitle text = STRING_TOKEN(STR_EMPTY_STRING);
+ 
+-#if (FW_CONFIG_UPDATE_SUPPORT == 1)
++#if (FW_CONFIG_UPDATE_SUPPORT == 1) && (PM_CONFIG_UPDATE_SUPPORT == 0)
+ 
+     oneof varid   = RadxaSetupVar.CpuFMax,
+       prompt      = STRING_TOKEN(STR_CPU_FREQ_MAX_PROMPT),
+@@ -205,18 +210,47 @@ endif;
+ 
+     subtitle text = STRING_TOKEN(STR_EMPTY_STRING);
+ 
+-#endif // FW_CONFIG_UPDATE_SUPPORT == 1
+-
+-    goto MEMORY_CONFIG_FORM_ID,
++#endif // (FW_CONFIG_UPDATE_SUPPORT == 1) && (PM_CONFIG_UPDATE_SUPPORT == 0)
++
++#if (PM_CONFIG_UPDATE_SUPPORT == 1)
++    goto PM_CONFIG_FORM_ID,
++      prompt = STRING_TOKEN(STR_PM_CONFIG_FORM_TITLE),
++      help = STRING_TOKEN(STR_PM_CONFIG_FORM_HELP);
++
++    subtitle text = STRING_TOKEN(STR_EMPTY_STRING);
++#endif
++
++    goto MEMORY_CONFIG_FORM_ID,
+       prompt = STRING_TOKEN(STR_MEMORY_FORM_SET_TITLE),
+       help = STRING_TOKEN(STR_MEMORY_FORM_SET_TITLE_HELP);
+ 
+     subtitle text = STRING_TOKEN(STR_EMPTY_STRING);
+     subtitle text = STRING_TOKEN(STR_EMPTY_STRING);
+     subtitle text = STRING_TOKEN(STR_EXIT_STRING);
+-  endform;
+-
+-// #include "Platform.hfr"
++  endform;
++
++#if (PM_CONFIG_UPDATE_SUPPORT == 1)
++  form formid = PM_CONFIG_FORM_ID,
++    title = STRING_TOKEN(STR_PM_CONFIG_FORM_TITLE);
++
++    subtitle text = STRING_TOKEN(STR_PM_CONFIG_WARNING);
++    subtitle text = STRING_TOKEN(STR_EMPTY_STRING);
++
++    oneof varid = RadxaPmTuningVar.Gb1Profile,
++      prompt = STRING_TOKEN(STR_PM_GB1_PROFILE_PROMPT),
++      help = STRING_TOKEN(STR_PM_GB1_PROFILE_HELP),
++      flags = NUMERIC_SIZE_1 | RESET_REQUIRED,
++      default = RADXA_PM_PROFILE_STOCK,
++      option text = STRING_TOKEN(STR_PM_GB1_PROFILE_STOCK), value = RADXA_PM_PROFILE_STOCK, flags = DEFAULT | RESET_REQUIRED;
++      option text = STRING_TOKEN(STR_PM_GB1_PROFILE_2700), value = RADXA_PM_PROFILE_GB1_2700, flags = RESET_REQUIRED;
++    endoneof;
++
++    subtitle text = STRING_TOKEN(STR_EMPTY_STRING);
++    subtitle text = STRING_TOKEN(STR_EXIT_STRING);
++  endform;
++#endif
++
++// #include "Platform.hfr"
+ #include "MemoryConfig.hfr"
+ #include "PcieConfig.hfr"
+ #include "UsbConfig.hfr"
+diff --git a/Platform/Radxa/Platforms/CIX/Sky1/Include/RadxaSetupVar.h b/Platform/Radxa/Platforms/CIX/Sky1/Include/RadxaSetupVar.h
+index eb2f388c..da863962 100644
+--- a/Platform/Radxa/Platforms/CIX/Sky1/Include/RadxaSetupVar.h
++++ b/Platform/Radxa/Platforms/CIX/Sky1/Include/RadxaSetupVar.h
+@@ -5,6 +5,7 @@
+   { 0xeedf122d, 0xa912, 0x43d5, {0xaa, 0x11, 0x14, 0x27, 0x62, 0xdd, 0x96, 0xfa}}
+ 
+ #define RADXA_SETUP_VAR  L"RadxaSetupVar"
++#define RADXA_PM_TUNING_VAR  L"RadxaPmTuningVar"
+ 
+ extern EFI_GUID  gRadxaSetupVariableGuid;
+ 
+@@ -21,6 +22,16 @@ typedef struct {
+   UINT8     UFSPowerMode;
+ } RADXA_SETUP_DATA;
+ 
++#define RADXA_PM_PROFILE_STOCK      0
++#define RADXA_PM_PROFILE_GB1_2700   1
++#define RADXA_PM_PROFILE_MAX        RADXA_PM_PROFILE_GB1_2700
++#define RADXA_CPU_LIMIT_2600        0
++#define RADXA_CPU_LIMIT_MAX         2
++
++typedef struct {
++  UINT8    Gb1Profile;
++} RADXA_PM_TUNING_DATA;
++
+ #pragma pack()
+ 
+-#endif
+\ No newline at end of file
++#endif
+diff --git a/Platform/Radxa/Radxa.dec b/Platform/Radxa/Radxa.dec
+index f8386918..0ff9b493 100644
+--- a/Platform/Radxa/Radxa.dec
++++ b/Platform/Radxa/Radxa.dec
+@@ -13,8 +13,9 @@
+   PACKAGE_GUID                   = 63c43707-0fa1-4288-8a7a-8dec94df8168
+   PACKAGE_VERSION                = 0.1
+ 
+-[Includes]
+-  Include
++[Includes]
++  Include
++  Platforms/CIX/Sky1/Include
+ 
+ [LibraryClasses]
+   PdEcLib|Include/Library/PdEcLib.h
+-- 
+2.47.3
+

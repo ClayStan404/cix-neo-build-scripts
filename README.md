@@ -11,6 +11,7 @@ Build one complete CIX kernel stack at a time:
 ./build-scripts/cix-build all-7.0
 ./build-scripts/cix-build pm-validation
 ./build-scripts/cix-build pm-gb1-2700
+./build-scripts/cix-build pm-tuning
 ```
 
 Build an individual target with the same command:
@@ -24,6 +25,7 @@ Build an individual target with the same command:
 ./build-scripts/cix-build radxa-o6-pm-validation
 ./build-scripts/cix-build radxa-o6-opp-validation
 ./build-scripts/cix-build radxa-o6-gb1-2700-experiment
+./build-scripts/cix-build radxa-o6-pm-tuning
 ./build-scripts/cix-build radxa-o6n-pm-validation
 ./build-scripts/cix-build pmtool
 ./build-scripts/cix-build gpu-dkms
@@ -150,6 +152,18 @@ GB1 OPP changes from 2600 MHz at 920 mV to 2700 MHz at 950 mV. The verifier
 rejects any other OPP-table difference. This experiment is never included in
 a product build set and must be used only on a recoverable O6 test board.
 
+`radxa-o6-pm-tuning` packages the same two tested GB1 operating points into an
+explicit `pm-tuning` build set and exposes them as profiles in the O6 UEFI
+setup menu under `Advanced -> Power Management`. The only choices are the
+source-stock 2600 MHz at 920 mV profile and the validated 2700 MHz at 950 mV
+profile; arbitrary frequency and voltage values are not accepted. Saving a
+profile also selects the matching legacy CPU-limit mode. On the following
+boot, a DXE driver validates the current v3.0 PM block, changes only the GB1
+top OPP, recalculates its checksum, writes the dedicated PM flash entry, reads
+back and compares the complete entry, then performs one additional cold reset.
+It refuses unknown PM blocks or OPP values. This target is not part of a
+product build set and the ordinary O6 firmware target remains unchanged.
+
 The same set publishes the manifest-pinned ARM64 CIX `pmtool` binary at
 `output/pmtool/pmtool`. On the O6 test board, capture the effective PM firmware
 table before and after flashing a validation image with:
@@ -204,7 +218,8 @@ source checkout, Debian metadata directory, and repository/path impact rules.
 The only builders are `direct` and `debian`.
 Direct flows run project-specific tools on the native host; the current flows
 are `kernel-worktree`, `kernel-stable-tarball`, `sof-firmware`,
-`radxa-firmware`, `radxa-pm-validation`, `radxa-opp-validation`, and `pmtool`.
+`radxa-firmware`, `radxa-pm-validation`, `radxa-opp-validation`,
+`radxa-opp-experiment`, `radxa-pm-tuning`, and `pmtool`.
 Debian source flows are `quilt`,
 `debian-git`, `native`, and `payload`, independently of the selected
 sbuild/local backend. `cix-build`
