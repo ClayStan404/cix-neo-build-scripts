@@ -95,88 +95,39 @@ previous vendor-firmware table, while Linux CPU frequency maxima remained
 unchanged. This proves the external-table mechanism, not equivalence with the
 vendor firmware.
 
-## Controlled GB1 2.7 GHz Experiment
-
-Build the separately gated experiment set:
-
-```bash
-./build-scripts/cix-build pm-gb1-2700
-```
-
-The experiment artifacts are:
-
-- `output/radxa-o6-gb1-2700-experiment/csu_pm_config_O6_gb1-2700.bin`
-- `output/radxa-o6-gb1-2700-experiment/images/cix_flash_all_O6_pr_debug.bin`
-
-The `gb1-2700` verifier profile requires the source-stock table except for one
-entry: the GB1 top OPP changes from 2600 MHz at 920 mV to 2700 MHz at 950 mV.
-The sustained OPP, DSU table, all other domains, PMIC rails, and OPP limits
-remain unchanged. Its power cost is set to 5865 mW: the implementation first
-linearly extrapolates the measured GB1 power points in PM firmware source
-revision `a2327331813f`, then conservatively scales the result upward for the
-950 mV request relative to the source voltage curve. The higher voltage follows
-the previously observed vendor table ceiling and is not a stability guarantee.
-
-Use the same recovery-aware full-image flashing procedure and perform a cold
-boot. Before applying CPU load, capture:
-
-```bash
-sudo /tmp/pmtool cli opp_config
-cat /sys/devices/system/cpu/cpufreq/policy0/scaling_max_freq
-cat /sys/devices/system/cpu/cpufreq/policy0/cpuinfo_max_freq
-```
-
-Acceptance for this stage requires `pmtool` to report the GB1 top OPP as
-2700 MHz at 950 mV, Linux policy 0 to expose the intended maximum, normal idle
-temperatures, and no new PM, regulator, thermal, or SCMI errors. Do not start a
-stress test until these checks pass. Restore the known-good full image if the
-board cannot complete a cold boot.
-
 ## BIOS-Selectable Profiles
 
-Build the separate tuning image after the controlled 2.7 GHz profile has
-passed the board checks above:
+Build the separate tuning image:
 
 ```bash
 ./build-scripts/cix-build pm-tuning
 ```
 
-Flash only one of these recovery-gated O6 prototype artifacts:
+Flash this recovery-gated O6 prototype artifact:
 
-- `output/radxa-o6-pm-tuning/images/cix_flash_all_O6_vendor_release.bin`
 - `output/radxa-o6-pm-tuning/images/cix_flash_all_O6_engineering_debug.bin`
 
-These locally signed images are for blank/prototype development boards. They
-are not product-signed images. The target does not publish a tuning image named
+This locally signed image is for blank/prototype development boards. It is not
+a product-signed image. The target does not publish a tuning image named
 `pr` or `pr2`; those trust states require RKMS and retain their manifest-pinned
 bootloaders until an ARM64-native RKMS packaging frontend is available. Tuning
 OTA images are also not published because that payload does not carry the PM
-firmware needed to distinguish Release from Engineering Debug behavior.
+firmware required by the complete custom table.
 
-The Vendor Release image exposes these profiles:
+The Engineering Debug image exposes only:
 
 - `Vendor/Automatic (PM firmware native OPPs)`
-- `Vendor-Capped Custom (partial CPU domains)`
-
-The Engineering Debug image additionally exposes:
-
-- `Engineering Unlock: GB1 2700 MHz, 950 mV floor + Vmin1`
-- `Engineering/Unsafe Custom (complete table)`
+- `Custom (complete CPU OPP table)`
 
 In UEFI setup, open `Device Manager -> Platform Configuration -> Advanced
 Configuration -> Power Management` and select an available profile. The
-firmware enforces the same capability split at runtime: a Vendor Release image
-migrates a persisted engineering profile to Vendor/Automatic rather than
-consuming it.
+firmware migrates a persisted fixed-frequency or partial profile from an older
+tuning build to Vendor/Automatic rather than consuming it.
 
 Vendor/Automatic sets the external OPP table invalid and leaves its contents
 unused, allowing PM firmware to use its native per-part OPN/Vmin/guardband
-path. Vendor-Capped Custom sets `OPP_PARTIAL_VALID` and overrides only enabled
-CPU domains. At least one CPU domain must be selected, and the edit controls
-for disabled domains are hidden. Every disabled CPU domain, DSU, GPU, and other
-domain keeps the PM firmware-native table and the chip's OPN limit. Engineering
-profiles enable the complete external table; only the Engineering Debug image
-contains both the UEFI controls and PM firmware needed to use a complete table
+path. Custom enables the complete external CPU table. The Engineering Debug
+image contains both the UEFI controls and PM firmware needed to use that table
 above retail OPN limits.
 The custom form edits non-boot OPPs of GB0, GB1, GM0, and GM1. Frequency is
 800-3200 MHz and base voltage is 550-1250 mV in steps of 10. Each OPP can use
@@ -188,18 +139,17 @@ shown. DSU and non-CPU domains are not exposed.
 
 The available frequency/voltage test data for K000086 was collected on an
 internal EVB. The publicly sold Radxa O6 may differ in board revision, power
-delivery, cooling, firmware payload, and silicon population. The 2.7 GHz fixed
-profile and all Engineering/Unsafe settings therefore remain experiments on the
-retail O6 until they pass board-specific validation.
+delivery, cooling, firmware payload, and silicon population. All Custom
+settings remain experiments on the retail O6 until they pass board-specific
+validation.
 
 CPU OPP power starts with the same measured-power points and linear
 interpolation as PM firmware source revision `a2327331813f`. It then scales
 power upward with voltage squared when the requested voltage exceeds the
 source curve; Vmin modes reserve power at the source firmware's 980 mV
-ceiling. The fixed 2700 MHz / 950 mV + Vmin1 tuning profile therefore records
-6241 mW. The build rejects either PM firmware binary unless its embedded
-revision and SHA-256 match the validated Debug or Release payload. This pins
-partial-OPP and Vmin behavior to PM config ABI v3.4 while the board-owned
+ceiling. The build rejects the Debug PM firmware binary unless its embedded
+revision and SHA-256 match the validated payload. This pins complete-table and
+Vmin behavior to PM config ABI v3.4 while the board-owned
 generator and DXE writer deliberately remain pinned to config schema v3.0.
 
 Save and exit. The normal setup reset is followed by one additional cold reset
@@ -239,15 +189,15 @@ Approximately 2748 MHz corresponds to 5500 MT/s, 3000 MHz to 6000 MT/s, and
 `sudo dmidecode --type memory`. A successful boot is not memory-stability
 qualification.
 
-After the automatic cold reset, repeat the `pmtool` and Linux cpufreq captures
-from the controlled experiment. Then select Vendor/Automatic, save, allow the
-same additional reset, and confirm that the external OPP table is disabled and
-the effective table returns to the board's PM-firmware-generated baseline. Do
-not require that baseline to equal the PackageTool source table or a fixed
-2600 MHz / 920 mV entry. This bidirectional board test is the acceptance gate;
-a successful build alone does not approve the tuning image for product use.
+After the automatic cold reset, repeat the `pmtool` and Linux cpufreq captures.
+Then select Vendor/Automatic, save, allow the same additional reset, and confirm
+that the external OPP table is disabled and the effective table returns to the
+board's PM-firmware-generated baseline. Do not require that baseline to equal
+the PackageTool source table or a fixed 2600 MHz / 920 mV entry. This
+bidirectional board test is the acceptance gate; a successful build alone does
+not approve the tuning image for product use.
 
-Engineering/Unsafe Custom is a development interface, not a validated
+Custom is a development interface, not a validated
 performance profile. Use it only after Vendor/Automatic recovery has been
 confirmed on a board with a tested SPI recovery path. Stability testing and
 board qualification remain separate acceptance work.

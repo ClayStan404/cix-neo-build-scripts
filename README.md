@@ -10,7 +10,6 @@ Build one complete CIX kernel stack at a time:
 ./build-scripts/cix-build all-6.6
 ./build-scripts/cix-build all-7.0
 ./build-scripts/cix-build pm-validation
-./build-scripts/cix-build pm-gb1-2700
 ./build-scripts/cix-build pm-tuning
 ```
 
@@ -24,7 +23,6 @@ Build an individual target with the same command:
 ./build-scripts/cix-build radxa-o6n-firmware
 ./build-scripts/cix-build radxa-o6-pm-validation
 ./build-scripts/cix-build radxa-o6-opp-validation
-./build-scripts/cix-build radxa-o6-gb1-2700-experiment
 ./build-scripts/cix-build radxa-o6-pm-tuning
 ./build-scripts/cix-build radxa-o6n-pm-validation
 ./build-scripts/cix-build pmtool
@@ -146,28 +144,14 @@ release. The normal firmware targets remain unaffected by these experiments.
 A successful build proves that the config block is well formed, not that PM
 firmware consumed it; that conclusion requires a board boot test.
 
-`radxa-o6-gb1-2700-experiment` is isolated in the explicit `pm-gb1-2700`
-set. It layers one controlled change over the source-stock profile: the final
-GB1 OPP changes from 2600 MHz at 920 mV to 2700 MHz at 950 mV. The verifier
-rejects any other OPP-table difference. This experiment is never included in
-a product build set and must be used only on a recoverable O6 test board.
-
-`radxa-o6-pm-tuning` produces two capability-separated images. The
-`vendor_release` image exposes only Vendor/Automatic and Vendor-Capped Custom;
-the `engineering_debug` image additionally exposes Engineering Unlock and
-Engineering/Unsafe Custom. The profiles are in the O6 UEFI setup menu under
+`radxa-o6-pm-tuning` produces one locally signed `engineering_debug` full-flash
+image. Its BIOS exposes only Vendor/Automatic and Custom. The profiles are in
+the O6 UEFI setup menu under
 `Device Manager -> Platform Configuration -> Advanced Configuration -> Power
 Management`. Vendor/Automatic disables the external OPP table so PM firmware
 can use its native OPN/Vmin/guardband path.
-Vendor-Capped Custom uses the PM firmware v3.4 partial-table ABI and overrides
-only explicitly enabled CPU domains, so all other domains retain native tables
-and OPN frequency limits. At least one domain must be selected, and settings
-for disabled domains are hidden. Release firmware rejects and migrates any
-persisted engineering profile back to Vendor/Automatic. Engineering profiles
-enable a complete table; only the Debug PM firmware removes the retail OPN
-frequency limit. The fixed 2.7 GHz profile uses a 950 mV floor with per-chip
-Vmin profile 1. It remains experimental on a retail Radxa O6.
-Custom profiles permit edits to the non-boot OPPs of GB0, GB1, GM0, and GM1
+Custom enables a complete external CPU table with the Debug PM firmware and
+permits edits to the non-boot OPPs of GB0, GB1, GM0, and GM1
 within 800-3200 MHz and 550-1250 mV base voltage in steps of 10. Each editable
 OPP can use a fixed voltage or Vmin profile 1-3. The effective 1500 MHz / 790 mV
 boot OPP, DSU, and non-CPU domains remain locked. CPU power entries use the
@@ -176,8 +160,8 @@ source, then conservatively scale upward with voltage squared above the source
 voltage curve. Vmin modes reserve power at the source PM firmware's 980 mV
 ceiling. The NVRAM settings carry a revision, exact size, and signature so an
 incompatible layout cannot be consumed silently.
-The build verifies both PM binaries against source revision `a2327331813f`,
-their SHA-256 digests, PM config ABI v3.4, and the generated v3.0 schema. On the
+The build verifies the Debug PM binary against source revision `a2327331813f`,
+its SHA-256 digest, PM config ABI v3.4, and the generated v3.0 schema. On the
 following boot, a DXE driver validates, writes, reads back, and compares the
 complete dedicated PM entry before performing one additional cold reset.
 This target is not part of a product build set and the ordinary O6 firmware
@@ -203,11 +187,11 @@ attempts. If an explicit rate fails, firmware writes `Auto` back to the
 dedicated memory configuration entry, verifies the flash update, and resets.
 Failure while already using `Auto` stops initialization instead of entering an
 unbounded reset loop. Local signing is restricted to the documented prototype
-key, and the tuning target publishes only explicitly named `vendor_release` and
-`engineering_debug` full-flash images. It never labels the repository's example
+key, and the tuning target publishes only the explicitly named
+`engineering_debug` full-flash image. It never labels the repository's example
 release keys as production keys. It intentionally does not publish tuning OTA
-images because that payload does not carry the PM firmware that distinguishes
-Release from Engineering Debug behavior. Product `pr` and `pr2` bootloaders
+images because that payload does not carry the Debug PM firmware required by
+the complete custom table. Product `pr` and `pr2` bootloaders
 remain the manifest-pinned binaries: regenerating them requires RKMS, while the
 available `cix_kms` frontend is x86-only and its source is not present. It is
 therefore not executed by the ARM64-native build. PM and PBL target payloads
@@ -270,7 +254,7 @@ The only builders are `direct` and `debian`.
 Direct flows run project-specific tools on the native host; the current flows
 are `kernel-worktree`, `kernel-stable-tarball`, `sof-firmware`,
 `radxa-firmware`, `radxa-pm-validation`, `radxa-opp-validation`,
-`radxa-opp-experiment`, `radxa-pm-tuning`, and `pmtool`.
+`radxa-pm-tuning`, and `pmtool`.
 Debian source flows are `quilt`,
 `debian-git`, `native`, and `payload`, independently of the selected
 sbuild/local backend. `cix-build`

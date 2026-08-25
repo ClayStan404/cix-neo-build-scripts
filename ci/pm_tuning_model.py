@@ -7,16 +7,10 @@ from dataclasses import dataclass
 
 
 PROFILE_VENDOR = 0
-PROFILE_GB1_2700 = 1
 PROFILE_CUSTOM = 2
-PROFILE_PARTIAL = 3
-PROFILE_MAX = PROFILE_PARTIAL
 
 VOLTAGE_FIXED = 0
 VOLTAGE_MODE_MAX = 3
-DOMAIN_DISABLED = (0xFFFF, 0xFFFF)
-CPU_DOMAIN_FIRST = 3
-OPP_DOMAIN_COUNT = 13
 SETTINGS_REVISION = 2
 SETTINGS_SIGNATURE = 0x54504D52
 SETTINGS_LEGACY_SIZE = 209
@@ -75,7 +69,7 @@ class Settings:
     profile: int
     frequencies: list[int]
     voltages: list[int]
-    enabled_domains: list[int]
+    reserved: list[int]
     voltage_modes: list[int]
     revision: int = SETTINGS_REVISION
     data_size: int = SETTINGS_CURRENT_SIZE
@@ -92,22 +86,16 @@ def default_settings(profile: int = PROFILE_VENDOR) -> Settings:
     return Settings(profile, frequencies, voltages, [0] * 4, [0] * 52)
 
 
-def validate_settings(settings: Settings, *, engineering: bool) -> None:
+def validate_settings(settings: Settings) -> None:
     if (
         settings.revision != SETTINGS_REVISION
         or settings.data_size != SETTINGS_CURRENT_SIZE
         or settings.signature != SETTINGS_SIGNATURE
     ):
         raise ValueError("invalid settings header")
-    if settings.profile < 0 or settings.profile > PROFILE_MAX:
+    if settings.profile not in (PROFILE_VENDOR, PROFILE_CUSTOM):
         raise ValueError("unknown profile")
-    if not engineering and settings.profile in (PROFILE_GB1_2700, PROFILE_CUSTOM):
-        raise ValueError("engineering profile is disabled")
-    if any(value not in (0, 1) for value in settings.enabled_domains):
-        raise ValueError("invalid partial-domain state")
-    if settings.profile == PROFILE_PARTIAL and not any(settings.enabled_domains):
-        raise ValueError("partial profile has no enabled CPU domain")
-    if settings.profile not in (PROFILE_CUSTOM, PROFILE_PARTIAL):
+    if settings.profile != PROFILE_CUSTOM:
         return
 
     for cpu_index, domain in enumerate(CPU_DOMAINS):
@@ -137,17 +125,7 @@ def validate_settings(settings: Settings, *, engineering: bool) -> None:
             raise ValueError("protected boot OPP changed")
 
 
-def partial_headers(enabled_domains: list[int]) -> tuple[tuple[int, int], ...]:
-    if len(enabled_domains) != len(CPU_DOMAINS) or not any(enabled_domains):
-        raise ValueError("partial profile requires an enabled CPU domain")
-    headers = [DOMAIN_DISABLED] * OPP_DOMAIN_COUNT
-    for enabled, domain in zip(enabled_domains, CPU_DOMAINS):
-        if enabled:
-            headers[domain.config_index] = (domain.size, domain.sustained_index)
-    return tuple(headers)
-
-
-def migrate_profile(profile: int, stored_size: int, *, engineering: bool) -> int:
+def migrate_profile(profile: int, stored_size: int) -> int:
     if stored_size not in (
         1,
         SETTINGS_LEGACY_SIZE,
@@ -155,11 +133,6 @@ def migrate_profile(profile: int, stored_size: int, *, engineering: bool) -> int
         SETTINGS_CURRENT_SIZE,
     ):
         raise ValueError("unknown settings size")
-    maximum = PROFILE_GB1_2700 if stored_size == 1 else PROFILE_MAX
-    if stored_size == SETTINGS_LEGACY_SIZE:
-        maximum = PROFILE_CUSTOM
-    if profile < 0 or profile > maximum:
-        profile = PROFILE_VENDOR
-    if not engineering and profile in (PROFILE_GB1_2700, PROFILE_CUSTOM):
+    if profile not in (PROFILE_VENDOR, PROFILE_CUSTOM):
         profile = PROFILE_VENDOR
     return profile

@@ -1,0 +1,40 @@
+diff --git a/sky1/package_internal_flash_binary.sh b/sky1/package_internal_flash_binary.sh
+index 2dd423d..5a0e2e7 100755
+--- a/sky1/package_internal_flash_binary.sh
++++ b/sky1/package_internal_flash_binary.sh
+@@ -116,8 +116,10 @@ exec_cix_mkimage() {
+ 
+     echo "./cix_package_tool -c spi_flash_config_all.json -o ${PATH_OUT}/${flash_all_file_name}.bin"
+     ./cix_package_tool -c spi_flash_config_all.json -o ${PATH_OUT}/${flash_all_file_name}.bin
+-    echo "./cix_package_tool -c spi_flash_config_ota.json -O ${PATH_OUT}/${flash_ota_file_name}.bin"
+-    ./cix_package_tool -c spi_flash_config_ota.json -O ${PATH_OUT}/${flash_ota_file_name}.bin
++    if [[ "${CIX_INTERNAL_FULL_ONLY:-0}" != 1 ]]; then
++        echo "./cix_package_tool -c spi_flash_config_ota.json -O ${PATH_OUT}/${flash_ota_file_name}.bin"
++        ./cix_package_tool -c spi_flash_config_ota.json -O ${PATH_OUT}/${flash_ota_file_name}.bin
++    fi
+ 
+     cd -
+ 
+@@ -137,7 +139,18 @@ if [ ! -z "$1" ]; then
+     fi
+ fi
+ 
+-exec_cix_mkimage pr debug
+-exec_cix_mkimage pr2 debug
+-exec_cix_mkimage proto release
+-exec_cix_mkimage proto debug
++case "${CIX_INTERNAL_VARIANT:-all}" in
++    all)
++        exec_cix_mkimage pr debug
++        exec_cix_mkimage pr2 debug
++        exec_cix_mkimage proto release
++        exec_cix_mkimage proto debug
++        ;;
++    proto-debug)
++        exec_cix_mkimage proto debug
++        ;;
++    *)
++        echo "Unsupported CIX internal package variant: ${CIX_INTERNAL_VARIANT}" >&2
++        exit 2
++        ;;
++esac

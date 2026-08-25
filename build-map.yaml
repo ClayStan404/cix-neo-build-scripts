@@ -10,12 +10,6 @@ build_sets:
       - radxa-o6-opp-validation
       - radxa-o6n-pm-validation
 
-  pm-gb1-2700:
-    description: Controlled O6 GB1 2.7 GHz PM experiment and inspection tool
-    targets:
-      - pmtool
-      - radxa-o6-gb1-2700-experiment
-
   pm-tuning:
     description: O6 firmware with BIOS-selectable PM and experimental memory tuning
     targets:
@@ -118,13 +112,6 @@ targets:
     description: Radxa Orion O6 stock external OPP table validation image
     builder: direct
     flow: radxa-opp-validation
-    source: sources/radxa-o6
-    board: O6
-
-  radxa-o6-gb1-2700-experiment:
-    description: Radxa Orion O6 GB1 2.7 GHz controlled OPP experiment
-    builder: direct
-    flow: radxa-opp-experiment
     source: sources/radxa-o6
     board: O6
 
@@ -537,7 +524,7 @@ projects:
     path: sources/radxa-o6/uefi_release/edk2
     rules:
       - paths: ["**"]
-        targets: &radxa_firmware_targets [radxa-o6-firmware, radxa-o6n-firmware, radxa-o6-pm-validation, radxa-o6-opp-validation, radxa-o6-gb1-2700-experiment, radxa-o6-pm-tuning, radxa-o6n-pm-validation]
+        targets: &radxa_firmware_targets [radxa-o6-firmware, radxa-o6n-firmware, radxa-o6-pm-validation, radxa-o6-opp-validation, radxa-o6-pm-tuning, radxa-o6n-pm-validation]
 
   cix_opensource/release/edk2-non-osi:
     path: sources/radxa-o6/uefi_release/edk2-non-osi
@@ -805,13 +792,13 @@ projects:
       - paths: ["build-map.yaml", "cix-build", "builders/common.sh"]
         targets: ["*"]
       - paths: ["builders/direct.sh"]
-        targets: [kernel, stable-kernel, audio-sof, pmtool, radxa-o6-firmware, radxa-o6n-firmware, radxa-o6-pm-validation, radxa-o6-opp-validation, radxa-o6-gb1-2700-experiment, radxa-o6-pm-tuning, radxa-o6n-pm-validation]
+        targets: [kernel, stable-kernel, audio-sof, pmtool, radxa-o6-firmware, radxa-o6n-firmware, radxa-o6-pm-validation, radxa-o6-opp-validation, radxa-o6-pm-tuning, radxa-o6n-pm-validation]
       - paths: ["builders/direct/kernel.sh"]
         targets: [kernel, stable-kernel]
       - paths: ["builders/direct/audio-sof.sh"]
         targets: [audio-sof]
       - paths: ["builders/direct/firmware-radxa.sh"]
-        targets: [radxa-o6-firmware, radxa-o6n-firmware, radxa-o6-pm-validation, radxa-o6-opp-validation, radxa-o6-gb1-2700-experiment, radxa-o6-pm-tuning, radxa-o6n-pm-validation]
+        targets: [radxa-o6-firmware, radxa-o6n-firmware, radxa-o6-pm-validation, radxa-o6-opp-validation, radxa-o6-pm-tuning, radxa-o6n-pm-validation]
       - paths: ["builders/direct/bootloader1.sh", "patches/radxa-bootloader/**"]
         targets: [radxa-o6-pm-tuning]
       - paths: ["builders/direct/pmtool.sh"]
@@ -819,11 +806,9 @@ projects:
       - paths: ["patches/radxa-o6n/**"]
         targets: [radxa-o6n-firmware, radxa-o6n-pm-validation]
       - paths: ["patches/radxa-pm-validation/**", "ci/verify_pm_config.py", "ci/test_pm_config.py", "ci/verify_pm_firmware.py", "ci/test_pm_firmware.py"]
-        targets: [radxa-o6-pm-validation, radxa-o6-opp-validation, radxa-o6-gb1-2700-experiment, radxa-o6-pm-tuning, radxa-o6n-pm-validation]
+        targets: [radxa-o6-pm-validation, radxa-o6-opp-validation, radxa-o6-pm-tuning, radxa-o6n-pm-validation]
       - paths: ["patches/radxa-opp-validation/**"]
-        targets: [radxa-o6-opp-validation, radxa-o6-gb1-2700-experiment, radxa-o6-pm-tuning]
-      - paths: ["patches/radxa-opp-experiments/**"]
-        targets: [radxa-o6-gb1-2700-experiment]
+        targets: [radxa-o6-opp-validation, radxa-o6-pm-tuning]
       - paths: ["patches/radxa-pm-tuning/**", "ci/pm_tuning_model.py", "ci/test_pm_tuning_model.py"]
         targets: [radxa-o6-pm-tuning]
       - paths: ["patches/radxa-memory-tuning/**", "ci/verify_memory_config.py", "ci/test_memory_config.py"]

@@ -197,19 +197,12 @@ is confirmed.
   slots, and the unconfigured thirteenth domain match exactly. Do not introduce
   higher frequencies or new voltage points until the stock-table image has
   passed a recoverable board test.
-- Provide a separate O6 firmware target with capability-separated full-flash
-  images. Vendor Release must expose only Vendor/Automatic and Vendor-Capped
-  Custom; Engineering Debug may additionally expose Engineering Unlock and
-  Engineering/Unsafe Custom. Enforce the same split in the runtime updater and
-  migrate a persisted engineering profile to Vendor/Automatic when booting a
-  Vendor Release image. Keep source checkouts clean by carrying the
-  implementation as build-time patches. Vendor/Automatic must disable the
-  external OPP table.
-  Vendor-Capped Custom must use the PM v3.4 partial-table ABI and override only
-  explicitly enabled CPU domains; require at least one selected domain and hide
-  the OPP controls for disabled domains. All other domains must retain native
-  per-part OPN/Vmin tables. Engineering profiles may enable a complete external
-  table only in the Engineering Debug image.
+- Provide a separate O6 firmware target that publishes one locally signed
+  Engineering Debug full-flash image. Expose only Vendor/Automatic and complete
+  Custom profiles. Keep source checkouts clean by carrying the implementation
+  as build-time patches. Vendor/Automatic must disable the external OPP table;
+  Custom must enable the complete external CPU table with Debug PM firmware.
+  Migrate removed fixed-frequency and partial profiles to Vendor/Automatic.
   Do not treat K000086 EVB evidence as qualification of a retail Radxa O6.
   Custom modes may edit only the non-boot OPPs of GB0, GB1, GM0, and GM1 within
   800-3200 MHz and 550-1250 mV base voltage in steps of 10. Each editable OPP
@@ -220,17 +213,17 @@ is confirmed.
   firmware source. Conservatively scale the measured result upward with voltage
   squared when the selected voltage exceeds the source voltage curve, and use
   the pinned PM firmware's Vmin ceiling for Vmin-mode accounting.
-  Verify the Debug and Release PM binaries against source revision
-  `a2327331813f`, their expected SHA-256 values, PM config ABI v3.4, and the
+  Verify the Debug PM binary against source revision `a2327331813f`, its
+  expected SHA-256 value, PM config ABI v3.4, and the
   deliberately pinned generated config schema v3.0 before packaging. Publish
-  only full-flash tuning images because the OTA payload does not carry the PM
-  firmware that distinguishes Release from Engineering Debug behavior.
+  only the full-flash tuning image because the OTA payload does not carry the
+  Debug PM firmware required by the complete custom table.
   Validate both the submitted settings and the complete existing v3 PM block
   before writing; recalculate the checksum; read back and compare the complete
   PM entry; and cold-reset only after a verified write. Version the setup
   variable with a revision, exact size, and signature; migrate known old layouts
   and reject unknown ones. Maintain a host-side semantic model for profile,
-  migration, partial-domain, and protected-OPP policy. The setup-save path must
+  migration, custom-table, and protected-OPP policy. The setup-save path must
   also prevent the legacy CPU limit from masking any selected profile.
 - In that same recovery-gated O6 tuning target, make the existing Memory Data
   Rate selector reliably update only the BSET request. Accept `Auto` and every
@@ -482,13 +475,11 @@ or flashes firmware.
 
 The `radxa-o6-pm-tuning` direct target layers a BIOS profile selector and a v3
 PM update driver over an image that contains source backup OPP tables.
-Vendor/Automatic leaves external OPPs disabled. Vendor-Capped Custom enables
-the v3.4 partial flag and only selected CPU domains. The Vendor Release image
-contains only those two modes; the separately named Engineering Debug image
-adds the complete-table modes and debug PM firmware. Custom modes expose only
+Vendor/Automatic leaves external OPPs disabled. Custom enables the complete
+external CPU table with Debug PM firmware. The single Engineering Debug image
+exposes only those two modes. Custom exposes only
 non-boot OPPs under bounded and monotonic input rules, with optional fused Vmin
-profiles. Partial mode requires a selected CPU domain and hides disabled-domain
-inputs. The 1500 MHz / 790 mV boot OPP, DSU, and non-CPU domains remain locked.
+profiles. The 1500 MHz / 790 mV boot OPP, DSU, and non-CPU domains remain locked.
 CPU power follows the exact pinned PM firmware measured-power interpolation and
 is conservatively voltage-adjusted upward. Versioned settings, a host semantic
 model, current/generated PM validation, and complete flash read-back protect

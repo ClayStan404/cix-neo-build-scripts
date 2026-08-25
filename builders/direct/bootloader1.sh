@@ -129,10 +129,6 @@ cix_bootloader1_build() {
     cix_bootloader1_build_se \
         "${work_root}/firmware" debug \
         "${artifact_root}/se_fw_debug.bin" "${build_jobs}"
-    cix_log "Build Sky1 release SE/DDR firmware with Debian GCC"
-    cix_bootloader1_build_se \
-        "${work_root}/firmware" release \
-        "${artifact_root}/se_fw_release.bin" "${build_jobs}"
 
     mkdir -p -- "${package_root}/bin" "${package_root}/images"
     cp -a -- "${secure_tool}/." "${package_root}/"
@@ -152,18 +148,16 @@ cix_bootloader1_build() {
     install -m 0644 "${prototype_keys}/cix_publickey.pem" \
         "${package_root}/rsa3072_prototype_keys/cix_publickey.pem"
 
-    for component in debug release; do
-        install -m 0644 "${artifact_root}/se_fw_${component}.bin" \
-            "${package_root}/images/se_fw.bin"
-        install -m 0644 \
-            "${source_firmware_binary}/sky1/evb/${component}/pm_fw/pm_fw.bin" \
-            "${package_root}/images/pm_fw.bin"
-        install -m 0644 \
-            "${source_firmware_binary}/sky1/evb/${component}/pbl_fw/pbl_fw.bin" \
-            "${package_root}/images/pbl_fw.bin"
-        cix_bootloader1_package_image \
-            "${package_root}" "${artifact_root}" "${work_bsp}" "${component}"
-    done
+    install -m 0644 "${artifact_root}/se_fw_debug.bin" \
+        "${package_root}/images/se_fw.bin"
+    install -m 0644 \
+        "${source_firmware_binary}/sky1/evb/debug/pm_fw/pm_fw.bin" \
+        "${package_root}/images/pm_fw.bin"
+    install -m 0644 \
+        "${source_firmware_binary}/sky1/evb/debug/pbl_fw/pbl_fw.bin" \
+        "${package_root}/images/pbl_fw.bin"
+    cix_bootloader1_package_image \
+        "${package_root}" "${artifact_root}" "${work_bsp}" debug
 
     (
         cd "${artifact_root}" || exit

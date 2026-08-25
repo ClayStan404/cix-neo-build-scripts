@@ -58,8 +58,7 @@ EXPECTED_OPP_TABLES = (
     (2, (375, 0, 0, 0), (600, 0, 0, 0), (750, 0, 0, 0)),
 )
 
-GB1_DOMAIN_INDEX = 4
-OPP_PROFILES = ("stock-opp", "gb1-2700", "vendor-auto")
+OPP_PROFILES = ("stock-opp", "vendor-auto")
 
 
 class VerificationError(RuntimeError):
@@ -97,97 +96,7 @@ def decode_rail(data: bytes, offset: int) -> tuple[int, ...]:
 def expected_opp_tables(profile: str) -> tuple:
     if profile in ("stock-opp", "vendor-auto"):
         return EXPECTED_OPP_TABLES
-    if profile == "gb1-2700":
-        tables = list(EXPECTED_OPP_TABLES)
-        gb1 = list(tables[GB1_DOMAIN_INDEX])
-        gb1[-1] = GB1_2700_TOP_OPP
-        tables[GB1_DOMAIN_INDEX] = tuple(gb1)
-        return tuple(tables)
     raise VerificationError(f"unsupported OPP profile: {profile}")
-
-
-GB1_MEASURED_POWER = (
-    (2600, 5100),
-    (2500, 4700),
-    (2200, 3600),
-    (1500, 2000),
-    (1200, 1600),
-    (800, 500),
-    (100, 50),
-)
-GB1_REFERENCE_VOLTAGE = tuple(
-    (opp[0], opp[1]) for opp in EXPECTED_OPP_TABLES[GB1_DOMAIN_INDEX][1:]
-)
-VMIN_VOLTAGE_CEILING = 980
-
-
-def interpolate_measured_power(
-    points: tuple[tuple[int, int], ...], frequency: int
-) -> int:
-    """Match the pinned PM firmware's linear measured-power interpolation."""
-    for index, (point_frequency, point_power) in enumerate(points):
-        if point_frequency == frequency:
-            return point_power
-        if point_frequency < frequency:
-            break
-    else:
-        index = len(points) - 1
-
-    if index == 0:
-        index = 1
-    lower_frequency, lower_power = points[index]
-    upper_frequency, upper_power = points[index - 1]
-    return lower_power + (upper_power - lower_power) * (
-        frequency - lower_frequency
-    ) // (upper_frequency - lower_frequency)
-
-
-def interpolate_reference_voltage(
-    points: tuple[tuple[int, int], ...], frequency: int
-) -> int:
-    """Interpolate the source-table voltage, clamping outside its range."""
-    if frequency <= points[0][0]:
-        return points[0][1]
-    for index in range(1, len(points)):
-        upper_frequency, upper_voltage = points[index]
-        if frequency <= upper_frequency:
-            lower_frequency, lower_voltage = points[index - 1]
-            return lower_voltage + (upper_voltage - lower_voltage) * (
-                frequency - lower_frequency
-            ) // (upper_frequency - lower_frequency)
-    return points[-1][1]
-
-
-def conservative_opp_power(
-    measured_points: tuple[tuple[int, int], ...],
-    voltage_points: tuple[tuple[int, int], ...],
-    frequency: int,
-    voltage: int,
-    *,
-    vmin_mode: bool = False,
-) -> int:
-    """Scale measured power upward when configured voltage exceeds reference."""
-    base_power = interpolate_measured_power(measured_points, frequency)
-    reference_voltage = interpolate_reference_voltage(voltage_points, frequency)
-    power_voltage = max(voltage, VMIN_VOLTAGE_CEILING) if vmin_mode else voltage
-    if power_voltage <= reference_voltage:
-        return base_power
-    numerator = base_power * power_voltage * power_voltage
-    denominator = reference_voltage * reference_voltage
-    return (numerator + denominator - 1) // denominator
-
-
-GB1_2700_TOP_OPP = (
-    2700,
-    950,
-    0,
-    conservative_opp_power(
-        GB1_MEASURED_POWER,
-        GB1_REFERENCE_VOLTAGE,
-        2700,
-        950,
-    ),
-)
 
 
 def verify_external_opp(data: bytes, profile: str) -> None:
@@ -275,11 +184,7 @@ def verify(data: bytes, profile: str = "pmic") -> str:
                 "PM config v3.0 custom PMIC is valid, external OPP selection "
                 "is disabled, and source stock backup tables are valid"
             )
-        label = {
-            "stock-opp": "source stock",
-            "gb1-2700": "GB1 2.7 GHz experiment",
-        }[profile]
-        return f"PM config v3.0 custom PMIC and {label} external OPP tables are valid"
+        return "PM config v3.0 custom PMIC and source stock external OPP tables are valid"
     if profile != "pmic":
         raise VerificationError(f"unsupported validation profile: {profile}")
     return "PM config v3.0 checksum and stock-equivalent custom PMIC profile are valid"

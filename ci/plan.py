@@ -328,10 +328,6 @@ def _target_from_mapping(name: str, entry: dict) -> Target:
             {"source", "board"},
             {"source", "board"},
         ),
-        ("direct", "radxa-opp-experiment"): (
-            {"source", "board"},
-            {"source", "board"},
-        ),
         ("direct", "radxa-pm-tuning"): (
             {"source", "board"},
             {"source", "board"},

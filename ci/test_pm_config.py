@@ -96,10 +96,6 @@ class PmConfigVerifierTests(unittest.TestCase):
         result = verify_pm_config.verify(validation_block("stock-opp"), "stock-opp")
         self.assertIn("stock external OPP tables", result)
 
-    def test_accepts_gb1_2700_experiment(self) -> None:
-        result = verify_pm_config.verify(validation_block("gb1-2700"), "gb1-2700")
-        self.assertIn("GB1 2.7 GHz experiment", result)
-
     def test_accepts_vendor_automatic_with_backup_tables(self) -> None:
         result = verify_pm_config.verify(validation_block("vendor-auto"), "vendor-auto")
         self.assertIn("external OPP selection is disabled", result)
@@ -115,70 +111,6 @@ class PmConfigVerifierTests(unittest.TestCase):
             "external OPP table is not marked disabled",
         ):
             verify_pm_config.verify(bytes(data), "vendor-auto")
-
-    def test_experiment_uses_voltage_adjusted_measured_power(self) -> None:
-        self.assertEqual(verify_pm_config.GB1_2700_TOP_OPP, (2700, 950, 0, 5865))
-        self.assertEqual(
-            verify_pm_config.interpolate_measured_power(
-                verify_pm_config.GB1_MEASURED_POWER, 2500
-            ),
-            4700,
-        )
-        self.assertEqual(
-            verify_pm_config.interpolate_measured_power(
-                verify_pm_config.GB1_MEASURED_POWER, 2800
-            ),
-            5900,
-        )
-        self.assertEqual(
-            verify_pm_config.conservative_opp_power(
-                verify_pm_config.GB1_MEASURED_POWER,
-                verify_pm_config.GB1_REFERENCE_VOLTAGE,
-                2700,
-                950,
-                vmin_mode=True,
-            ),
-            6241,
-        )
-        self.assertEqual(
-            verify_pm_config.conservative_opp_power(
-                verify_pm_config.GB1_MEASURED_POWER,
-                verify_pm_config.GB1_REFERENCE_VOLTAGE,
-                2700,
-                1250,
-            ),
-            10154,
-        )
-
-    def test_experiment_changes_only_gb1_top_opp(self) -> None:
-        stock = verify_pm_config.expected_opp_tables("stock-opp")
-        experiment = verify_pm_config.expected_opp_tables("gb1-2700")
-        changes = []
-        for domain, (stock_table, experiment_table) in enumerate(
-            zip(stock, experiment, strict=True)
-        ):
-            for entry, (stock_value, experiment_value) in enumerate(
-                zip(stock_table, experiment_table, strict=True)
-            ):
-                if stock_value != experiment_value:
-                    changes.append((domain, entry, stock_value, experiment_value))
-        self.assertEqual(
-            changes,
-            [
-                (
-                    verify_pm_config.GB1_DOMAIN_INDEX,
-                    len(stock[verify_pm_config.GB1_DOMAIN_INDEX]) - 1,
-                    (2600, 920, 0, 2292),
-                    verify_pm_config.GB1_2700_TOP_OPP,
-                )
-            ],
-        )
-
-    def test_rejects_experiment_as_stock_profile(self) -> None:
-        with self.assertRaisesRegex(
-            verify_pm_config.VerificationError, "unexpected OPP domain 4 table"
-        ):
-            verify_pm_config.verify(validation_block("gb1-2700"), "stock-opp")
 
     def test_rejects_changed_opp_level(self) -> None:
         data = bytearray(validation_block("stock-opp"))

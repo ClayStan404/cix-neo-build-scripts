@@ -1,9 +1,9 @@
 diff --git a/Platform/CIX/Sky1/Drivers/PmConfigUpdateDxe/PmConfigUpdateDxe.c b/Platform/CIX/Sky1/Drivers/PmConfigUpdateDxe/PmConfigUpdateDxe.c
 new file mode 100644
-index 00000000..e05bc98c
+index 00000000..04c8987b
 --- /dev/null
 +++ b/Platform/CIX/Sky1/Drivers/PmConfigUpdateDxe/PmConfigUpdateDxe.c
-@@ -0,0 +1,1223 @@
+@@ -0,0 +1,1030 @@
 +/** @file
 +  Update the CIX v3 PM configuration from the selected BIOS profile.
 +
@@ -336,21 +336,12 @@ index 00000000..e05bc98c
 +  UINT16                    PreviousVoltage;
 +  UINT16                    Voltage;
 +  UINT8                     VoltageMode;
-+  UINTN                     EnabledDomains;
 +  UINTN                     CpuDomain;
 +  UINTN                     Index;
 +  UINTN                     Opp;
 +
-+  EnabledDomains = 0;
 +  for (CpuDomain = 0; CpuDomain < ARRAY_SIZE (mCpuDomains); CpuDomain++) {
-+    Domain           = &mCpuDomains[CpuDomain];
-+    if (Settings->CpuDomainEnabled[CpuDomain] > 1) {
-+      DEBUG ((DEBUG_ERROR, "[PmConfigUpdate] Invalid %a partial-domain state\n", Domain->Name));
-+      return FALSE;
-+    }
-+
-+    EnabledDomains += Settings->CpuDomainEnabled[CpuDomain];
-+
++    Domain            = &mCpuDomains[CpuDomain];
 +    PreviousFrequency = 0;
 +    PreviousVoltage   = 0;
 +    for (Opp = 0; Opp < Domain->Size; Opp++) {
@@ -406,13 +397,6 @@ index 00000000..e05bc98c
 +    }
 +  }
 +
-+  if ((Settings->Profile == RADXA_PM_PROFILE_PARTIAL) &&
-+      (EnabledDomains == 0))
-+  {
-+    DEBUG ((DEBUG_ERROR, "[PmConfigUpdate] Partial profile has no enabled CPU domain\n"));
-+    return FALSE;
-+  }
-+
 +  return TRUE;
 +}
 +
@@ -430,22 +414,14 @@ index 00000000..e05bc98c
 +    return FALSE;
 +  }
 +
-+  if (Settings->Profile > RADXA_PM_PROFILE_MAX) {
++  if ((Settings->Profile != RADXA_PM_PROFILE_VENDOR) &&
++      (Settings->Profile != RADXA_PM_PROFILE_CUSTOM))
++  {
 +    DEBUG ((DEBUG_ERROR, "[PmConfigUpdate] Unknown PM profile\n"));
 +    return FALSE;
 +  }
 +
-+#if (PM_ENGINEERING_SUPPORT == 0)
-+  if ((Settings->Profile == RADXA_PM_PROFILE_GB1_2700) ||
-+      (Settings->Profile == RADXA_PM_PROFILE_CUSTOM))
-+  {
-+    DEBUG ((DEBUG_ERROR, "[PmConfigUpdate] Engineering profile is disabled\n"));
-+    return FALSE;
-+  }
-+#endif
-+
-+  return (((Settings->Profile != RADXA_PM_PROFILE_CUSTOM) &&
-+           (Settings->Profile != RADXA_PM_PROFILE_PARTIAL)) ||
++  return ((Settings->Profile != RADXA_PM_PROFILE_CUSTOM) ||
 +          PmCustomSettingsAreValid (Settings));
 +}
 +
@@ -500,8 +476,7 @@ index 00000000..e05bc98c
 +STATIC
 +BOOLEAN
 +PmCpuTablesAreValid (
-+  IN CONST UINT8  *Buffer,
-+  IN BOOLEAN      AllowDisabled
++  IN CONST UINT8  *Buffer
 +  )
 +{
 +  CONST PM_CPU_DOMAIN_DATA  *Domain;
@@ -521,15 +496,6 @@ index 00000000..e05bc98c
 +    if (PmRead16 (Buffer, PM_CONFIG_OPP_DOMAIN_OFFSET (Domain->Domain)) ==
 +        PM_CONFIG_OPP_DOMAIN_DISABLED)
 +    {
-+      if (AllowDisabled &&
-+          (PmRead16 (
-+             Buffer,
-+             PM_CONFIG_OPP_DOMAIN_OFFSET (Domain->Domain) + sizeof (UINT16)
-+             ) == PM_CONFIG_OPP_DOMAIN_DISABLED))
-+      {
-+        continue;
-+      }
-+
 +      DEBUG ((DEBUG_ERROR, "[PmConfigUpdate] Invalid disabled %a OPP header\n", Domain->Name));
 +      return FALSE;
 +    }
@@ -598,39 +564,6 @@ index 00000000..e05bc98c
 +
 +STATIC
 +BOOLEAN
-+PmPartialTablesAreValid (
-+  IN CONST UINT8  *Buffer
-+  )
-+{
-+  UINT16  Size;
-+  UINT16  SustainedIndex;
-+  UINTN   Domain;
-+
-+  for (Domain = 0; Domain < PM_CONFIG_OPP_DOMAIN_COUNT; Domain++) {
-+    if ((Domain >= PM_CONFIG_CPU_DOMAIN_FIRST) &&
-+        (Domain <= PM_CONFIG_CPU_DOMAIN_LAST))
-+    {
-+      continue;
-+    }
-+
-+    Size = PmRead16 (Buffer, PM_CONFIG_OPP_DOMAIN_OFFSET (Domain));
-+    SustainedIndex = PmRead16 (
-+                       Buffer,
-+                       PM_CONFIG_OPP_DOMAIN_OFFSET (Domain) + sizeof (UINT16)
-+                       );
-+    if ((Size != PM_CONFIG_OPP_DOMAIN_DISABLED) ||
-+        (SustainedIndex != PM_CONFIG_OPP_DOMAIN_DISABLED))
-+    {
-+      DEBUG ((DEBUG_ERROR, "[PmConfigUpdate] Partial profile overrides domain %u\n", (UINT32)Domain));
-+      return FALSE;
-+    }
-+  }
-+
-+  return PmCpuTablesAreValid (Buffer, TRUE);
-+}
-+
-+STATIC
-+BOOLEAN
 +PmValidateConfig (
 +  IN CONST UINT8  *Buffer
 +  )
@@ -670,15 +603,8 @@ index 00000000..e05bc98c
 +    case PM_CONFIG_OPP_EXTERNAL_INVALID:
 +      break;
 +    case PM_CONFIG_OPP_EXTERNAL_VALID:
-+      if (!PmCpuTablesAreValid (Buffer, FALSE) || !PmDsuIsStock (Buffer)) {
++      if (!PmCpuTablesAreValid (Buffer) || !PmDsuIsStock (Buffer)) {
 +        DEBUG ((DEBUG_ERROR, "[PmConfigUpdate] Invalid complete external OPP table\n"));
-+        return FALSE;
-+      }
-+
-+      break;
-+    case PM_CONFIG_OPP_EXTERNAL_PARTIAL:
-+      if (!PmPartialTablesAreValid (Buffer)) {
-+        DEBUG ((DEBUG_ERROR, "[PmConfigUpdate] Invalid partial external OPP table\n"));
 +        return FALSE;
 +      }
 +
@@ -725,45 +651,6 @@ index 00000000..e05bc98c
 +}
 +
 +STATIC
-+VOID
-+PmSetPartialTableHeaders (
-+  IN OUT UINT8                    *Buffer,
-+  IN CONST RADXA_PM_TUNING_DATA   *Settings
-+  )
-+{
-+  CONST PM_CPU_DOMAIN_DATA  *Cpu;
-+  UINTN                     CpuDomain;
-+  UINTN                     Domain;
-+
-+  for (Domain = 0; Domain < PM_CONFIG_OPP_DOMAIN_COUNT; Domain++) {
-+    PmWrite16 (
-+      Buffer,
-+      PM_CONFIG_OPP_DOMAIN_OFFSET (Domain),
-+      PM_CONFIG_OPP_DOMAIN_DISABLED
-+      );
-+    PmWrite16 (
-+      Buffer,
-+      PM_CONFIG_OPP_DOMAIN_OFFSET (Domain) + sizeof (UINT16),
-+      PM_CONFIG_OPP_DOMAIN_DISABLED
-+      );
-+  }
-+
-+  for (CpuDomain = 0; CpuDomain < ARRAY_SIZE (mCpuDomains); CpuDomain++) {
-+    if (Settings->CpuDomainEnabled[CpuDomain] == 0) {
-+      continue;
-+    }
-+
-+    Cpu = &mCpuDomains[CpuDomain];
-+    PmWrite16 (Buffer, PM_CONFIG_OPP_DOMAIN_OFFSET (Cpu->Domain), Cpu->Size);
-+    PmWrite16 (
-+      Buffer,
-+      PM_CONFIG_OPP_DOMAIN_OFFSET (Cpu->Domain) + sizeof (UINT16),
-+      Cpu->SustainedIndex
-+      );
-+  }
-+}
-+
-+STATIC
 +BOOLEAN
 +PmFullTableHeadersMatch (
 +  IN CONST UINT8  *Buffer
@@ -794,46 +681,6 @@ index 00000000..e05bc98c
 +}
 +
 +STATIC
-+BOOLEAN
-+PmPartialTableHeadersMatch (
-+  IN CONST UINT8                 *Buffer,
-+  IN CONST RADXA_PM_TUNING_DATA  *Settings
-+  )
-+{
-+  CONST PM_CPU_DOMAIN_DATA  *Cpu;
-+  UINT16                    ExpectedSize;
-+  UINT16                    ExpectedSustained;
-+  UINTN                     CpuDomain;
-+  UINTN                     Domain;
-+
-+  for (Domain = 0; Domain < PM_CONFIG_OPP_DOMAIN_COUNT; Domain++) {
-+    ExpectedSize      = PM_CONFIG_OPP_DOMAIN_DISABLED;
-+    ExpectedSustained = PM_CONFIG_OPP_DOMAIN_DISABLED;
-+    for (CpuDomain = 0; CpuDomain < ARRAY_SIZE (mCpuDomains); CpuDomain++) {
-+      Cpu = &mCpuDomains[CpuDomain];
-+      if ((Cpu->Domain == Domain) &&
-+          (Settings->CpuDomainEnabled[CpuDomain] != 0))
-+      {
-+        ExpectedSize      = Cpu->Size;
-+        ExpectedSustained = Cpu->SustainedIndex;
-+        break;
-+      }
-+    }
-+
-+    if ((PmRead16 (Buffer, PM_CONFIG_OPP_DOMAIN_OFFSET (Domain)) != ExpectedSize) ||
-+        (PmRead16 (
-+           Buffer,
-+           PM_CONFIG_OPP_DOMAIN_OFFSET (Domain) + sizeof (UINT16)
-+           ) != ExpectedSustained))
-+    {
-+      return FALSE;
-+    }
-+  }
-+
-+  return TRUE;
-+}
-+
-+STATIC
 +VOID
 +PmExpectedOpp (
 +  IN CONST RADXA_PM_TUNING_DATA  *Settings,
@@ -853,16 +700,8 @@ index 00000000..e05bc98c
 +  *Voltage   = Domain->Voltage[Opp];
 +  VoltageMode = RADXA_PM_VOLTAGE_FIXED;
 +
-+  if ((Settings->Profile == RADXA_PM_PROFILE_GB1_2700) &&
-+      (Domain->Domain == PM_CONFIG_GB1_DOMAIN_INDEX) &&
-+      (Opp == PM_CONFIG_GB1_TOP_INDEX))
-+  {
-+    *Frequency = PM_CONFIG_GB1_2700_LEVEL;
-+    *Voltage   = PM_CONFIG_GB1_2700_VOLTAGE;
-+    VoltageMode = PM_CONFIG_GB1_2700_VMIN_MODE;
-+  } else if (((Settings->Profile == RADXA_PM_PROFILE_CUSTOM) ||
-+              (Settings->Profile == RADXA_PM_PROFILE_PARTIAL)) &&
-+             (Opp != Domain->ProtectedIndex))
++  if ((Settings->Profile == RADXA_PM_PROFILE_CUSTOM) &&
++      (Opp != Domain->ProtectedIndex))
 +  {
 +    Index       = PmSettingsIndex (CpuDomain, Opp);
 +    *Frequency  = Settings->CpuFrequency[Index];
@@ -901,25 +740,13 @@ index 00000000..e05bc98c
 +    return (Buffer[PM_CONFIG_OPP_VALID_OFFSET] == PM_CONFIG_OPP_EXTERNAL_INVALID);
 +  }
 +
-+  if (Settings->Profile == RADXA_PM_PROFILE_PARTIAL) {
-+    if ((Buffer[PM_CONFIG_OPP_VALID_OFFSET] != PM_CONFIG_OPP_EXTERNAL_PARTIAL) ||
-+        !PmPartialTableHeadersMatch (Buffer, Settings))
-+    {
-+      return FALSE;
-+    }
-+  } else if ((Buffer[PM_CONFIG_OPP_VALID_OFFSET] != PM_CONFIG_OPP_EXTERNAL_VALID) ||
-+             !PmFullTableHeadersMatch (Buffer))
++  if ((Buffer[PM_CONFIG_OPP_VALID_OFFSET] != PM_CONFIG_OPP_EXTERNAL_VALID) ||
++      !PmFullTableHeadersMatch (Buffer))
 +  {
 +    return FALSE;
 +  }
 +
 +  for (CpuDomain = 0; CpuDomain < ARRAY_SIZE (mCpuDomains); CpuDomain++) {
-+    if ((Settings->Profile == RADXA_PM_PROFILE_PARTIAL) &&
-+        (Settings->CpuDomainEnabled[CpuDomain] == 0))
-+    {
-+      continue;
-+    }
-+
 +    Domain = &mCpuDomains[CpuDomain];
 +    for (Opp = 0; Opp < Domain->Size; Opp++) {
 +      PmExpectedOpp (Settings, CpuDomain, Opp, &Frequency, &Voltage, &Power);
@@ -957,9 +784,6 @@ index 00000000..e05bc98c
 +
 +  if (Settings->Profile == RADXA_PM_PROFILE_VENDOR) {
 +    Buffer[PM_CONFIG_OPP_VALID_OFFSET] = PM_CONFIG_OPP_EXTERNAL_INVALID;
-+  } else if (Settings->Profile == RADXA_PM_PROFILE_PARTIAL) {
-+    Buffer[PM_CONFIG_OPP_VALID_OFFSET] = PM_CONFIG_OPP_EXTERNAL_PARTIAL;
-+    PmSetPartialTableHeaders (Buffer, Settings);
 +  } else {
 +    Buffer[PM_CONFIG_OPP_VALID_OFFSET] = PM_CONFIG_OPP_EXTERNAL_VALID;
 +    PmSetFullTableHeaders (Buffer);
@@ -967,12 +791,6 @@ index 00000000..e05bc98c
 +
 +  if (Settings->Profile != RADXA_PM_PROFILE_VENDOR) {
 +    for (CpuDomain = 0; CpuDomain < ARRAY_SIZE (mCpuDomains); CpuDomain++) {
-+      if ((Settings->Profile == RADXA_PM_PROFILE_PARTIAL) &&
-+          (Settings->CpuDomainEnabled[CpuDomain] == 0))
-+      {
-+        continue;
-+      }
-+
 +      Domain = &mCpuDomains[CpuDomain];
 +      for (Opp = 0; Opp < Domain->Size; Opp++) {
 +        PmExpectedOpp (Settings, CpuDomain, Opp, &Frequency, &Voltage, &Power);
@@ -1044,15 +862,6 @@ index 00000000..e05bc98c
 +      (Size == RADXA_PM_TUNING_LEGACY_SIZE) ||
 +      (Size == RADXA_PM_TUNING_V1_SIZE))
 +  {
-+    if (((Size == sizeof (UINT8)) &&
-+         (Settings->Profile > RADXA_PM_PROFILE_GB1_2700)) ||
-+        ((Size == RADXA_PM_TUNING_LEGACY_SIZE) &&
-+         (Settings->Profile > RADXA_PM_PROFILE_CUSTOM)) ||
-+        (Settings->Profile > RADXA_PM_PROFILE_MAX))
-+    {
-+      Settings->Profile = RADXA_PM_PROFILE_VENDOR;
-+    }
-+
 +    Settings->Revision  = RADXA_PM_TUNING_REVISION;
 +    Settings->DataSize  = sizeof (*Settings);
 +    Settings->Signature = RADXA_PM_TUNING_SIGNATURE;
@@ -1062,14 +871,12 @@ index 00000000..e05bc98c
 +    return EFI_COMPROMISED_DATA;
 +  }
 +
-+#if (PM_ENGINEERING_SUPPORT == 0)
-+  if ((Settings->Profile == RADXA_PM_PROFILE_GB1_2700) ||
-+      (Settings->Profile == RADXA_PM_PROFILE_CUSTOM))
++  if ((Settings->Profile != RADXA_PM_PROFILE_VENDOR) &&
++      (Settings->Profile != RADXA_PM_PROFILE_CUSTOM))
 +  {
 +    Settings->Profile = RADXA_PM_PROFILE_VENDOR;
 +    StoreSettings     = TRUE;
 +  }
-+#endif
 +
 +  if (StoreSettings) {
 +    Status = PmStoreSettings (Settings);
@@ -1229,10 +1036,10 @@ index 00000000..e05bc98c
 +}
 diff --git a/Platform/CIX/Sky1/Drivers/PmConfigUpdateDxe/PmConfigUpdateDxe.h b/Platform/CIX/Sky1/Drivers/PmConfigUpdateDxe/PmConfigUpdateDxe.h
 new file mode 100644
-index 00000000..e2a6e28d
+index 00000000..fd3530c6
 --- /dev/null
 +++ b/Platform/CIX/Sky1/Drivers/PmConfigUpdateDxe/PmConfigUpdateDxe.h
-@@ -0,0 +1,84 @@
+@@ -0,0 +1,70 @@
 +/** @file
 +  CIX v3 PM configuration profile updater definitions.
 +
@@ -1283,13 +1090,9 @@ index 00000000..e2a6e28d
 +
 +#define PM_CONFIG_OPP_EXTERNAL_VALID       0U
 +#define PM_CONFIG_OPP_EXTERNAL_INVALID     1U
-+#define PM_CONFIG_OPP_EXTERNAL_PARTIAL     0x80U
 +#define PM_CONFIG_OPP_DOMAIN_DISABLED      0xFFFFU
-+#define PM_CONFIG_OPP_DOMAIN_COUNT         13U
 +#define PM_CONFIG_OPP_CONFIGURED_DOMAINS   12U
 +
-+#define PM_CONFIG_CPU_DOMAIN_FIRST         3U
-+#define PM_CONFIG_CPU_DOMAIN_LAST          6U
 +#define PM_CONFIG_CPU_DOMAIN_COUNT         4U
 +#define PM_CONFIG_MEASURED_POINT_COUNT     7U
 +#define PM_CONFIG_CPU_BOOT_LEVEL           1500U
@@ -1305,16 +1108,6 @@ index 00000000..e2a6e28d
 +#define PM_CONFIG_CPU_VOLTAGE_MAX          1250U
 +#define PM_CONFIG_CPU_POWER_MAX            20000U
 +#define PM_CONFIG_VMIN_VOLTAGE_CEILING     980U
-+
-+#define PM_CONFIG_GB1_DOMAIN_INDEX         4U
-+#define PM_CONFIG_GB1_TOP_INDEX            6U
-+#define PM_CONFIG_GB1_2700_LEVEL           2700U
-+#define PM_CONFIG_GB1_2700_VOLTAGE         950U
-+#define PM_CONFIG_GB1_2700_VMIN_MODE       RADXA_PM_VOLTAGE_VMIN1
-+
-+#ifndef PM_ENGINEERING_SUPPORT
-+#define PM_ENGINEERING_SUPPORT             0
-+#endif
 +
 +#endif
 diff --git a/Platform/CIX/Sky1/Drivers/PmConfigUpdateDxe/PmConfigUpdateDxe.inf b/Platform/CIX/Sky1/Drivers/PmConfigUpdateDxe/PmConfigUpdateDxe.inf
@@ -1365,38 +1158,39 @@ index 00000000..5a5e7d81
 +[Depex]
 +  gCixFirmwareUpdateProtocolGuid
 diff --git a/Platform/Radxa/Orion/O6/O6.dsc b/Platform/Radxa/Orion/O6/O6.dsc
-index 85b0d9d3..179513c7 100644
+index 85b0d9d3..72aad4dd 100644
 --- a/Platform/Radxa/Orion/O6/O6.dsc
 +++ b/Platform/Radxa/Orion/O6/O6.dsc
-@@ -70,7 +70,8 @@
-   DEFINE VARIABLE_SUPPORT           = $(COMPILE_VARIABLE_TYPE)
-   DEFINE STMM_SUPPORT               = $(COMPILE_STMM_SUPPORT)
-   DEFINE REALTEK_LAN_DRIVER_SUPPORT = FALSE
+@@ -67,11 +67,11 @@
+   DEFINE EXT4_DRIVER_SUPPORT        = FALSE
+   DEFINE AMD_GOP_DRIVER_SUPPORT     = TRUE
+   DEFINE TOKEN_RAM_DISK_SUPPORT     = FALSE
+-  DEFINE VARIABLE_SUPPORT           = $(COMPILE_VARIABLE_TYPE)
+-  DEFINE STMM_SUPPORT               = $(COMPILE_STMM_SUPPORT)
+-  DEFINE REALTEK_LAN_DRIVER_SUPPORT = FALSE
 -  DEFINE PM_CONFIG_UPDATE_SUPPORT   = FALSE
+-  DEFINE MEM_CONFIG_UPDATE_SUPPORT  = TRUE
++  DEFINE VARIABLE_SUPPORT           = $(COMPILE_VARIABLE_TYPE)
++  DEFINE STMM_SUPPORT               = $(COMPILE_STMM_SUPPORT)
++  DEFINE REALTEK_LAN_DRIVER_SUPPORT = FALSE
 +  DEFINE PM_CONFIG_UPDATE_SUPPORT   = TRUE
-+  DEFINE PM_ENGINEERING_SUPPORT     = FALSE
-   DEFINE MEM_CONFIG_UPDATE_SUPPORT  = TRUE
++  DEFINE MEM_CONFIG_UPDATE_SUPPORT  = TRUE
    DEFINE DYNAMIC_ACPI_CPU_ENABLE    = TRUE
    DEFINE SOC_SPI_ENABLE             = TRUE
-@@ -291,6 +292,18 @@
+   # DEFINE SOC_GPIO_INTR_ENABLE       = TRUE
+@@ -291,7 +291,11 @@
    GCC:*_*_*_VFRPP_FLAGS       = -DFW_CONFIG_UPDATE_SUPPORT=1
  !endif
  
+-################################################################################
 +!if $(PM_CONFIG_UPDATE_SUPPORT) == TRUE
 +  GCC:*_*_*_VFRPP_FLAGS       = -DPM_CONFIG_UPDATE_SUPPORT=1
 +!endif
 +
-+!if $(PM_ENGINEERING_SUPPORT) == TRUE
-+  GCC:*_*_*_CC_FLAGS          = -DPM_ENGINEERING_SUPPORT=1
-+  GCC:*_*_*_VFRPP_FLAGS       = -DPM_ENGINEERING_SUPPORT=1
-+!else
-+  GCC:*_*_*_CC_FLAGS          = -DPM_ENGINEERING_SUPPORT=0
-+  GCC:*_*_*_VFRPP_FLAGS       = -DPM_ENGINEERING_SUPPORT=0
-+!endif
-+
- ################################################################################
++################################################################################
  #
  # Pcd Section - list of all EDK II PCD Entries defined by this Platform
+ # Override some PCD define for platform requirement
 diff --git a/Platform/Radxa/Orion/O6/pm_config/csupm_bin_config.c b/Platform/Radxa/Orion/O6/pm_config/csupm_bin_config.c
 index d56e82c9..1b298bcb 100644
 --- a/Platform/Radxa/Orion/O6/pm_config/csupm_bin_config.c
@@ -1623,10 +1417,10 @@ index ab2a9371..eb5cdf3b 100644
  #include "I2cConfig.hfr"
 diff --git a/Platform/Radxa/Platforms/CIX/Sky1/Drivers/PlatformConfigDxe/PmMenu/PmConfig.hfr b/Platform/Radxa/Platforms/CIX/Sky1/Drivers/PlatformConfigDxe/PmMenu/PmConfig.hfr
 new file mode 100644
-index 00000000..eb2d2794
+index 00000000..d54b996b
 --- /dev/null
 +++ b/Platform/Radxa/Platforms/CIX/Sky1/Drivers/PlatformConfigDxe/PmMenu/PmConfig.hfr
-@@ -0,0 +1,349 @@
+@@ -0,0 +1,294 @@
 +#define PM_FREQ_FIRST(Index, Next, DefaultValue)                                 \
 +  numeric varid = RadxaPmTuningVar.CpuFrequency[Index],                         \
 +    prompt = STRING_TOKEN(STR_PM_FREQUENCY_PROMPT),                              \
@@ -1767,16 +1561,6 @@ index 00000000..eb2d2794
 +    option text = STRING_TOKEN(STR_PM_VMIN_3), value = RADXA_PM_VOLTAGE_VMIN3, flags = RESET_REQUIRED; \
 +  endoneof;
 +
-+#define PM_DOMAIN_ENABLE(Index)                                                   \
-+  oneof varid = RadxaPmTuningVar.CpuDomainEnabled[Index],                        \
-+    prompt = STRING_TOKEN(STR_PM_DOMAIN_ENABLE_PROMPT),                          \
-+    help = STRING_TOKEN(STR_PM_DOMAIN_ENABLE_HELP),                              \
-+    flags = NUMERIC_SIZE_1 | RESET_REQUIRED,                                     \
-+    default = 0,                                                                 \
-+    option text = STRING_TOKEN(STR_DISABLED), value = 0, flags = RESET_REQUIRED; \
-+    option text = STRING_TOKEN(STR_ENABLED), value = 1, flags = RESET_REQUIRED;  \
-+  endoneof;
-+
 +#if (PM_CONFIG_UPDATE_SUPPORT == 1)
 +  form formid = PM_CONFIG_FORM_ID,
 +    title = STRING_TOKEN(STR_PM_CONFIG_FORM_TITLE);
@@ -1790,26 +1574,10 @@ index 00000000..eb2d2794
 +      flags = NUMERIC_SIZE_1 | RESET_REQUIRED,
 +      default = RADXA_PM_PROFILE_VENDOR,
 +      option text = STRING_TOKEN(STR_PM_PROFILE_VENDOR), value = RADXA_PM_PROFILE_VENDOR, flags = RESET_REQUIRED;
-+      option text = STRING_TOKEN(STR_PM_PROFILE_PARTIAL), value = RADXA_PM_PROFILE_PARTIAL, flags = RESET_REQUIRED;
-+#if (PM_ENGINEERING_SUPPORT == 1)
-+      option text = STRING_TOKEN(STR_PM_PROFILE_2700), value = RADXA_PM_PROFILE_GB1_2700, flags = RESET_REQUIRED;
 +      option text = STRING_TOKEN(STR_PM_PROFILE_CUSTOM), value = RADXA_PM_PROFILE_CUSTOM, flags = RESET_REQUIRED;
-+#endif
-+      inconsistentif prompt = STRING_TOKEN(STR_PM_PARTIAL_REQUIRED),
-+        ideqval RadxaPmTuningVar.Profile == RADXA_PM_PROFILE_PARTIAL AND
-+        ideqval RadxaPmTuningVar.CpuDomainEnabled[0] == 0 AND
-+        ideqval RadxaPmTuningVar.CpuDomainEnabled[1] == 0 AND
-+        ideqval RadxaPmTuningVar.CpuDomainEnabled[2] == 0 AND
-+        ideqval RadxaPmTuningVar.CpuDomainEnabled[3] == 0
-+      endif;
 +    endoneof;
 +
-+#if (PM_ENGINEERING_SUPPORT == 1)
-+    suppressif NOT ideqval RadxaPmTuningVar.Profile == RADXA_PM_PROFILE_CUSTOM AND
-+               NOT ideqval RadxaPmTuningVar.Profile == RADXA_PM_PROFILE_PARTIAL;
-+#else
-+    suppressif NOT ideqval RadxaPmTuningVar.Profile == RADXA_PM_PROFILE_PARTIAL;
-+#endif
++    suppressif NOT ideqval RadxaPmTuningVar.Profile == RADXA_PM_PROFILE_CUSTOM;
 +      goto PM_CUSTOM_FORM_ID,
 +        prompt = STRING_TOKEN(STR_PM_CUSTOM_FORM_TITLE),
 +        help = STRING_TOKEN(STR_PM_CUSTOM_FORM_HELP);
@@ -1822,22 +1590,13 @@ index 00000000..eb2d2794
 +  form formid = PM_CUSTOM_FORM_ID,
 +    title = STRING_TOKEN(STR_PM_CUSTOM_FORM_TITLE);
 +
-+#if (PM_ENGINEERING_SUPPORT == 1)
 +    subtitle text = STRING_TOKEN(STR_PM_CUSTOM_WARNING);
-+#else
-+    subtitle text = STRING_TOKEN(STR_PM_PARTIAL_WARNING);
-+#endif
 +    subtitle text = STRING_TOKEN(STR_PM_CUSTOM_LIMITS);
 +    subtitle text = STRING_TOKEN(STR_PM_BOOT_LOCKED);
 +    subtitle text = STRING_TOKEN(STR_PM_DSU_LOCKED);
 +    subtitle text = STRING_TOKEN(STR_EMPTY_STRING);
 +
 +    subtitle text = STRING_TOKEN(STR_PM_DOMAIN_GB0);
-+    suppressif NOT ideqval RadxaPmTuningVar.Profile == RADXA_PM_PROFILE_PARTIAL;
-+      PM_DOMAIN_ENABLE(0)
-+    endif;
-+    suppressif ideqval RadxaPmTuningVar.Profile == RADXA_PM_PROFILE_PARTIAL AND
-+               ideqval RadxaPmTuningVar.CpuDomainEnabled[0] == 0;
 +    subtitle text = STRING_TOKEN(STR_PM_OPP0);
 +    PM_FREQ_FIRST(0, 1, 800)
 +    PM_VOLT_FIRST(0, 1, 750)
@@ -1862,15 +1621,9 @@ index 00000000..eb2d2794
 +    PM_FREQ_LAST(6, 5, 2500)
 +    PM_VOLT_LAST(6, 5, 920)
 +    PM_VOLT_MODE(6)
-+    endif;
 +    subtitle text = STRING_TOKEN(STR_EMPTY_STRING);
 +
 +    subtitle text = STRING_TOKEN(STR_PM_DOMAIN_GB1);
-+    suppressif NOT ideqval RadxaPmTuningVar.Profile == RADXA_PM_PROFILE_PARTIAL;
-+      PM_DOMAIN_ENABLE(1)
-+    endif;
-+    suppressif ideqval RadxaPmTuningVar.Profile == RADXA_PM_PROFILE_PARTIAL AND
-+               ideqval RadxaPmTuningVar.CpuDomainEnabled[1] == 0;
 +    subtitle text = STRING_TOKEN(STR_PM_OPP0);
 +    PM_FREQ_FIRST(13, 14, 800)
 +    PM_VOLT_FIRST(13, 14, 750)
@@ -1895,15 +1648,9 @@ index 00000000..eb2d2794
 +    PM_FREQ_LAST(19, 18, 2600)
 +    PM_VOLT_LAST(19, 18, 920)
 +    PM_VOLT_MODE(19)
-+    endif;
 +    subtitle text = STRING_TOKEN(STR_EMPTY_STRING);
 +
 +    subtitle text = STRING_TOKEN(STR_PM_DOMAIN_GM0);
-+    suppressif NOT ideqval RadxaPmTuningVar.Profile == RADXA_PM_PROFILE_PARTIAL;
-+      PM_DOMAIN_ENABLE(2)
-+    endif;
-+    suppressif ideqval RadxaPmTuningVar.Profile == RADXA_PM_PROFILE_PARTIAL AND
-+               ideqval RadxaPmTuningVar.CpuDomainEnabled[2] == 0;
 +    subtitle text = STRING_TOKEN(STR_PM_OPP0);
 +    PM_FREQ_FIRST(26, 27, 800)
 +    PM_VOLT_FIRST(26, 27, 750)
@@ -1928,15 +1675,9 @@ index 00000000..eb2d2794
 +    PM_FREQ_LAST(32, 31, 2300)
 +    PM_VOLT_LAST(32, 31, 890)
 +    PM_VOLT_MODE(32)
-+    endif;
 +    subtitle text = STRING_TOKEN(STR_EMPTY_STRING);
 +
 +    subtitle text = STRING_TOKEN(STR_PM_DOMAIN_GM1);
-+    suppressif NOT ideqval RadxaPmTuningVar.Profile == RADXA_PM_PROFILE_PARTIAL;
-+      PM_DOMAIN_ENABLE(3)
-+    endif;
-+    suppressif ideqval RadxaPmTuningVar.Profile == RADXA_PM_PROFILE_PARTIAL AND
-+               ideqval RadxaPmTuningVar.CpuDomainEnabled[3] == 0;
 +    subtitle text = STRING_TOKEN(STR_PM_OPP0);
 +    PM_FREQ_FIRST(39, 40, 800)
 +    PM_VOLT_FIRST(39, 40, 750)
@@ -1957,7 +1698,6 @@ index 00000000..eb2d2794
 +    PM_FREQ_LAST(44, 43, 2200)
 +    PM_VOLT_LAST(44, 43, 890)
 +    PM_VOLT_MODE(44)
-+    endif;
 +
 +    subtitle text = STRING_TOKEN(STR_EMPTY_STRING);
 +    subtitle text = STRING_TOKEN(STR_EXIT_STRING);
@@ -1975,35 +1715,28 @@ index 00000000..eb2d2794
 +#undef PM_VOLT_AFTER_BOOT
 +#undef PM_VOLT_LAST
 +#undef PM_VOLT_MODE
-+#undef PM_DOMAIN_ENABLE
 diff --git a/Platform/Radxa/Platforms/CIX/Sky1/Drivers/PlatformConfigDxe/PmMenu/PmConfig.uni b/Platform/Radxa/Platforms/CIX/Sky1/Drivers/PlatformConfigDxe/PmMenu/PmConfig.uni
 new file mode 100644
-index 00000000..118bf522
+index 00000000..0b97a430
 --- /dev/null
 +++ b/Platform/Radxa/Platforms/CIX/Sky1/Drivers/PlatformConfigDxe/PmMenu/PmConfig.uni
-@@ -0,0 +1,46 @@
+@@ -0,0 +1,40 @@
 +#langdef en-US  "English"
 +
 +#string STR_PM_CONFIG_FORM_TITLE       #language en-US "Power Management"
-+#string STR_PM_CONFIG_FORM_HELP        #language en-US "Select the vendor-native, vendor-capped partial, or engineering CPU operating-point profile."
++#string STR_PM_CONFIG_FORM_HELP        #language en-US "Select the vendor-native or complete custom CPU operating-point profile."
 +#string STR_PM_CONFIG_WARNING          #language en-US "Saving a changed profile updates the dedicated PM configuration in SPI flash. The firmware performs one additional cold reset after a verified write."
 +#string STR_PM_PROFILE_PROMPT          #language en-US "CPU OPP Profile"
-+#string STR_PM_PROFILE_HELP            #language en-US "Vendor/Automatic uses the PM firmware's per-chip table. Vendor-Capped Custom overrides only enabled CPU domains and keeps OPN frequency limits. Engineering profiles use a complete table and unlock above-OPN frequencies only with the Engineering Debug PM firmware."
++#string STR_PM_PROFILE_HELP            #language en-US "Vendor/Automatic uses the PM firmware's per-chip table. Custom replaces the complete CPU operating-point table and requires the Engineering Debug PM firmware."
 +#string STR_PM_PROFILE_VENDOR          #language en-US "Vendor/Automatic (native per-chip OPPs)"
-+#string STR_PM_PROFILE_PARTIAL         #language en-US "Vendor-Capped Custom (partial CPU domains)"
-+#string STR_PM_PROFILE_2700            #language en-US "Engineering Unlock: GB1 2700 MHz, 950 mV floor + Vmin1"
-+#string STR_PM_PROFILE_CUSTOM          #language en-US "Engineering/Unsafe Custom (complete table)"
-+#string STR_PM_PARTIAL_REQUIRED        #language en-US "Vendor-Capped Custom requires at least one enabled CPU domain."
++#string STR_PM_PROFILE_CUSTOM          #language en-US "Custom (complete CPU OPP table)"
 +
 +#string STR_PM_CUSTOM_FORM_TITLE       #language en-US "Custom CPU OPPs"
-+#string STR_PM_CUSTOM_FORM_HELP        #language en-US "Edit non-boot OPPs. Vendor-Capped Custom applies only enabled domains; Engineering Custom applies all four CPU domains."
-+#string STR_PM_CUSTOM_WARNING          #language en-US "Engineering settings can prevent boot or permanently damage hardware. Keep a tested SPI recovery path available. Release PM firmware still enforces the chip OPN frequency limits."
-+#string STR_PM_PARTIAL_WARNING         #language en-US "Only enabled CPU domains are overridden. Disabled domains keep their PM firmware-native OPN/Vmin tables."
++#string STR_PM_CUSTOM_FORM_HELP        #language en-US "Edit the non-boot OPPs for all four CPU domains."
++#string STR_PM_CUSTOM_WARNING          #language en-US "Custom settings can prevent boot or permanently damage hardware. Keep a tested SPI recovery path available."
 +#string STR_PM_CUSTOM_LIMITS           #language en-US "Input boundaries: 800-3200 MHz and 550-1250 mV base voltage, in steps of 10. They are not safe operating guarantees. Frequency must increase and base voltage must not decrease within each domain."
 +#string STR_PM_BOOT_LOCKED             #language en-US "The effective CPU boot/sustained OPP at 1500 MHz / 790 mV is fixed and intentionally not shown."
 +#string STR_PM_DSU_LOCKED              #language en-US "DSU and non-CPU domains are never editable."
-+#string STR_PM_DOMAIN_ENABLE_PROMPT    #language en-US "Override this CPU domain"
-+#string STR_PM_DOMAIN_ENABLE_HELP      #language en-US "Used only by Vendor-Capped Custom. Disabled domains keep the PM firmware's native OPN/Vmin table."
 +#string STR_PM_FREQUENCY_PROMPT        #language en-US "Frequency (MHz)"
 +#string STR_PM_VOLTAGE_PROMPT          #language en-US "Base voltage (mV)"
 +#string STR_PM_FREQUENCY_HELP          #language en-US "CPU frequency in MHz. Values must be strictly increasing around the locked 1500 MHz boot OPP."
@@ -2029,7 +1762,7 @@ index 00000000..118bf522
 +#string STR_PM_OPP5                    #language en-US "OPP 5"
 +#string STR_PM_OPP6                    #language en-US "OPP 6"
 diff --git a/Platform/Radxa/Platforms/CIX/Sky1/Include/RadxaSetupVar.h b/Platform/Radxa/Platforms/CIX/Sky1/Include/RadxaSetupVar.h
-index eb2f388c..e6bfd8a2 100644
+index eb2f388c..a191a4e5 100644
 --- a/Platform/Radxa/Platforms/CIX/Sky1/Include/RadxaSetupVar.h
 +++ b/Platform/Radxa/Platforms/CIX/Sky1/Include/RadxaSetupVar.h
 @@ -5,6 +5,7 @@
@@ -2040,15 +1773,12 @@ index eb2f388c..e6bfd8a2 100644
  
  extern EFI_GUID  gRadxaSetupVariableGuid;
  
-@@ -21,6 +22,45 @@ typedef struct {
+@@ -21,6 +22,42 @@ typedef struct {
    UINT8     UFSPowerMode;
  } RADXA_SETUP_DATA;
  
 +#define RADXA_PM_PROFILE_VENDOR      0
-+#define RADXA_PM_PROFILE_GB1_2700    1
 +#define RADXA_PM_PROFILE_CUSTOM      2
-+#define RADXA_PM_PROFILE_PARTIAL     3
-+#define RADXA_PM_PROFILE_MAX         RADXA_PM_PROFILE_PARTIAL
 +#define RADXA_CPU_LIMIT_MAX          2
 +
 +#define RADXA_PM_VOLTAGE_FIXED       0
@@ -2067,7 +1797,7 @@ index eb2f388c..e6bfd8a2 100644
 +  UINT8     Profile;
 +  UINT16    CpuFrequency[RADXA_PM_CPU_VALUE_COUNT];
 +  UINT16    CpuVoltage[RADXA_PM_CPU_VALUE_COUNT];
-+  UINT8     CpuDomainEnabled[RADXA_PM_CPU_DOMAIN_COUNT];
++  UINT8     Reserved[RADXA_PM_CPU_DOMAIN_COUNT];
 +  UINT8     CpuVoltageMode[RADXA_PM_CPU_VALUE_COUNT];
 +  UINT16    Revision;
 +  UINT16    DataSize;

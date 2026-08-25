@@ -41,6 +41,10 @@ cix_radxa_remove_workspace() {
 
     cix_bootloader1_remove_workspace "${source_root}" "${build_output}"
 
+    cix_radxa_remove_worktree \
+        "${source_root}/cix_bsp_release" \
+        "${work_root}/cix_bsp_release"
+
     while IFS= read -r dependency; do
         cix_radxa_remove_worktree \
             "${source_edk2}/${dependency}" \
@@ -85,9 +89,8 @@ cix_radxa_apply_patch() {
 
 cix_radxa_validate_pm_ifr() {
     local platform_config_ifr="$1"
-    local capability="$2"
 
-    awk -v capability="${capability}" '
+    awk '
         /form formid = 0x2017,/ { profile_form = 1 }
         /form formid = 0x2018,/ { custom_form = 1 }
         /oneof varid = RadxaPmTuningVar.Profile,/ {
@@ -111,22 +114,18 @@ cix_radxa_validate_pm_ifr() {
         /oneof varid = RadxaPmTuningVar.CpuVoltageMode\[[0-9]+\],/ {
             vmin_fields++
         }
-        /oneof varid = RadxaPmTuningVar.CpuDomainEnabled\[[0-9]+\],/ {
-            partial_domains++
-        }
         /CpuFrequency\[(2|15|28|41)\]/ ||
         /CpuVoltage\[(2|15|28|41)\]/ ||
         /CpuVoltageMode\[(2|15|28|41)\]/ { protected_opp = 1 }
         END {
-            expected_options = (capability == "engineering") ? 4 : 2
             exit !(profile_form && custom_form && selector &&
                    first_frequency && last_voltage &&
                    frequency_fields == 23 && voltage_fields == 23 &&
-                   vmin_fields == 23 && partial_domains == 4 &&
-                   profile_options == expected_options && !protected_opp)
+                   vmin_fields == 23 && profile_options == 2 &&
+                   !protected_opp)
         }
     ' "${platform_config_ifr}" ||
-        cix_die "compiled O6 ${capability} firmware has an invalid PM menu"
+        cix_die "compiled O6 firmware has an invalid PM menu"
 }
 
 cix_radxa_prepare_workspace() {
@@ -141,7 +140,6 @@ cix_radxa_prepare_workspace() {
     local patch_root="${CIX_ROOT}/build-scripts/patches/radxa-o6n"
     local pm_patch_root="${CIX_ROOT}/build-scripts/patches/radxa-pm-validation"
     local opp_patch_root="${CIX_ROOT}/build-scripts/patches/radxa-opp-validation"
-    local opp_experiment_patch_root="${CIX_ROOT}/build-scripts/patches/radxa-opp-experiments"
     local pm_tuning_patch_root="${CIX_ROOT}/build-scripts/patches/radxa-pm-tuning"
     local memory_tuning_patch_root="${CIX_ROOT}/build-scripts/patches/radxa-memory-tuning"
     local dependency
@@ -173,8 +171,10 @@ cix_radxa_prepare_workspace() {
     )
 
     if [[ "${enable_pm_tuning}" == true ]]; then
-        cp -a --reflink=auto -- "${source_root}/cix_bsp_release" \
-            "${work_root}/cix_bsp_release"
+        git -C "${source_root}/cix_bsp_release" worktree add --detach \
+            "${work_root}/cix_bsp_release" HEAD
+        cix_radxa_apply_patch "${work_root}/cix_bsp_release" \
+            "${pm_tuning_patch_root}/0002-PackageTool-select-internal-flash-variant.patch"
     else
         ln -s -- "${source_root}/cix_bsp_release" \
             "${work_root}/cix_bsp_release"
@@ -193,22 +193,14 @@ cix_radxa_prepare_workspace() {
     fi
 
     if [[ "${validation_profile}" == "stock-opp" ||
-        "${validation_profile}" == "vendor-auto" ||
-        "${validation_profile}" == "gb1-2700" ]]; then
+        "${validation_profile}" == "vendor-auto" ]]; then
         cix_radxa_apply_patch "${work_uefi}/edk2-platforms" \
             "${opp_patch_root}/0001-Platform-Radxa-enable-stock-O6-OPP-table.patch"
-    fi
-
-    if [[ "${validation_profile}" == "gb1-2700" ]]; then
-        cix_radxa_apply_patch "${work_uefi}/edk2-platforms" \
-            "${opp_experiment_patch_root}/0001-Platform-Radxa-set-O6-GB1-max-to-2700-MHz.patch"
     fi
 
     if [[ "${enable_pm_tuning}" == true ]]; then
         cix_radxa_apply_patch "${work_uefi}/edk2-platforms" \
             "${pm_tuning_patch_root}/0001-Platform-add-selectable-O6-PM-profiles.patch"
-        cix_radxa_apply_patch "${work_uefi}/edk2-non-osi" \
-            "${pm_tuning_patch_root}/0002-PackageTool-select-PM-engineering-capabilities.patch"
         cix_radxa_apply_patch "${work_uefi}/edk2-platforms" \
             "${memory_tuning_patch_root}/0001-Make-O6-memory-rate-updates-reliable.patch"
 
@@ -236,30 +228,24 @@ cix_radxa_prepare_workspace() {
         ' "${pm_form}" ||
             cix_die "O6 custom PM form has unexpected input boundaries"
         awk '
-            /RADXA_PM_PROFILE_PARTIAL/ { partial_profile = 1 }
-            /RadxaPmTuningVar.CpuDomainEnabled\[Index\]/ { partial_macro = 1 }
-            /PM_DOMAIN_ENABLE\(0\)/ { partial_domain = 1 }
+            /RADXA_PM_PROFILE_CUSTOM/ { custom_profile = 1 }
             /RadxaPmTuningVar.CpuVoltageMode\[Index\]/ { vmin_macro = 1 }
             /PM_VOLT_MODE\(0\)/ { vmin_policy = 1 }
             /PM_FREQ_AFTER_BOOT\(3, 4, 1800\)/ { editable_opp3 = 1 }
-            /STR_PM_PARTIAL_REQUIRED/ { partial_required = 1 }
-            /PM_ENGINEERING_SUPPORT/ { engineering_gate = 1 }
             END {
-                exit !(partial_profile && partial_macro && partial_domain &&
-                       vmin_macro && vmin_policy && editable_opp3 &&
-                       partial_required && engineering_gate)
+                exit !(custom_profile && vmin_macro && vmin_policy &&
+                       editable_opp3)
             }
         ' "${pm_form}" ||
-            cix_die "O6 custom PM form is missing partial-domain or Vmin controls"
+            cix_die "O6 custom PM form is missing complete-table or Vmin controls"
         awk '
             /PmConservativePower \(/ { conservative_power = 1 }
             /PM_CONFIG_VMIN_VOLTAGE_CEILING/ { vmin_ceiling = 1 }
-            /EnabledDomains == 0/ { partial_nonempty = 1 }
             /RADXA_PM_TUNING_REVISION/ { settings_revision = 1 }
-            /PM_ENGINEERING_SUPPORT == 0/ { engineering_gate = 1 }
+            /Settings->Profile != RADXA_PM_PROFILE_CUSTOM/ { exact_profiles = 1 }
             END {
-                exit !(conservative_power && vmin_ceiling && partial_nonempty &&
-                       settings_revision && engineering_gate)
+                exit !(conservative_power && vmin_ceiling && settings_revision &&
+                       exact_profiles)
             }
         ' "${work_uefi}/edk2-platforms/Platform/CIX/Sky1/Drivers/PmConfigUpdateDxe/PmConfigUpdateDxe.c" ||
             cix_die "O6 PM updater is missing a safety policy"
@@ -314,16 +300,12 @@ cix_direct_radxa_firmware_build() (
     local package_tool="${uefi_source}/edk2-non-osi/Platform/CIX/Sky1/PackageTool/AARCH64/cix_package_tool"
     local internal_package_script="${build_output}/work/cix_bsp_release/sky1/package_internal_flash_binary.sh"
     local platform_config_ifr
-    local release_bootloader3="${build_output}/bootloader3_vendor_release.img"
-    local release_platform_config_ifr="${build_output}/PlatformConfigHii.vendor_release.i"
     local debug_bootloader3="${build_output}/bootloader3_engineering_debug.img"
 
     if [[ "${TARGET[flow]}" == "radxa-pm-validation" ]]; then
         validation_profile=pmic
     elif [[ "${TARGET[flow]}" == "radxa-opp-validation" ]]; then
         validation_profile=stock-opp
-    elif [[ "${TARGET[flow]}" == "radxa-opp-experiment" ]]; then
-        validation_profile=gb1-2700
     elif [[ "${TARGET[flow]}" == "radxa-pm-tuning" ]]; then
         validation_profile=vendor-auto
         enable_pm_tuning=true
@@ -352,7 +334,10 @@ cix_direct_radxa_firmware_build() (
     if [[ -d "${image_output}" ]]; then
         find "${image_output}" -mindepth 1 -delete
     fi
-    mkdir -p -- "${image_output}/ocb"
+    mkdir -p -- "${image_output}"
+    if [[ "${enable_pm_tuning}" != true ]]; then
+        mkdir -p -- "${image_output}/ocb"
+    fi
     cix_radxa_prepare_workspace \
         "${firmware_source}" "${build_output}" "${platform}" \
         "${validation_profile}" "${enable_pm_tuning}"
@@ -362,8 +347,6 @@ cix_direct_radxa_firmware_build() (
 
         python3 "${CIX_ROOT}/build-scripts/ci/verify_pm_firmware.py" \
             --build-type debug "${pm_firmware_root}/debug/pm_fw/pm_fw.bin"
-        python3 "${CIX_ROOT}/build-scripts/ci/verify_pm_firmware.py" \
-            --build-type release "${pm_firmware_root}/release/pm_fw/pm_fw.bin"
         cix_require_command \
             arm-none-eabi-gcc arm-none-eabi-ld arm-none-eabi-objcopy \
             cmp install openssl pkg-config sha256sum
@@ -394,29 +377,10 @@ cix_direct_radxa_firmware_build() (
     make -C "${uefi_source}/tools/acpica" -j"${build_jobs}"
 
     if [[ "${enable_pm_tuning}" == true ]]; then
-        cix_log "Build Radxa Orion ${platform} vendor-capped UEFI with ${build_jobs} jobs"
-        (
-            cd "${uefi_source}" || exit
-            CIX_PM_VALIDATION=1 CIX_PM_ENGINEERING=FALSE NETWORK=open \
-                "${package_script}" "${platform}"
-        )
-        platform_config_ifr="$(
-            find "${uefi_source}/Build/${platform}" \
-                -path '*/PlatformConfigDxe/PlatformConfigDxe/OUTPUT/PlatformConfigHii.i' \
-                -print -quit
-        )"
-        [[ -s "${platform_config_ifr}" ]] ||
-            cix_die "compiled O6 vendor-capped platform configuration form is missing"
-        cix_radxa_validate_pm_ifr "${platform_config_ifr}" vendor
-        cp -- "${platform_config_ifr}" "${release_platform_config_ifr}"
-        cp -- "${generated_output}/pr/Firmwares/bootloader3.img" \
-            "${release_bootloader3}"
-
         cix_log "Build Radxa Orion ${platform} engineering UEFI with ${build_jobs} jobs"
         (
             cd "${uefi_source}" || exit
-            CIX_PM_VALIDATION=1 CIX_PM_ENGINEERING=TRUE NETWORK=open \
-                "${package_script}" "${platform}"
+            CIX_PM_VALIDATION=1 NETWORK=open "${package_script}" "${platform}"
         )
         cp -- "${generated_output}/pr/Firmwares/bootloader3.img" \
             "${debug_bootloader3}"
@@ -443,76 +407,45 @@ cix_direct_radxa_firmware_build() (
         )"
         [[ -s "${platform_config_ifr}" ]] ||
             cix_die "compiled O6 engineering platform configuration form is missing"
-        cix_radxa_validate_pm_ifr "${platform_config_ifr}" engineering
+        cix_radxa_validate_pm_ifr "${platform_config_ifr}"
         python3 "${CIX_ROOT}/build-scripts/ci/verify_memory_config.py" \
             "${generated_output}/pr/Firmwares/memory_config.bin"
         cix_log "Verified O6 PM and experimental memory tuning firmware"
     fi
 
-    cix_log "Generate CIX internal Radxa ${platform} debug images"
-    (
-        cd "${uefi_source}" || exit
-        SOC_TYPE=sky1 MAKEFLAGS="-j${build_jobs}" \
-            "${internal_package_script}"
-    )
-
-    for artifact in \
-        cix_flash_all.bin \
-        cix_flash_ota.bin \
-        cix_flash_all_rsa_pr_debug.bin \
-        cix_flash_ota_rsa_pr_debug.bin; do
-        [[ -s "${generated_output}/${artifact}" ]] ||
-            cix_die "Radxa ${platform} firmware artifact is missing: ${artifact}"
-    done
-
     if [[ "${enable_pm_tuning}" == true ]]; then
-        for artifact in \
-            cix_flash_all_rsa_proto.bin \
-            cix_flash_all_rsa_proto_debug.bin; do
-            [[ -s "${generated_output}/${artifact}" ]] ||
-                cix_die "Radxa ${platform} prototype artifact is missing: ${artifact}"
-        done
-
-        if cmp -s -- \
-            "${generated_output}/cix_flash_all_rsa_proto.bin" \
-            "${generated_output}/cix_flash_all_rsa_proto_debug.bin"; then
-            cix_die "prototype release and debug full-flash images are identical"
-        fi
-
-        cp -- "${release_bootloader3}" \
-            "${generated_output}/proto_release/Firmwares/bootloader3.img"
+        cix_log "Generate CIX internal Radxa ${platform} engineering full-flash image"
         (
-            cd "${generated_output}/proto_release" || exit
-            ./cix_package_tool -c spi_flash_config_all.json \
-                -o "${generated_output}/cix_flash_all_rsa_proto.bin"
+            cd "${uefi_source}" || exit
+            CIX_INTERNAL_VARIANT=proto-debug CIX_INTERNAL_FULL_ONLY=1 \
+                SOC_TYPE=sky1 MAKEFLAGS="-j${build_jobs}" \
+                "${internal_package_script}"
         )
-        cmp -- "${release_bootloader3}" \
-            "${generated_output}/proto_release/Firmwares/bootloader3.img" ||
-            cix_die "prototype release image does not contain vendor-capped UEFI"
+        [[ -s "${generated_output}/cix_flash_all_rsa_proto_debug.bin" ]] ||
+            cix_die "Radxa ${platform} engineering artifact is missing"
         cmp -- "${debug_bootloader3}" \
             "${generated_output}/proto_debug/Firmwares/bootloader3.img" ||
             cix_die "prototype debug image does not contain engineering UEFI"
-        if cmp -s -- \
-            "${generated_output}/cix_flash_all_rsa_proto.bin" \
-            "${generated_output}/cix_flash_all_rsa_proto_debug.bin"; then
-            cix_die "final vendor and engineering full-flash images are identical"
-        fi
-
-        cmp -- "${build_output}/bootloader1/bootloader1_proto_release.img" \
-            "${generated_output}/proto_release/Firmwares/bootloader1.img" ||
-            cix_die "prototype release image does not contain the source-built bootloader1"
         cmp -- "${build_output}/bootloader1/bootloader1_proto_debug.img" \
             "${generated_output}/proto_debug/Firmwares/bootloader1.img" ||
             cix_die "prototype debug image does not contain the source-built bootloader1"
-        cmp -- \
-            "${firmware_source}/cix_bsp_release/sky1/pr_debug/Firmwares/bootloader1.img" \
-            "${generated_output}/pr_debug/Firmwares/bootloader1.img" ||
-            cix_die "the revision-pinned pr bootloader1 was unexpectedly replaced"
-        cmp -- \
-            "${firmware_source}/cix_bsp_release/sky1/pr2_debug/Firmwares/bootloader1.img" \
-            "${generated_output}/pr2_debug/Firmwares/bootloader1.img" ||
-            cix_die "the revision-pinned pr2 bootloader1 was unexpectedly replaced"
-        cix_log "Verified local prototype and revision-pinned product signing boundaries"
+        cix_log "Verified local engineering prototype signing boundary"
+    else
+        cix_log "Generate CIX internal Radxa ${platform} debug images"
+        (
+            cd "${uefi_source}" || exit
+            SOC_TYPE=sky1 MAKEFLAGS="-j${build_jobs}" \
+                "${internal_package_script}"
+        )
+
+        for artifact in \
+            cix_flash_all.bin \
+            cix_flash_ota.bin \
+            cix_flash_all_rsa_pr_debug.bin \
+            cix_flash_ota_rsa_pr_debug.bin; do
+            [[ -s "${generated_output}/${artifact}" ]] ||
+                cix_die "Radxa ${platform} firmware artifact is missing: ${artifact}"
+        done
     fi
 
     if [[ "${validation_profile}" != "none" ]]; then
@@ -529,8 +462,6 @@ cix_direct_radxa_firmware_build() (
     fi
 
     if [[ "${enable_pm_tuning}" == true ]]; then
-        cp -- "${generated_output}/cix_flash_all_rsa_proto.bin" \
-            "${image_output}/cix_flash_all_${platform}_vendor_release.bin"
         cp -- "${generated_output}/cix_flash_all_rsa_proto_debug.bin" \
             "${image_output}/cix_flash_all_${platform}_engineering_debug.bin"
     else
@@ -542,8 +473,8 @@ cix_direct_radxa_firmware_build() (
             "${image_output}/cix_flash_all_${platform}_pr_debug.bin"
         cp -- "${generated_output}/cix_flash_ota_rsa_pr_debug.bin" \
             "${image_output}/cix_flash_ota_${platform}_pr_debug.bin"
+        cp -- "${image_output}"/cix_flash_all*.bin "${image_output}/ocb/"
     fi
-    cp -- "${image_output}"/cix_flash_all*.bin "${image_output}/ocb/"
 
     if [[ "${enable_pm_tuning}" != true &&
         -s "${generated_output}/bootloader1_ocb_pr.img" ]]; then
