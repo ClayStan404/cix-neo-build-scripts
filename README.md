@@ -173,18 +173,17 @@ compares the complete entry, then performs one additional cold reset.
 This target is not part of a product build set and the ordinary O6 firmware
 target remains unchanged.
 
-The same recovery-gated image makes the existing `Advanced Configuration ->
-Memory Configuration -> Memory Data Rate` selector effective above each O6
-memory population's vendor ceiling. `Auto` restores the source board limit
-(normally 5500 MT/s, 4800 MT/s for the low-speed variants, and 6000 MT/s for
-the 32 GB Hynix variant). Every explicit menu value from 1600 through 6400
-MT/s synchronizes both the BSET request and every known per-board CONF ceiling,
-recalculates every changed block checksum, writes the dedicated memory
-configuration entry, and verifies the full entry by reading it back. The
-source image remains vendor-safe by default and contains the existing 6400
-MT/s LPDDR5 bus, PHY-pad, and training entries. Rates above a board's vendor
-limit are experiments and may prevent the board from reaching UEFI setup; use
-them only with the tested USB recovery path.
+The same recovery-gated image repairs the existing `Advanced Configuration ->
+Memory Configuration -> Memory Data Rate` update path. `Auto` and every
+explicit menu value from 1600 through 6400 MT/s are validated and written only
+to the BSET request. The per-population CONF limits remain exactly as supplied
+by the vendor: normally 5500 MT/s, 4800 MT/s for the low-speed variants, and
+6000 MT/s for the 32 GB Hynix variant. The updater validates the current image
+and BSET checksum, writes the dedicated memory configuration entry, and
+verifies the complete entry by reading it back. Rates above a board's qualified
+limit remain experiments: closed DDR firmware may cap or reject them, and an
+accepted rate can still fail training before UEFI setup. Use such rates only
+with the tested USB recovery path.
 
 The same set publishes the manifest-pinned ARM64 CIX `pmtool` binary at
 `output/pmtool/pmtool`. On the O6 test board, capture the effective PM firmware

@@ -67,13 +67,11 @@ class VerificationError(RuntimeError):
     """Raised when an O6 memory configuration is unsafe or malformed."""
 
 
-def requested_limits(frequency: int) -> dict[int, int]:
-    """Return the per-board maxima produced for a setup frequency request."""
+def validate_requested_frequency(frequency: int) -> int:
+    """Validate and return a BIOS memory data-rate request."""
     if frequency not in ALLOWED_FREQUENCIES:
         raise VerificationError(f"unsupported memory frequency value: {frequency}")
-    if frequency == MEMORY_FREQUENCY_AUTO:
-        return dict(VENDOR_LIMITS)
-    return {board_mask: frequency for board_mask in VENDOR_LIMITS}
+    return frequency
 
 
 def _u16(data: bytes, offset: int) -> int:
@@ -183,17 +181,9 @@ def verify(data: bytes) -> str:
             f"expected 6 memory tuning blocks, found {tuning_blocks}"
         )
 
-    for frequency in EXPLICIT_FREQUENCIES:
-        configured = requested_limits(frequency)
-        if set(configured.values()) != {frequency}:
-            raise VerificationError(
-                f"explicit frequency {frequency} does not synchronize every "
-                "known board ceiling"
-            )
-
     return (
-        "O6 memory config is valid: vendor Auto limits are preserved and "
-        "every explicit data rate synchronizes all known board ceilings"
+        "O6 memory config is valid: vendor board limits are preserved, "
+        "BSET defaults to Automatic, and 6400 MT/s tuning ranges are present"
     )
 
 

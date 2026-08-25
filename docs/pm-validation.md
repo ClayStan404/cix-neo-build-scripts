@@ -180,17 +180,17 @@ so it cannot mask PM firmware's native or externally selected table.
 
 The tuning image also repairs the existing Memory Data Rate selector. Open
 `Device Manager -> Platform Configuration -> Advanced Configuration -> Memory
-Configuration`. `Auto` restores the source vendor maximum for every known O6
-memory population. Selecting any explicit data rate from 1600 through 6400
-MT/s sets both the BSET rate and every known per-board CONF maximum to that
-rate, updates the block checksums, writes the memory configuration entry, and
-verifies it by reading the complete entry back. The image must still boot at
-the vendor limit until an explicit rate is selected.
+Configuration`. `Auto` and every explicit data rate from 1600 through 6400
+MT/s update only the validated BSET request. The updater never changes the
+per-board CONF maximum, so all vendor limits and DRAM topology data remain
+intact. It updates the BSET checksum, writes the memory configuration entry,
+and verifies it by reading the complete entry back.
 
-Memory training happens before UEFI setup. A failed experimental rate may
-therefore prevent access to the profile selector; recover by flashing the
-known-good image over USB. After a successful boot, verify the controller PLL
-with:
+Memory training happens before UEFI setup. Closed DDR firmware may cap or
+reject a request above the detected board's qualified limit; if it accepts an
+unstable rate, training may fail before the profile selector is available.
+Recover by flashing the known-good image over USB. After a successful boot,
+verify the controller PLL with:
 
 ```bash
 sudo ./pmtool cli pllst | grep ddrc_pll

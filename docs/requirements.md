@@ -217,15 +217,14 @@ is confirmed.
   PM entry; and cold-reset only after a verified write. The setup-save path
   must also prevent the legacy CPU limit from masking any selected profile.
 - In that same recovery-gated O6 tuning target, make the existing Memory Data
-  Rate selector update both the BSET request and the per-board CONF maximum.
-  `Auto` must restore every source vendor limit; every explicit menu value must
-  synchronize the BSET request and all known board ceilings to the selected
-  rate. Validate the complete current memory configuration, preserve the
-  source image's vendor-safe defaults and 6400-capable tuning blocks,
-  recalculate every changed block checksum, and verify the dedicated memory
+  Rate selector reliably update only the BSET request. Accept `Auto` and every
+  source-defined explicit menu value, but never rewrite any per-board CONF
+  maximum at runtime. Validate the complete current memory configuration and
+  BSET checksum, preserve the source image's vendor limits and tuning blocks,
+  recalculate the changed BSET checksum, and verify the dedicated memory
   configuration entry by reading it back. Treat explicit values above a
-  board's vendor limit as recovery-gated experiments rather than product
-  defaults.
+  board's vendor limit as recovery-gated requests that closed DDR firmware may
+  cap, reject, or fail to train rather than as product-qualified rates.
 - Track internal `tools/cix_binary` at commit
   `cf4388565546e14ab4c566e55495cd6757edd92e` under `sources/cix-binary` for
   the ARM64 `pmtool` validation utility. Publish only the checked executable as
@@ -465,11 +464,11 @@ not apply this patch.
 
 That target also layers an isolated memory updater fix. The checked-in source
 memory configuration remains Automatic with its original per-population
-limits. Every explicit setup rate synchronizes the BSET request and all known
-CONF ceilings, while Automatic restores the complete vendor limit map.
-All LPDDR5 bus, PHY-pad, and training blocks must retain 6400 MT/s entries, and
-every memory write must pass checksum validation and complete read-back
-comparison. This behavior is not enabled in the normal O6 firmware target.
+limits. Every supported setup rate changes only the BSET request; no runtime
+path may rewrite a per-board CONF maximum. All LPDDR5 bus, PHY-pad, and
+training blocks must retain their source entries, and every memory write must
+pass checksum validation and complete read-back comparison. This behavior is
+not enabled in the normal O6 firmware target.
 
 ## Legacy Reference
 

@@ -1,14 +1,14 @@
-From 9cb2f03cc7267a74391069b39127873210420c41 Mon Sep 17 00:00:00 2001
+From 97a3fd116c6f7759a23b06a178a9095897d3938f Mon Sep 17 00:00:00 2001
 From: Clay Stan <claystan97@gmail.com>
-Date: Mon, 17 Aug 2026 16:51:52 +0800
-Subject: [PATCH] Enable every explicit O6 memory data rate
+Date: Tue, 25 Aug 2026 18:57:30 +0800
+Subject: [PATCH] Make O6 memory rate updates reliable
 
-Change-Id: If312e225cf969f974374eb89a8babdf92899c643
+Change-Id: I8f4b85bf29dd6089a6d7c643ec4c6fe854765ecb
 ---
  .../FirmwareUpdateDxe/FwUpdateProtocolDxe.c   |   2 +-
- .../MemConfigUpdateDxe/MemConfigUpdateDxe.c   | 261 ++++++++++++++++--
+ .../MemConfigUpdateDxe/MemConfigUpdateDxe.c   | 134 +++++++++++++++---
  .../MemMenu/MemoryConfig.uni                  |   2 +-
- 3 files changed, 246 insertions(+), 19 deletions(-)
+ 3 files changed, 119 insertions(+), 19 deletions(-)
 
 diff --git a/Platform/CIX/Sky1/Drivers/FirmwareUpdateDxe/FwUpdateProtocolDxe.c b/Platform/CIX/Sky1/Drivers/FirmwareUpdateDxe/FwUpdateProtocolDxe.c
 index e68b7c68..ead9636f 100644
@@ -24,43 +24,19 @@ index e68b7c68..ead9636f 100644
    UINT16                   ReturnCode;
    UINT32                   Index;
 diff --git a/Platform/CIX/Sky1/Drivers/MemConfigUpdateDxe/MemConfigUpdateDxe.c b/Platform/CIX/Sky1/Drivers/MemConfigUpdateDxe/MemConfigUpdateDxe.c
-index 4aecb441..4a8812be 100644
+index 4aecb441..0838aae9 100644
 --- a/Platform/CIX/Sky1/Drivers/MemConfigUpdateDxe/MemConfigUpdateDxe.c
 +++ b/Platform/CIX/Sky1/Drivers/MemConfigUpdateDxe/MemConfigUpdateDxe.c
-@@ -12,6 +12,32 @@
+@@ -12,6 +12,8 @@
  MEM_CONFIG_BLOCK_TABLE_ENTRY  *mCdcbBlockEntry = NULL;
  UINT8                         mCdcbBlockCount  = 0;
  
 +#define O6_MEMORY_FREQUENCY_AUTO  0xFFFFU
 +
-+typedef struct {
-+  UINT16    BoardMask;
-+  UINT16    MaxFrequency;
-+} O6_VENDOR_MEMORY_LIMIT;
-+
-+// Preserve the source board limits when Memory Data Rate is Auto.  Keep the
-+// BSET request and every known board configuration ceiling synchronized for
-+// any explicit setup value.
-+STATIC CONST O6_VENDOR_MEMORY_LIMIT  mO6VendorMemoryLimits[] = {
-+  { 0xFFFF, 2750 }, // Default
-+  { 0x0001, 2750 }, // 8 GB
-+  { 0x0002, 2750 }, // 12 GB
-+  { 0x0004, 2750 }, // 16 GB
-+  { 0x0010, 2750 }, // 32 GB
-+  { 0x0020, 2750 }, // 48 GB high speed
-+  { 0x0040, 2750 }, // 64 GB x8
-+  { 0x0080, 2400 }, // 32 GB low speed
-+  { 0x0100, 2750 }, // 64 GB Rayson
-+  { 0x0200, 2750 }, // 32 GB x8 high speed
-+  { 0x0400, 2750 }, // 24 GB high speed
-+  { 0x0800, 2400 }, // 16 GB high speed
-+  { 0x1000, 3000 }, // 32 GB Hynix
-+};
-+
  // EFI_STATUS
  // CdcbLoadBuffer (
  //   UINT8  **buf,
-@@ -89,6 +115,127 @@ GenCheckSum (
+@@ -89,6 +91,30 @@ GenCheckSum (
    return ~CheckSum;
  }
  
@@ -88,107 +64,10 @@ index 4aecb441..4a8812be 100644
 +  }
 +}
 +
-+STATIC
-+BOOLEAN
-+O6GetVendorMemoryLimit (
-+  IN  UINT16  BoardMask,
-+  OUT UINT16  *MaxFrequency
-+  )
-+{
-+  UINTN  Index;
-+
-+  for (Index = 0; Index < ARRAY_SIZE (mO6VendorMemoryLimits); Index++) {
-+    if (mO6VendorMemoryLimits[Index].BoardMask == BoardMask) {
-+      *MaxFrequency = mO6VendorMemoryLimits[Index].MaxFrequency;
-+      return TRUE;
-+    }
-+  }
-+
-+  return FALSE;
-+}
-+
-+STATIC
-+EFI_STATUS
-+O6UpdateMemoryLimits (
-+  IN     UINT16   RequestedFrequency,
-+  IN OUT UINT8    *Image,
-+  IN     UINTN    ImageSize,
-+  IN OUT BOOLEAN  *Update
-+  )
-+{
-+  MEM_CONFIG_BLOCK_CONFIG  *Config;
-+  UINTN                    BlockOffset;
-+  BOOLEAN                  Found;
-+  UINT16                   MaxFrequency;
-+  UINT16                   VendorLimit;
-+  UINTN                    Index;
-+
-+  if (!O6MemoryFrequencyIsValid (RequestedFrequency)) {
-+    DEBUG ((DEBUG_ERROR, "Invalid O6 memory frequency: %u\n", RequestedFrequency));
-+    return EFI_INVALID_PARAMETER;
-+  }
-+
-+  Found = FALSE;
-+  for (Index = 0; Index < mCdcbBlockCount; Index++) {
-+    if (mCdcbBlockEntry[Index].Guid != MEM_CONFIG_BLOCK_CONFIG_GUID) {
-+      continue;
-+    }
-+
-+    BlockOffset = CDCB_MEM_CONFIG_HEADER_OFFSET + mCdcbBlockEntry[Index].Offset;
-+    if ((BlockOffset > ImageSize) ||
-+        ((ImageSize - BlockOffset) < sizeof (*Config)))
-+    {
-+      DEBUG ((DEBUG_ERROR, "O6 memory CONF block is outside the image\n"));
-+      return EFI_COMPROMISED_DATA;
-+    }
-+
-+    Config = (MEM_CONFIG_BLOCK_CONFIG *)(Image + BlockOffset);
-+    if ((Config->Header.Signature != MEM_CONFIG_BLOCK_CONFIG_SIGNAUTE) ||
-+        (Config->Header.BlockSize < sizeof (*Config)) ||
-+        (Config->Header.BlockSize > (ImageSize - BlockOffset)) ||
-+        !CdcbValidateChecksum ((UINT8 *)Config, Config->Header.BlockSize))
-+    {
-+      DEBUG ((DEBUG_ERROR, "Invalid O6 memory CONF block\n"));
-+      return EFI_COMPROMISED_DATA;
-+    }
-+
-+    if (!O6GetVendorMemoryLimit (Config->Header.BoardMask, &VendorLimit)) {
-+      DEBUG ((DEBUG_WARN, "Ignore unknown O6 memory board mask: 0x%x\n", Config->Header.BoardMask));
-+      continue;
-+    }
-+
-+    MaxFrequency = (RequestedFrequency == O6_MEMORY_FREQUENCY_AUTO) ?
-+                   VendorLimit : RequestedFrequency;
-+
-+    if (Config->MaxFreq != MaxFrequency) {
-+      DEBUG ((
-+        DEBUG_INFO,
-+        "Update O6 memory maximum for board mask 0x%x: %u -> %u\n",
-+        Config->Header.BoardMask,
-+        Config->MaxFreq,
-+        MaxFrequency
-+        ));
-+      Config->MaxFreq                    = MaxFrequency;
-+      Config->Header.BlockChecksum       = 0;
-+      Config->Header.BlockChecksum       = GenCheckSum ((UINT8 *)Config, Config->Header.BlockSize);
-+      *Update                            = TRUE;
-+    }
-+
-+    Found = TRUE;
-+  }
-+
-+  if (!Found) {
-+    DEBUG ((DEBUG_ERROR, "No supported O6 memory CONF block found\n"));
-+    return EFI_NOT_FOUND;
-+  }
-+
-+  return EFI_SUCCESS;
-+}
-+
  EFI_STATUS
  GetBlockBufWithGuid (
    uint32_t  guid,
-@@ -112,15 +259,23 @@ EFI_STATUS
+@@ -112,15 +138,22 @@ EFI_STATUS
  GetMemConfigBiosBlockAndUpdate (
    PLATFORM_SETUP_DATA  *pPlatformSetupData,
    UINT8                *pImage,
@@ -198,7 +77,6 @@ index 4aecb441..4a8812be 100644
  {
    MEM_CONFIG_HEADER      *GlobalHeader;
    MEM_CONFIG_BIOS_SETUP  *MemConfigBiosSetup;
-+  EFI_STATUS             Status;
 +  UINTN                  BlockOffset;
 +  UINTN                  BlockTableSize;
    BOOLEAN                Found = FALSE;
@@ -213,7 +91,7 @@ index 4aecb441..4a8812be 100644
    GlobalHeader = (MEM_CONFIG_HEADER *)(pImage + CDCB_MEM_CONFIG_HEADER_OFFSET);
    if (GlobalHeader->Signature != MEM_CONFIG_HEADER_SIGNATURE) {
      // DDR_DRV_PRINT(BASE_INFO, "Error: Incorrect CDCB header signature!\n");
-@@ -128,28 +283,68 @@ GetMemConfigBiosBlockAndUpdate (
+@@ -128,28 +161,63 @@ GetMemConfigBiosBlockAndUpdate (
      return EFI_NOT_FOUND;
    }
  
@@ -277,18 +155,13 @@ index 4aecb441..4a8812be 100644
 +      return EFI_COMPROMISED_DATA;
 +    }
 +
-+    Status = O6UpdateMemoryLimits (
-+               pPlatformSetupData->MemFreq,
-+               pImage,
-+               ImageSize,
-+               Update
-+               );
-+    if (EFI_ERROR (Status)) {
-+      return Status;
++    if (!O6MemoryFrequencyIsValid (pPlatformSetupData->MemFreq)) {
++      DEBUG ((DEBUG_ERROR, "Invalid O6 memory frequency: %u\n", pPlatformSetupData->MemFreq));
++      return EFI_INVALID_PARAMETER;
      }
  
      if (pPlatformSetupData->MemFreq != MemConfigBiosSetup->MemFreq) {
-@@ -291,7 +486,7 @@ GetMemConfigBiosBlockAndUpdate (
+@@ -291,7 +359,7 @@ GetMemConfigBiosBlockAndUpdate (
      }
    }
  
@@ -297,7 +170,7 @@ index 4aecb441..4a8812be 100644
  }
  
  VOID
-@@ -301,8 +496,12 @@ MemConfigUpdateCallback (
+@@ -301,8 +369,12 @@ MemConfigUpdateCallback (
    )
  {
    EFI_STATUS              Status;
@@ -311,7 +184,7 @@ index 4aecb441..4a8812be 100644
    BOOLEAN                 Update               = FALSE;
    UINTN                   VarSize              = 0;
    PLATFORM_SETUP_DATA     *pPlatformSetupVar   = NULL;
-@@ -367,16 +566,16 @@ MemConfigUpdateCallback (
+@@ -367,16 +439,16 @@ MemConfigUpdateCallback (
    }
  
    DEBUG ((DEBUG_INFO, "Debug-------------------------------------------------------[%a][%d]\n", __FUNCTION__, __LINE__));
@@ -332,7 +205,7 @@ index 4aecb441..4a8812be 100644
    if (EFI_ERROR (Status)) {
      DEBUG ((DEBUG_INFO, "GetMemConfigBiosBlockAndUpdate Status:%r\n", Status));
      goto Done;
-@@ -384,12 +583,36 @@ MemConfigUpdateCallback (
+@@ -384,12 +456,36 @@ MemConfigUpdateCallback (
  
    DEBUG ((DEBUG_INFO, "Debug-------------------------------------------------------[%a][%d]\n", __FUNCTION__, __LINE__));
    if (Update) {
@@ -344,8 +217,8 @@ index 4aecb441..4a8812be 100644
 +    Result = FlashUpdateProtocol->FirmwareRawEntryUpdate (FIRMWARE_TYPE_MEM_CONF, pImage, &Length, ENTRY_WRITE, NULL);
 +    if ((Result & 0xFF) != FIRMWARE_RET_SUCCESS) {
 +      DEBUG ((DEBUG_ERROR, "[%a][%d]: FirmwareRawEntryUpdate write failed: 0x%x\n", __FUNCTION__, __LINE__, Result));
-       goto Done;
-     }
++      goto Done;
++    }
 +
 +    VerifyLength = ExpectedLength;
 +    pVerifyImage = AllocateZeroPool (VerifyLength);
@@ -366,14 +239,14 @@ index 4aecb441..4a8812be 100644
 +        (CompareMem (pVerifyImage, pImage, ExpectedLength) != 0))
 +    {
 +      DEBUG ((DEBUG_ERROR, "Memory configuration write read-back mismatch: 0x%x\n", Result));
-+      goto Done;
-+    }
+       goto Done;
+     }
 +
 +    DEBUG ((DEBUG_INFO, "Memory configuration write verified\n"));
    }
  
    DEBUG ((DEBUG_INFO, "Debug-------------------------------------------------------[%a][%d]\n", __FUNCTION__, __LINE__));
-@@ -398,6 +621,10 @@ Done:
+@@ -398,6 +494,10 @@ Done:
      FreePool (pImage);
    }
  
@@ -385,7 +258,7 @@ index 4aecb441..4a8812be 100644
      FreePool (pPlatformSetupVar);
    }
 diff --git a/Platform/Radxa/Platforms/CIX/Sky1/Drivers/PlatformConfigDxe/MemMenu/MemoryConfig.uni b/Platform/Radxa/Platforms/CIX/Sky1/Drivers/PlatformConfigDxe/MemMenu/MemoryConfig.uni
-index 4ee6464a..474e4ce4 100644
+index 4ee6464a..4e4ea357 100644
 --- a/Platform/Radxa/Platforms/CIX/Sky1/Drivers/PlatformConfigDxe/MemMenu/MemoryConfig.uni
 +++ b/Platform/Radxa/Platforms/CIX/Sky1/Drivers/PlatformConfigDxe/MemMenu/MemoryConfig.uni
 @@ -18,7 +18,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
@@ -393,11 +266,10 @@ index 4ee6464a..474e4ce4 100644
  
  #string STR_MEM_FREQUENCY_PROMPT               #language en-US "Memory Data Rate"
 -#string STR_MEM_FREQUENCY_PROMPT_HELP          #language en-US "Memory Data Rate Config"
-+#string STR_MEM_FREQUENCY_PROMPT_HELP          #language en-US "Auto preserves the vendor board limit. Every explicit value selects that data rate; values above the vendor limit are experimental and may prevent the board from reaching UEFI setup."
++#string STR_MEM_FREQUENCY_PROMPT_HELP          #language en-US "Auto uses the vendor board configuration. Every explicit value requests that data rate without changing the board-qualified limit; unsupported rates may prevent the board from reaching UEFI setup."
  #string STR_DDR_1600                           #language en-US "1600MT/s"
  #string STR_DDR_2133                           #language en-US "2133MT/s"
  #string STR_DDR_2750                           #language en-US "2750MT/s"
 -- 
 2.47.3
-
 

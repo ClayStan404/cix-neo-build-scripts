@@ -152,7 +152,7 @@ cix_radxa_prepare_workspace() {
         cix_radxa_apply_patch "${work_uefi}/edk2-platforms" \
             "${pm_tuning_patch_root}/0001-Platform-add-selectable-O6-PM-profiles.patch"
         cix_radxa_apply_patch "${work_uefi}/edk2-platforms" \
-            "${memory_tuning_patch_root}/0001-Platform-Radxa-enable-explicit-O6-memory-rates.patch"
+            "${memory_tuning_patch_root}/0001-Make-O6-memory-rate-updates-reliable.patch"
 
         local pm_form="${work_uefi}/edk2-platforms/Platform/Radxa/Platforms/CIX/Sky1/Drivers/PlatformConfigDxe/PmMenu/PmConfig.hfr"
         local memory_form="${work_uefi}/edk2-platforms/Platform/Radxa/Platforms/CIX/Sky1/Drivers/PlatformConfigDxe/MemMenu/MemoryConfig.hfr"
@@ -196,15 +196,17 @@ cix_radxa_prepare_workspace() {
         ' "${memory_form}" ||
             cix_die "O6 memory form is missing an expected explicit or Auto data rate"
         awk '
-            /O6UpdateMemoryLimits \(/ { updater = 1 }
-            /VendorLimit : RequestedFrequency/ { synchronizes_limit = 1 }
-            /O6GetVendorMemoryLimit \(/ { vendor_restore = 1 }
+            /O6MemoryFrequencyIsValid \(/ { validates_rate = 1 }
+            /pPlatformSetupData->MemFreq != MemConfigBiosSetup->MemFreq/ {
+                updates_bset = 1
+            }
+            /Config->MaxFreq[[:space:]]*=/ { rewrites_conf = 1 }
             /Memory configuration write verified/ { readback = 1 }
             END {
-                exit !(updater && synchronizes_limit && vendor_restore && readback)
+                exit !(validates_rate && updates_bset && readback && !rewrites_conf)
             }
         ' "${memory_updater}" ||
-            cix_die "O6 memory updater lacks data-rate synchronization or read-back verification"
+            cix_die "O6 memory updater must update only BSET and verify the flash write"
     fi
 }
 
