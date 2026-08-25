@@ -58,12 +58,9 @@ cix_bootloader1_package_image() {
     local package_root="$1"
     local artifact_root="$2"
     local work_bsp="$3"
-    local work_non_osi="$4"
-    local key_profile="$5"
-    local bsp_variant="$6"
-    local build_mode="$7"
-    local output="${artifact_root}/bootloader1_${bsp_variant}_${build_mode}.img"
-    local config="config/cix_bl1_rsa3072_${key_profile}.json"
+    local build_mode="$4"
+    local output="${artifact_root}/bootloader1_proto_${build_mode}.img"
+    local config="config/cix_bl1_rsa3072_prototype.json"
 
     (
         cd "${package_root}" || exit
@@ -71,16 +68,11 @@ cix_bootloader1_package_image() {
         ./bin/cix_mkimage_rsa -j "${config}" -v "${output}"
     )
     [[ -s "${output}" ]] ||
-        cix_die "source-built ${bsp_variant} ${build_mode} bootloader1 is missing"
+        cix_die "source-built prototype ${build_mode} bootloader1 is missing"
 
-    mkdir -p -- "${work_bsp}/sky1/${bsp_variant}_${build_mode}/Firmwares"
+    mkdir -p -- "${work_bsp}/sky1/proto_${build_mode}/Firmwares"
     install -m 0644 "${output}" \
-        "${work_bsp}/sky1/${bsp_variant}_${build_mode}/Firmwares/bootloader1.img"
-
-    if [[ "${bsp_variant}" == pr && "${build_mode}" == release ]]; then
-        install -m 0644 "${output}" \
-            "${work_non_osi}/Platform/CIX/Sky1/PackageTool/Firmwares/bootloader1.img"
-    fi
+        "${work_bsp}/sky1/proto_${build_mode}/Firmwares/bootloader1.img"
 }
 
 cix_bootloader1_build() {
@@ -88,7 +80,6 @@ cix_bootloader1_build() {
     local build_output="$2"
     local build_jobs="$3"
     local work_bsp="$4"
-    local work_non_osi="$5"
     local source_binary="${CIX_ROOT}/sources/cix-binary"
     local source_firmware_binary="${source_root}/bootloader/firmware-binaries"
     local work_root="${build_output}/bootloader-work"
@@ -97,6 +88,7 @@ cix_bootloader1_build() {
     local patch_root="${CIX_ROOT}/build-scripts/patches/radxa-bootloader"
     local native_mkimage="${work_root}/sw-tools-private/host/cix_mkimage/cix_mkimage_rsa"
     local secure_tool="${source_binary}/host/security/sky1/cix_secure_boot_tool"
+    local prototype_keys="${source_binary}/host/security/sky1/lkms/rsa3072_prototype_keys"
     local image_config="${source_firmware_binary}/sky1/common/cix_config/evb"
     local component
 
@@ -105,8 +97,10 @@ cix_bootloader1_build() {
             --is-inside-work-tree >/dev/null 2>&1 ||
             cix_die "Sky1 bootloader source is not synced: ${component}"
     done
-    [[ -s "${image_config}/cix_bl1_rsa3072_product.json" ]] ||
-        cix_die "current Sky1 secure boot configuration is not synced"
+    [[ -s "${image_config}/cix_bl1_rsa3072_prototype.json" ]] ||
+        cix_die "current Sky1 prototype boot configuration is not synced"
+    [[ -s "${prototype_keys}/cix_user_privatekey.pem" ]] ||
+        cix_die "Sky1 local prototype signing keys are not synced"
     [[ -s "${source_firmware_binary}/sky1/evb/debug/pm_fw/pm_fw.bin" ]] ||
         cix_die "version-matched Sky1 PM firmware payload is not synced"
 
@@ -143,31 +137,19 @@ cix_bootloader1_build() {
     mkdir -p -- "${package_root}/bin" "${package_root}/images"
     cp -a -- "${secure_tool}/." "${package_root}/"
     install -m 0755 "${native_mkimage}" "${package_root}/bin/cix_mkimage_rsa"
-    install -m 0644 "${image_config}/cix_bl1_rsa3072_product.json" \
-        "${package_root}/config/cix_bl1_rsa3072_product.json"
     install -m 0644 "${image_config}/cix_bl1_rsa3072_prototype.json" \
         "${package_root}/config/cix_bl1_rsa3072_prototype.json"
     install -m 0644 "${secure_tool}/images/efuse_fw.bin" \
         "${package_root}/images/efuse_fw.bin"
 
-    mkdir -p -- \
-        "${package_root}/rsa3072_product_keys" \
-        "${package_root}/rsa3072_prototype_keys"
-    install -m 0600 "${secure_tool}/release_rsa3072_keys/oem_privatekey.pem" \
-        "${package_root}/rsa3072_product_keys/cix_user_privatekey.pem"
-    install -m 0644 "${secure_tool}/release_rsa3072_keys/oem_publickey.pem" \
-        "${package_root}/rsa3072_product_keys/cix_user_publickey.pem"
-    install -m 0600 "${secure_tool}/release_rsa3072_keys/cix_privatekey.pem" \
-        "${package_root}/rsa3072_product_keys/cix_privatekey.pem"
-    install -m 0644 "${secure_tool}/release_rsa3072_keys/cix_publickey.pem" \
-        "${package_root}/rsa3072_product_keys/cix_publickey.pem"
-    install -m 0600 "${secure_tool}/debug_rsa3072_keys/oem_privatekey.pem" \
+    mkdir -p -- "${package_root}/rsa3072_prototype_keys"
+    install -m 0600 "${prototype_keys}/cix_user_privatekey.pem" \
         "${package_root}/rsa3072_prototype_keys/cix_user_privatekey.pem"
-    install -m 0644 "${secure_tool}/debug_rsa3072_keys/oem_publickey.pem" \
+    install -m 0644 "${prototype_keys}/cix_user_publickey.pem" \
         "${package_root}/rsa3072_prototype_keys/cix_user_publickey.pem"
-    install -m 0600 "${secure_tool}/debug_rsa3072_keys/cix_privatekey.pem" \
+    install -m 0600 "${prototype_keys}/cix_privatekey.pem" \
         "${package_root}/rsa3072_prototype_keys/cix_privatekey.pem"
-    install -m 0644 "${secure_tool}/debug_rsa3072_keys/cix_publickey.pem" \
+    install -m 0644 "${prototype_keys}/cix_publickey.pem" \
         "${package_root}/rsa3072_prototype_keys/cix_publickey.pem"
 
     for component in debug release; do
@@ -180,11 +162,7 @@ cix_bootloader1_build() {
             "${source_firmware_binary}/sky1/evb/${component}/pbl_fw/pbl_fw.bin" \
             "${package_root}/images/pbl_fw.bin"
         cix_bootloader1_package_image \
-            "${package_root}" "${artifact_root}" "${work_bsp}" \
-            "${work_non_osi}" product pr "${component}"
-        cix_bootloader1_package_image \
-            "${package_root}" "${artifact_root}" "${work_bsp}" \
-            "${work_non_osi}" prototype proto "${component}"
+            "${package_root}" "${artifact_root}" "${work_bsp}" "${component}"
     done
 
     (
@@ -192,6 +170,7 @@ cix_bootloader1_build() {
         sha256sum bootloader1_*.img se_fw_*.bin >SHA256SUMS
     )
     cix_bootloader1_remove_workspace "${source_root}" "${build_output}"
-    cix_log "Built and verified product/prototype Sky1 bootloader1 images"
-    cix_log "Keep revision-pinned pr2 bootloader1 because its private key is RKMS-only"
+    cix_log "Built and verified local-prototype Sky1 bootloader1 images"
+    cix_log "Keep revision-pinned pr/pr2 bootloader1 images; product signing requires RKMS"
+    cix_log "Do not run the available x86-only cix_kms tool on the ARM64 build host"
 }

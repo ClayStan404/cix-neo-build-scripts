@@ -192,11 +192,15 @@ does not execute an x86 cross-toolchain. DDR training is limited to three
 attempts. If an explicit rate fails, firmware writes `Auto` back to the
 dedicated memory configuration entry, verifies the flash update, and resets.
 Failure while already using `Auto` stops initialization instead of entering an
-unbounded reset loop. Product (`pr`) and prototype images are source-built and
-verified. The `pr2` image remains the manifest-pinned binary because its
-private signing key is available only through RKMS. PM and PBL target payloads
-also remain version-matched manifest binaries because their source build needs
-the licensed Xtensa toolchain, which Debian does not provide.
+unbounded reset loop. Local signing is restricted to the documented prototype
+key, and the tuning target publishes only explicitly named `proto_release` and
+`proto_debug` full-flash images. It never labels the repository's example
+release keys as production keys. Product `pr` and `pr2` bootloaders remain the
+manifest-pinned binaries: regenerating them requires RKMS, while the available
+`cix_kms` frontend is x86-only and its source is not present. It is therefore
+not executed by the ARM64-native build. PM and PBL target payloads also remain
+version-matched manifest binaries because their source build needs the licensed
+Xtensa toolchain, which Debian does not provide.
 
 The same set publishes the manifest-pinned ARM64 CIX `pmtool` binary at
 `output/pmtool/pmtool`. On the O6 test board, capture the effective PM firmware

@@ -231,9 +231,12 @@ is confirmed.
 - Track `cix_security/ddr`, `cix_security/firmware`, `cix_security/library`,
   `cix_private/sw_tools_private`, and `cix_proprietary/cix_firmware` for the
   Sky1 bootloader source and version-matched target payloads. Build SE/DDR and
-  the signing tool natively on ARM64 with Debian 13 packages, then build and
-  verify product and prototype `bootloader1` images. Keep `pr2` revision-pinned
-  until its RKMS-only product key can be supplied to CI. Keep PM and PBL as
+  the signing tool natively on ARM64 with Debian 13 packages, then locally sign
+  and verify only prototype `bootloader1` images with the documented LKMS
+  prototype key. Never treat repository example release keys as product keys.
+  Keep `pr` and `pr2` revision-pinned unless the corresponding RKMS projects
+  and an ARM64-native packaging frontend are both available; never execute the
+  existing x86-only `cix_kms` binary on the ARM64 build host. Keep PM and PBL as
   version-matched payloads until their licensed Xtensa source toolchain has a
   supported Debian 13 ARM64 workflow.
 - Track internal `tools/cix_binary` at commit
@@ -482,9 +485,10 @@ pass checksum validation and complete read-back comparison. This behavior is
 not enabled in the normal O6 firmware target. The same flow builds the Sky1
 SE/DDR firmware from source with Debian 13's native ARM embedded toolchain,
 limits training to three attempts, restores an explicit failed request to
-Automatic, and packages verified product and prototype `bootloader1` images
-with the ARM64-native signing tool. It retains the manifest-pinned `pr2`, PM,
-and PBL payloads at the documented signing/toolchain boundary.
+Automatic, and packages verified prototype `bootloader1` images with the
+ARM64-native signing tool. It publishes only explicitly named prototype tuning
+images and retains the manifest-pinned `pr`, `pr2`, PM, and PBL payloads at the
+documented signing/toolchain boundary.
 
 ## Legacy Reference
 

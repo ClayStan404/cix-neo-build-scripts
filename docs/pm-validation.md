@@ -133,9 +133,15 @@ passed the board checks above:
 ./build-scripts/cix-build pm-tuning
 ```
 
-Flash only this recovery-gated O6 artifact:
+Flash only one of these recovery-gated O6 prototype artifacts:
 
-- `output/radxa-o6-pm-tuning/images/cix_flash_all_O6_pr_debug.bin`
+- `output/radxa-o6-pm-tuning/images/cix_flash_all_O6_proto_release.bin`
+- `output/radxa-o6-pm-tuning/images/cix_flash_all_O6_proto_debug.bin`
+
+These locally signed images are for blank/prototype development boards. They
+are not product-signed images. The target does not publish a tuning image named
+`pr` or `pr2`; those trust states require RKMS and retain their manifest-pinned
+bootloaders until an ARM64-native RKMS packaging frontend is available.
 
 In UEFI setup, open `Device Manager -> Platform Configuration -> Advanced
 Configuration -> Power Management` and select a profile:

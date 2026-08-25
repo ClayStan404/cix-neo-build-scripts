@@ -280,11 +280,10 @@ cix_direct_radxa_firmware_build() (
     if [[ "${enable_pm_tuning}" == true ]]; then
         cix_require_command \
             arm-none-eabi-gcc arm-none-eabi-ld arm-none-eabi-objcopy \
-            install openssl pkg-config sha256sum
+            cmp install openssl pkg-config sha256sum
         cix_bootloader1_build \
             "${firmware_source}" "${build_output}" "${build_jobs}" \
-            "${build_output}/work/cix_bsp_release" \
-            "${uefi_source}/edk2-non-osi"
+            "${build_output}/work/cix_bsp_release"
     fi
 
     [[ -x "${package_script}" ]] ||
@@ -377,6 +376,33 @@ cix_direct_radxa_firmware_build() (
             cix_die "Radxa ${platform} firmware artifact is missing: ${artifact}"
     done
 
+    if [[ "${enable_pm_tuning}" == true ]]; then
+        for artifact in \
+            cix_flash_all_rsa_proto.bin \
+            cix_flash_ota_rsa_proto.bin \
+            cix_flash_all_rsa_proto_debug.bin \
+            cix_flash_ota_rsa_proto_debug.bin; do
+            [[ -s "${generated_output}/${artifact}" ]] ||
+                cix_die "Radxa ${platform} prototype artifact is missing: ${artifact}"
+        done
+
+        cmp -- "${build_output}/bootloader1/bootloader1_proto_release.img" \
+            "${generated_output}/proto_release/Firmwares/bootloader1.img" ||
+            cix_die "prototype release image does not contain the source-built bootloader1"
+        cmp -- "${build_output}/bootloader1/bootloader1_proto_debug.img" \
+            "${generated_output}/proto_debug/Firmwares/bootloader1.img" ||
+            cix_die "prototype debug image does not contain the source-built bootloader1"
+        cmp -- \
+            "${firmware_source}/cix_bsp_release/sky1/pr_debug/Firmwares/bootloader1.img" \
+            "${generated_output}/pr_debug/Firmwares/bootloader1.img" ||
+            cix_die "the revision-pinned pr bootloader1 was unexpectedly replaced"
+        cmp -- \
+            "${firmware_source}/cix_bsp_release/sky1/pr2_debug/Firmwares/bootloader1.img" \
+            "${generated_output}/pr2_debug/Firmwares/bootloader1.img" ||
+            cix_die "the revision-pinned pr2 bootloader1 was unexpectedly replaced"
+        cix_log "Verified local prototype and revision-pinned product signing boundaries"
+    fi
+
     if [[ "${validation_profile}" != "none" ]]; then
         local validation_config="${generated_output}/pr/Firmwares/csu_pm_config.bin"
         local validation_output
@@ -390,17 +416,29 @@ cix_direct_radxa_firmware_build() (
             "${validation_output}"
     fi
 
-    cp -- "${generated_output}/cix_flash_all.bin" \
-        "${image_output}/cix_flash_all_${platform}.bin"
-    cp -- "${generated_output}/cix_flash_ota.bin" \
-        "${image_output}/cix_flash_ota_${platform}.bin"
-    cp -- "${generated_output}/cix_flash_all_rsa_pr_debug.bin" \
-        "${image_output}/cix_flash_all_${platform}_pr_debug.bin"
-    cp -- "${generated_output}/cix_flash_ota_rsa_pr_debug.bin" \
-        "${image_output}/cix_flash_ota_${platform}_pr_debug.bin"
+    if [[ "${enable_pm_tuning}" == true ]]; then
+        cp -- "${generated_output}/cix_flash_all_rsa_proto.bin" \
+            "${image_output}/cix_flash_all_${platform}_proto_release.bin"
+        cp -- "${generated_output}/cix_flash_ota_rsa_proto.bin" \
+            "${image_output}/cix_flash_ota_${platform}_proto_release.bin"
+        cp -- "${generated_output}/cix_flash_all_rsa_proto_debug.bin" \
+            "${image_output}/cix_flash_all_${platform}_proto_debug.bin"
+        cp -- "${generated_output}/cix_flash_ota_rsa_proto_debug.bin" \
+            "${image_output}/cix_flash_ota_${platform}_proto_debug.bin"
+    else
+        cp -- "${generated_output}/cix_flash_all.bin" \
+            "${image_output}/cix_flash_all_${platform}.bin"
+        cp -- "${generated_output}/cix_flash_ota.bin" \
+            "${image_output}/cix_flash_ota_${platform}.bin"
+        cp -- "${generated_output}/cix_flash_all_rsa_pr_debug.bin" \
+            "${image_output}/cix_flash_all_${platform}_pr_debug.bin"
+        cp -- "${generated_output}/cix_flash_ota_rsa_pr_debug.bin" \
+            "${image_output}/cix_flash_ota_${platform}_pr_debug.bin"
+    fi
     cp -- "${image_output}"/cix_flash_all*.bin "${image_output}/ocb/"
 
-    if [[ -s "${generated_output}/bootloader1_ocb_pr.img" ]]; then
+    if [[ "${enable_pm_tuning}" != true &&
+        -s "${generated_output}/bootloader1_ocb_pr.img" ]]; then
         cp -- "${generated_output}/bootloader1_ocb_pr.img" \
             "${image_output}/ocb/bootloader1_pr.img"
     fi
