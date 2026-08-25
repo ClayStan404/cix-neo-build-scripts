@@ -152,22 +152,30 @@ GB1 OPP changes from 2600 MHz at 920 mV to 2700 MHz at 950 mV. The verifier
 rejects any other OPP-table difference. This experiment is never included in
 a product build set and must be used only on a recoverable O6 test board.
 
-`radxa-o6-pm-tuning` provides Vendor/Automatic, Vendor-Capped Custom,
-Engineering Unlock, and Engineering/Unsafe Custom profiles in
-the O6 UEFI setup menu under `Device Manager -> Platform Configuration ->
-Advanced Configuration -> Power Management`. Vendor/Automatic disables the
-external OPP table so PM firmware can use its native OPN/Vmin/guardband path.
+`radxa-o6-pm-tuning` produces two capability-separated images. The
+`vendor_release` image exposes only Vendor/Automatic and Vendor-Capped Custom;
+the `engineering_debug` image additionally exposes Engineering Unlock and
+Engineering/Unsafe Custom. The profiles are in the O6 UEFI setup menu under
+`Device Manager -> Platform Configuration -> Advanced Configuration -> Power
+Management`. Vendor/Automatic disables the external OPP table so PM firmware
+can use its native OPN/Vmin/guardband path.
 Vendor-Capped Custom uses the PM firmware v3.4 partial-table ABI and overrides
 only explicitly enabled CPU domains, so all other domains retain native tables
-and OPN frequency limits. Engineering profiles enable a complete table; only
-the Debug PM firmware removes the retail OPN frequency limit, while Release PM
-firmware still caps it. The fixed 2.7 GHz profile uses a 950 mV floor with
-per-chip Vmin profile 1. It remains experimental on a retail Radxa O6.
+and OPN frequency limits. At least one domain must be selected, and settings
+for disabled domains are hidden. Release firmware rejects and migrates any
+persisted engineering profile back to Vendor/Automatic. Engineering profiles
+enable a complete table; only the Debug PM firmware removes the retail OPN
+frequency limit. The fixed 2.7 GHz profile uses a 950 mV floor with per-chip
+Vmin profile 1. It remains experimental on a retail Radxa O6.
 Custom profiles permit edits to the non-boot OPPs of GB0, GB1, GM0, and GM1
 within 800-3200 MHz and 550-1250 mV base voltage in steps of 10. Each editable
 OPP can use a fixed voltage or Vmin profile 1-3. The effective 1500 MHz / 790 mV
 boot OPP, DSU, and non-CPU domains remain locked. CPU power entries use the
-measured-power table and interpolation from the exact pinned PM firmware source.
+measured-power table and interpolation from the exact pinned PM firmware
+source, then conservatively scale upward with voltage squared above the source
+voltage curve. Vmin modes reserve power at the source PM firmware's 980 mV
+ceiling. The NVRAM settings carry a revision, exact size, and signature so an
+incompatible layout cannot be consumed silently.
 The build verifies both PM binaries against source revision `a2327331813f`,
 their SHA-256 digests, PM config ABI v3.4, and the generated v3.0 schema. On the
 following boot, a DXE driver validates, writes, reads back, and compares the
@@ -207,14 +215,15 @@ also remain version-matched manifest binaries because their source build needs
 the licensed Xtensa toolchain, which Debian does not provide.
 
 The same set publishes the manifest-pinned ARM64 CIX `pmtool` binary at
-`output/pmtool/pmtool`. On the O6 test board, capture the effective PM firmware
-table before and after flashing a validation image with:
+`output/pmtool/pmtool`. On the O6 test board, capture a checksummed read-only PM,
+cpufreq, thermal, firmware, and kernel snapshot before and after flashing with:
 
 ```bash
-sudo ./pmtool cli opp_config
+sudo ./build-scripts/tests/collect-o6-pm-state.sh \
+  ./output/pmtool/pmtool ./o6-pm-before
 ```
 
-Run it from the copied artifact's directory. The command needs privileged
+Use a new output directory for each capture. The collector needs privileged
 hardware access and is never executed automatically by the build system.
 The full recovery-gated board procedure is documented in
 [`docs/pm-validation.md`](docs/pm-validation.md).

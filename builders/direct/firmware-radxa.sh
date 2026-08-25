@@ -83,6 +83,52 @@ cix_radxa_apply_patch() {
     fi
 }
 
+cix_radxa_validate_pm_ifr() {
+    local platform_config_ifr="$1"
+    local capability="$2"
+
+    awk -v capability="${capability}" '
+        /form formid = 0x2017,/ { profile_form = 1 }
+        /form formid = 0x2018,/ { custom_form = 1 }
+        /oneof varid = RadxaPmTuningVar.Profile,/ {
+            selector = 1
+            in_profile_selector = 1
+        }
+        in_profile_selector && /option text =/ { profile_options++ }
+        in_profile_selector && /endoneof;/ { in_profile_selector = 0 }
+        /numeric varid = RadxaPmTuningVar.CpuFrequency\[0\],/ {
+            first_frequency = 1
+        }
+        /numeric varid = RadxaPmTuningVar.CpuFrequency\[[0-9]+\],/ {
+            frequency_fields++
+        }
+        /numeric varid = RadxaPmTuningVar.CpuVoltage\[44\],/ {
+            last_voltage = 1
+        }
+        /numeric varid = RadxaPmTuningVar.CpuVoltage\[[0-9]+\],/ {
+            voltage_fields++
+        }
+        /oneof varid = RadxaPmTuningVar.CpuVoltageMode\[[0-9]+\],/ {
+            vmin_fields++
+        }
+        /oneof varid = RadxaPmTuningVar.CpuDomainEnabled\[[0-9]+\],/ {
+            partial_domains++
+        }
+        /CpuFrequency\[(2|15|28|41)\]/ ||
+        /CpuVoltage\[(2|15|28|41)\]/ ||
+        /CpuVoltageMode\[(2|15|28|41)\]/ { protected_opp = 1 }
+        END {
+            expected_options = (capability == "engineering") ? 4 : 2
+            exit !(profile_form && custom_form && selector &&
+                   first_frequency && last_voltage &&
+                   frequency_fields == 23 && voltage_fields == 23 &&
+                   vmin_fields == 23 && partial_domains == 4 &&
+                   profile_options == expected_options && !protected_opp)
+        }
+    ' "${platform_config_ifr}" ||
+        cix_die "compiled O6 ${capability} firmware has an invalid PM menu"
+}
+
 cix_radxa_prepare_workspace() {
     local source_root="$1"
     local build_output="$2"
@@ -161,6 +207,8 @@ cix_radxa_prepare_workspace() {
     if [[ "${enable_pm_tuning}" == true ]]; then
         cix_radxa_apply_patch "${work_uefi}/edk2-platforms" \
             "${pm_tuning_patch_root}/0001-Platform-add-selectable-O6-PM-profiles.patch"
+        cix_radxa_apply_patch "${work_uefi}/edk2-non-osi" \
+            "${pm_tuning_patch_root}/0002-PackageTool-select-PM-engineering-capabilities.patch"
         cix_radxa_apply_patch "${work_uefi}/edk2-platforms" \
             "${memory_tuning_patch_root}/0001-Make-O6-memory-rate-updates-reliable.patch"
 
@@ -194,12 +242,27 @@ cix_radxa_prepare_workspace() {
             /RadxaPmTuningVar.CpuVoltageMode\[Index\]/ { vmin_macro = 1 }
             /PM_VOLT_MODE\(0\)/ { vmin_policy = 1 }
             /PM_FREQ_AFTER_BOOT\(3, 4, 1800\)/ { editable_opp3 = 1 }
+            /STR_PM_PARTIAL_REQUIRED/ { partial_required = 1 }
+            /PM_ENGINEERING_SUPPORT/ { engineering_gate = 1 }
             END {
                 exit !(partial_profile && partial_macro && partial_domain &&
-                       vmin_macro && vmin_policy && editable_opp3)
+                       vmin_macro && vmin_policy && editable_opp3 &&
+                       partial_required && engineering_gate)
             }
         ' "${pm_form}" ||
             cix_die "O6 custom PM form is missing partial-domain or Vmin controls"
+        awk '
+            /PmConservativePower \(/ { conservative_power = 1 }
+            /PM_CONFIG_VMIN_VOLTAGE_CEILING/ { vmin_ceiling = 1 }
+            /EnabledDomains == 0/ { partial_nonempty = 1 }
+            /RADXA_PM_TUNING_REVISION/ { settings_revision = 1 }
+            /PM_ENGINEERING_SUPPORT == 0/ { engineering_gate = 1 }
+            END {
+                exit !(conservative_power && vmin_ceiling && partial_nonempty &&
+                       settings_revision && engineering_gate)
+            }
+        ' "${work_uefi}/edk2-platforms/Platform/CIX/Sky1/Drivers/PmConfigUpdateDxe/PmConfigUpdateDxe.c" ||
+            cix_die "O6 PM updater is missing a safety policy"
         awk '
             /STR_DDR_1600.*value = 800/ { rate_1600 = 1 }
             /STR_DDR_2133.*value = 1067/ { rate_2133 = 1 }
@@ -251,6 +314,9 @@ cix_direct_radxa_firmware_build() (
     local package_tool="${uefi_source}/edk2-non-osi/Platform/CIX/Sky1/PackageTool/AARCH64/cix_package_tool"
     local internal_package_script="${build_output}/work/cix_bsp_release/sky1/package_internal_flash_binary.sh"
     local platform_config_ifr
+    local release_bootloader3="${build_output}/bootloader3_vendor_release.img"
+    local release_platform_config_ifr="${build_output}/PlatformConfigHii.vendor_release.i"
+    local debug_bootloader3="${build_output}/bootloader3_engineering_debug.img"
 
     if [[ "${TARGET[flow]}" == "radxa-pm-validation" ]]; then
         validation_profile=pmic
@@ -327,14 +393,42 @@ cix_direct_radxa_firmware_build() (
         EXTRA_LDFLAGS=-no-pie
     make -C "${uefi_source}/tools/acpica" -j"${build_jobs}"
 
-    cix_log "Build Radxa Orion ${platform} firmware with ${build_jobs} jobs"
-    if [[ "${validation_profile}" != "none" ]]; then
+    if [[ "${enable_pm_tuning}" == true ]]; then
+        cix_log "Build Radxa Orion ${platform} vendor-capped UEFI with ${build_jobs} jobs"
+        (
+            cd "${uefi_source}" || exit
+            CIX_PM_VALIDATION=1 CIX_PM_ENGINEERING=FALSE NETWORK=open \
+                "${package_script}" "${platform}"
+        )
+        platform_config_ifr="$(
+            find "${uefi_source}/Build/${platform}" \
+                -path '*/PlatformConfigDxe/PlatformConfigDxe/OUTPUT/PlatformConfigHii.i' \
+                -print -quit
+        )"
+        [[ -s "${platform_config_ifr}" ]] ||
+            cix_die "compiled O6 vendor-capped platform configuration form is missing"
+        cix_radxa_validate_pm_ifr "${platform_config_ifr}" vendor
+        cp -- "${platform_config_ifr}" "${release_platform_config_ifr}"
+        cp -- "${generated_output}/pr/Firmwares/bootloader3.img" \
+            "${release_bootloader3}"
+
+        cix_log "Build Radxa Orion ${platform} engineering UEFI with ${build_jobs} jobs"
+        (
+            cd "${uefi_source}" || exit
+            CIX_PM_VALIDATION=1 CIX_PM_ENGINEERING=TRUE NETWORK=open \
+                "${package_script}" "${platform}"
+        )
+        cp -- "${generated_output}/pr/Firmwares/bootloader3.img" \
+            "${debug_bootloader3}"
+    elif [[ "${validation_profile}" != "none" ]]; then
+        cix_log "Build Radxa Orion ${platform} firmware with ${build_jobs} jobs"
         (
             cd "${uefi_source}" || exit
             CIX_PM_VALIDATION=1 NETWORK=open \
                 "${package_script}" "${platform}"
         )
     else
+        cix_log "Build Radxa Orion ${platform} firmware with ${build_jobs} jobs"
         (
             cd "${uefi_source}" || exit
             NETWORK=open "${package_script}" "${platform}"
@@ -348,41 +442,8 @@ cix_direct_radxa_firmware_build() (
                 -print -quit
         )"
         [[ -s "${platform_config_ifr}" ]] ||
-            cix_die "compiled O6 platform configuration form is missing"
-        awk '
-            /form formid = 0x2017,/ { profile_form = 1 }
-            /form formid = 0x2018,/ { custom_form = 1 }
-            /oneof varid = RadxaPmTuningVar.Profile,/ { selector = 1 }
-            /numeric varid = RadxaPmTuningVar.CpuFrequency\[0\],/ {
-                first_frequency = 1
-            }
-            /numeric varid = RadxaPmTuningVar.CpuFrequency\[[0-9]+\],/ {
-                frequency_fields++
-            }
-            /numeric varid = RadxaPmTuningVar.CpuVoltage\[44\],/ {
-                last_voltage = 1
-            }
-            /numeric varid = RadxaPmTuningVar.CpuVoltage\[[0-9]+\],/ {
-                voltage_fields++
-            }
-            /oneof varid = RadxaPmTuningVar.CpuVoltageMode\[[0-9]+\],/ {
-                vmin_fields++
-            }
-            /oneof varid = RadxaPmTuningVar.CpuDomainEnabled\[[0-9]+\],/ {
-                partial_domains++
-            }
-            /CpuFrequency\[(2|15|28|41)\]/ ||
-            /CpuVoltage\[(2|15|28|41)\]/ ||
-            /CpuVoltageMode\[(2|15|28|41)\]/ { protected_opp = 1 }
-            END {
-                exit !(profile_form && custom_form && selector &&
-                       first_frequency && last_voltage &&
-                       frequency_fields == 23 && voltage_fields == 23 &&
-                       vmin_fields == 23 && partial_domains == 4 &&
-                       !protected_opp)
-            }
-        ' "${platform_config_ifr}" ||
-            cix_die "compiled O6 firmware does not contain the safe custom PM menu"
+            cix_die "compiled O6 engineering platform configuration form is missing"
+        cix_radxa_validate_pm_ifr "${platform_config_ifr}" engineering
         python3 "${CIX_ROOT}/build-scripts/ci/verify_memory_config.py" \
             "${generated_output}/pr/Firmwares/memory_config.bin"
         cix_log "Verified O6 PM and experimental memory tuning firmware"
@@ -416,6 +477,25 @@ cix_direct_radxa_firmware_build() (
             "${generated_output}/cix_flash_all_rsa_proto.bin" \
             "${generated_output}/cix_flash_all_rsa_proto_debug.bin"; then
             cix_die "prototype release and debug full-flash images are identical"
+        fi
+
+        cp -- "${release_bootloader3}" \
+            "${generated_output}/proto_release/Firmwares/bootloader3.img"
+        (
+            cd "${generated_output}/proto_release" || exit
+            ./cix_package_tool -c spi_flash_config_all.json \
+                -o "${generated_output}/cix_flash_all_rsa_proto.bin"
+        )
+        cmp -- "${release_bootloader3}" \
+            "${generated_output}/proto_release/Firmwares/bootloader3.img" ||
+            cix_die "prototype release image does not contain vendor-capped UEFI"
+        cmp -- "${debug_bootloader3}" \
+            "${generated_output}/proto_debug/Firmwares/bootloader3.img" ||
+            cix_die "prototype debug image does not contain engineering UEFI"
+        if cmp -s -- \
+            "${generated_output}/cix_flash_all_rsa_proto.bin" \
+            "${generated_output}/cix_flash_all_rsa_proto_debug.bin"; then
+            cix_die "final vendor and engineering full-flash images are identical"
         fi
 
         cmp -- "${build_output}/bootloader1/bootloader1_proto_release.img" \

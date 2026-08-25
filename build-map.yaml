@@ -824,7 +824,7 @@ projects:
         targets: [radxa-o6-opp-validation, radxa-o6-gb1-2700-experiment, radxa-o6-pm-tuning]
       - paths: ["patches/radxa-opp-experiments/**"]
         targets: [radxa-o6-gb1-2700-experiment]
-      - paths: ["patches/radxa-pm-tuning/**"]
+      - paths: ["patches/radxa-pm-tuning/**", "ci/pm_tuning_model.py", "ci/test_pm_tuning_model.py"]
         targets: [radxa-o6-pm-tuning]
       - paths: ["patches/radxa-memory-tuning/**", "ci/verify_memory_config.py", "ci/test_memory_config.py"]
         targets: [radxa-o6-pm-tuning]
@@ -836,8 +836,10 @@ projects:
         targets: ["*"]
       - paths: ["sbuild/**", "setup-host", "setup-sbuild"]
         targets: ["*"]
-      - paths: ["tests/**"]
+      - paths: ["tests/dkms.sh"]
         targets: [kernel, gpu-dkms, bt-dkms, vpu-dkms, npu-dkms, isp-v4l2-dkms, isp-dkms, wlan-dkms]
+      - paths: ["tests/collect-o6-pm-state.sh"]
+        targets: [pmtool, radxa-o6-pm-tuning]
     ignore:
       - ".gitignore"
       - "README.md"

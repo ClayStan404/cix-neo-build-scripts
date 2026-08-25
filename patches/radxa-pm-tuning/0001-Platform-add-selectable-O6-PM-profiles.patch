@@ -1,9 +1,9 @@
 diff --git a/Platform/CIX/Sky1/Drivers/PmConfigUpdateDxe/PmConfigUpdateDxe.c b/Platform/CIX/Sky1/Drivers/PmConfigUpdateDxe/PmConfigUpdateDxe.c
 new file mode 100644
-index 00000000..cbc02e4c
+index 00000000..e05bc98c
 --- /dev/null
 +++ b/Platform/CIX/Sky1/Drivers/PmConfigUpdateDxe/PmConfigUpdateDxe.c
-@@ -0,0 +1,1089 @@
+@@ -0,0 +1,1223 @@
 +/** @file
 +  Update the CIX v3 PM configuration from the selected BIOS profile.
 +
@@ -172,6 +172,84 @@ index 00000000..cbc02e4c
 +
 +STATIC
 +UINT16
++PmReferenceVoltage (
++  IN CONST PM_CPU_DOMAIN_DATA  *Domain,
++  IN UINT16                    Frequency
++  )
++{
++  UINT32  FrequencyDelta;
++  UINT32  Index;
++  UINT32  LowerFrequency;
++  UINT32  LowerVoltage;
++  UINT32  VoltageDelta;
++
++  if (Frequency <= Domain->Frequency[0]) {
++    return Domain->Voltage[0];
++  }
++
++  for (Index = 1; Index < Domain->Size; Index++) {
++    if (Frequency <= Domain->Frequency[Index]) {
++      LowerFrequency = Domain->Frequency[Index - 1];
++      LowerVoltage   = Domain->Voltage[Index - 1];
++      FrequencyDelta = Domain->Frequency[Index] - LowerFrequency;
++      VoltageDelta   = Domain->Voltage[Index] - LowerVoltage;
++      return (UINT16)(LowerVoltage +
++                      (VoltageDelta * (Frequency - LowerFrequency)) /
++                      FrequencyDelta);
++    }
++  }
++
++  return Domain->Voltage[Domain->Size - 1];
++}
++
++STATIC
++UINT32
++PmConservativePower (
++  IN CONST PM_CPU_DOMAIN_DATA  *Domain,
++  IN UINT16                    Frequency,
++  IN UINT16                    Voltage,
++  IN UINT8                     VoltageMode
++  )
++{
++  UINT64  Denominator;
++  UINT64  Estimate;
++  UINT64  Numerator;
++  UINT64  Remainder;
++  UINT32  BasePower;
++  UINT32  PowerVoltage;
++  UINT32  ReferenceVoltage;
++
++  BasePower       = PmMeasuredPower (Domain, Frequency);
++  ReferenceVoltage = PmReferenceVoltage (Domain, Frequency);
++  PowerVoltage    = Voltage;
++  if ((VoltageMode != RADXA_PM_VOLTAGE_FIXED) &&
++      (PowerVoltage < PM_CONFIG_VMIN_VOLTAGE_CEILING))
++  {
++    PowerVoltage = PM_CONFIG_VMIN_VOLTAGE_CEILING;
++  }
++
++  if (PowerVoltage <= ReferenceVoltage) {
++    return BasePower;
++  }
++
++  Numerator = MultU64x32 (
++                MultU64x32 ((UINT64)BasePower, PowerVoltage),
++                PowerVoltage
++                );
++  Denominator = MultU64x32 (
++                  (UINT64)ReferenceVoltage,
++                  ReferenceVoltage
++                  );
++  Estimate = DivU64x64Remainder (Numerator, Denominator, &Remainder);
++  if (Remainder != 0) {
++    Estimate++;
++  }
++
++  return (UINT32)Estimate;
++}
++
++STATIC
++UINT16
 +PmEncodeVoltage (
 +  IN UINT16  Voltage,
 +  IN UINT8   Mode
@@ -233,7 +311,10 @@ index 00000000..cbc02e4c
 +  UINTN  Index;
 +
 +  ZeroMem (Settings, sizeof (*Settings));
-+  Settings->Profile = RADXA_PM_PROFILE_VENDOR;
++  Settings->Profile   = RADXA_PM_PROFILE_VENDOR;
++  Settings->Revision  = RADXA_PM_TUNING_REVISION;
++  Settings->DataSize  = sizeof (*Settings);
++  Settings->Signature = RADXA_PM_TUNING_SIGNATURE;
 +  for (CpuDomain = 0; CpuDomain < ARRAY_SIZE (mCpuDomains); CpuDomain++) {
 +    for (Opp = 0; Opp < mCpuDomains[CpuDomain].Size; Opp++) {
 +      Index = PmSettingsIndex (CpuDomain, Opp);
@@ -255,16 +336,20 @@ index 00000000..cbc02e4c
 +  UINT16                    PreviousVoltage;
 +  UINT16                    Voltage;
 +  UINT8                     VoltageMode;
++  UINTN                     EnabledDomains;
 +  UINTN                     CpuDomain;
 +  UINTN                     Index;
 +  UINTN                     Opp;
 +
++  EnabledDomains = 0;
 +  for (CpuDomain = 0; CpuDomain < ARRAY_SIZE (mCpuDomains); CpuDomain++) {
 +    Domain           = &mCpuDomains[CpuDomain];
 +    if (Settings->CpuDomainEnabled[CpuDomain] > 1) {
 +      DEBUG ((DEBUG_ERROR, "[PmConfigUpdate] Invalid %a partial-domain state\n", Domain->Name));
 +      return FALSE;
 +    }
++
++    EnabledDomains += Settings->CpuDomainEnabled[CpuDomain];
 +
 +    PreviousFrequency = 0;
 +    PreviousVoltage   = 0;
@@ -321,6 +406,13 @@ index 00000000..cbc02e4c
 +    }
 +  }
 +
++  if ((Settings->Profile == RADXA_PM_PROFILE_PARTIAL) &&
++      (EnabledDomains == 0))
++  {
++    DEBUG ((DEBUG_ERROR, "[PmConfigUpdate] Partial profile has no enabled CPU domain\n"));
++    return FALSE;
++  }
++
 +  return TRUE;
 +}
 +
@@ -330,10 +422,27 @@ index 00000000..cbc02e4c
 +  IN CONST RADXA_PM_TUNING_DATA  *Settings
 +  )
 +{
++  if ((Settings->Revision != RADXA_PM_TUNING_REVISION) ||
++      (Settings->DataSize != sizeof (*Settings)) ||
++      (Settings->Signature != RADXA_PM_TUNING_SIGNATURE))
++  {
++    DEBUG ((DEBUG_ERROR, "[PmConfigUpdate] Invalid PM tuning variable header\n"));
++    return FALSE;
++  }
++
 +  if (Settings->Profile > RADXA_PM_PROFILE_MAX) {
 +    DEBUG ((DEBUG_ERROR, "[PmConfigUpdate] Unknown PM profile\n"));
 +    return FALSE;
 +  }
++
++#if (PM_ENGINEERING_SUPPORT == 0)
++  if ((Settings->Profile == RADXA_PM_PROFILE_GB1_2700) ||
++      (Settings->Profile == RADXA_PM_PROFILE_CUSTOM))
++  {
++    DEBUG ((DEBUG_ERROR, "[PmConfigUpdate] Engineering profile is disabled\n"));
++    return FALSE;
++  }
++#endif
 +
 +  return (((Settings->Profile != RADXA_PM_PROFILE_CUSTOM) &&
 +           (Settings->Profile != RADXA_PM_PROFILE_PARTIAL)) ||
@@ -764,8 +873,13 @@ index 00000000..cbc02e4c
 +    *Voltage   = PM_CONFIG_CPU_BOOT_VOLTAGE;
 +  }
 +
++  *Power   = PmConservativePower (
++               Domain,
++               *Frequency,
++               *Voltage,
++               VoltageMode
++               );
 +  *Voltage = PmEncodeVoltage (*Voltage, VoltageMode);
-+  *Power   = PmMeasuredPower (Domain, *Frequency);
 +}
 +
 +STATIC
@@ -899,9 +1013,11 @@ index 00000000..cbc02e4c
 +  )
 +{
 +  EFI_STATUS  Status;
++  BOOLEAN     StoreSettings;
 +  UINTN       Size;
 +
 +  PmInitializeSettings (Settings);
++  StoreSettings = FALSE;
 +  Size   = sizeof (*Settings);
 +  Status = gRT->GetVariable (
 +                  RADXA_PM_TUNING_VAR,
@@ -925,24 +1041,42 @@ index 00000000..cbc02e4c
 +  }
 +
 +  if ((Size == sizeof (UINT8)) ||
-+      (Size == RADXA_PM_TUNING_LEGACY_SIZE))
++      (Size == RADXA_PM_TUNING_LEGACY_SIZE) ||
++      (Size == RADXA_PM_TUNING_V1_SIZE))
 +  {
-+    if (Settings->Profile > RADXA_PM_PROFILE_GB1_2700) {
-+      if (Size == sizeof (UINT8)) {
-+        PmInitializeSettings (Settings);
-+      } else if (Settings->Profile > RADXA_PM_PROFILE_CUSTOM) {
-+        Settings->Profile = RADXA_PM_PROFILE_VENDOR;
-+      }
++    if (((Size == sizeof (UINT8)) &&
++         (Settings->Profile > RADXA_PM_PROFILE_GB1_2700)) ||
++        ((Size == RADXA_PM_TUNING_LEGACY_SIZE) &&
++         (Settings->Profile > RADXA_PM_PROFILE_CUSTOM)) ||
++        (Settings->Profile > RADXA_PM_PROFILE_MAX))
++    {
++      Settings->Profile = RADXA_PM_PROFILE_VENDOR;
 +    }
 +
++    Settings->Revision  = RADXA_PM_TUNING_REVISION;
++    Settings->DataSize  = sizeof (*Settings);
++    Settings->Signature = RADXA_PM_TUNING_SIGNATURE;
++    StoreSettings       = TRUE;
++  } else if (Size != sizeof (*Settings)) {
++    DEBUG ((DEBUG_ERROR, "[PmConfigUpdate] Unexpected setup variable size: %u\n", (UINT32)Size));
++    return EFI_COMPROMISED_DATA;
++  }
++
++#if (PM_ENGINEERING_SUPPORT == 0)
++  if ((Settings->Profile == RADXA_PM_PROFILE_GB1_2700) ||
++      (Settings->Profile == RADXA_PM_PROFILE_CUSTOM))
++  {
++    Settings->Profile = RADXA_PM_PROFILE_VENDOR;
++    StoreSettings     = TRUE;
++  }
++#endif
++
++  if (StoreSettings) {
 +    Status = PmStoreSettings (Settings);
 +    if (EFI_ERROR (Status)) {
 +      DEBUG ((DEBUG_ERROR, "[PmConfigUpdate] Cannot migrate setup variable: %r\n", Status));
 +      return Status;
 +    }
-+  } else if (Size != sizeof (*Settings)) {
-+    DEBUG ((DEBUG_ERROR, "[PmConfigUpdate] Unexpected setup variable size: %u\n", (UINT32)Size));
-+    return EFI_COMPROMISED_DATA;
 +  }
 +
 +  if (!PmSettingsAreValid (Settings)) {
@@ -1095,10 +1229,10 @@ index 00000000..cbc02e4c
 +}
 diff --git a/Platform/CIX/Sky1/Drivers/PmConfigUpdateDxe/PmConfigUpdateDxe.h b/Platform/CIX/Sky1/Drivers/PmConfigUpdateDxe/PmConfigUpdateDxe.h
 new file mode 100644
-index 00000000..c54c6d7f
+index 00000000..e2a6e28d
 --- /dev/null
 +++ b/Platform/CIX/Sky1/Drivers/PmConfigUpdateDxe/PmConfigUpdateDxe.h
-@@ -0,0 +1,79 @@
+@@ -0,0 +1,84 @@
 +/** @file
 +  CIX v3 PM configuration profile updater definitions.
 +
@@ -1170,12 +1304,17 @@ index 00000000..c54c6d7f
 +#define PM_CONFIG_CPU_VOLTAGE_MIN          550U
 +#define PM_CONFIG_CPU_VOLTAGE_MAX          1250U
 +#define PM_CONFIG_CPU_POWER_MAX            20000U
++#define PM_CONFIG_VMIN_VOLTAGE_CEILING     980U
 +
 +#define PM_CONFIG_GB1_DOMAIN_INDEX         4U
 +#define PM_CONFIG_GB1_TOP_INDEX            6U
 +#define PM_CONFIG_GB1_2700_LEVEL           2700U
 +#define PM_CONFIG_GB1_2700_VOLTAGE         950U
 +#define PM_CONFIG_GB1_2700_VMIN_MODE       RADXA_PM_VOLTAGE_VMIN1
++
++#ifndef PM_ENGINEERING_SUPPORT
++#define PM_ENGINEERING_SUPPORT             0
++#endif
 +
 +#endif
 diff --git a/Platform/CIX/Sky1/Drivers/PmConfigUpdateDxe/PmConfigUpdateDxe.inf b/Platform/CIX/Sky1/Drivers/PmConfigUpdateDxe/PmConfigUpdateDxe.inf
@@ -1226,24 +1365,33 @@ index 00000000..5a5e7d81
 +[Depex]
 +  gCixFirmwareUpdateProtocolGuid
 diff --git a/Platform/Radxa/Orion/O6/O6.dsc b/Platform/Radxa/Orion/O6/O6.dsc
-index 85b0d9d3..75f905c3 100644
+index 85b0d9d3..179513c7 100644
 --- a/Platform/Radxa/Orion/O6/O6.dsc
 +++ b/Platform/Radxa/Orion/O6/O6.dsc
-@@ -70,7 +70,7 @@
+@@ -70,7 +70,8 @@
    DEFINE VARIABLE_SUPPORT           = $(COMPILE_VARIABLE_TYPE)
    DEFINE STMM_SUPPORT               = $(COMPILE_STMM_SUPPORT)
    DEFINE REALTEK_LAN_DRIVER_SUPPORT = FALSE
 -  DEFINE PM_CONFIG_UPDATE_SUPPORT   = FALSE
 +  DEFINE PM_CONFIG_UPDATE_SUPPORT   = TRUE
++  DEFINE PM_ENGINEERING_SUPPORT     = FALSE
    DEFINE MEM_CONFIG_UPDATE_SUPPORT  = TRUE
    DEFINE DYNAMIC_ACPI_CPU_ENABLE    = TRUE
    DEFINE SOC_SPI_ENABLE             = TRUE
-@@ -291,6 +291,10 @@
+@@ -291,6 +292,18 @@
    GCC:*_*_*_VFRPP_FLAGS       = -DFW_CONFIG_UPDATE_SUPPORT=1
  !endif
  
 +!if $(PM_CONFIG_UPDATE_SUPPORT) == TRUE
 +  GCC:*_*_*_VFRPP_FLAGS       = -DPM_CONFIG_UPDATE_SUPPORT=1
++!endif
++
++!if $(PM_ENGINEERING_SUPPORT) == TRUE
++  GCC:*_*_*_CC_FLAGS          = -DPM_ENGINEERING_SUPPORT=1
++  GCC:*_*_*_VFRPP_FLAGS       = -DPM_ENGINEERING_SUPPORT=1
++!else
++  GCC:*_*_*_CC_FLAGS          = -DPM_ENGINEERING_SUPPORT=0
++  GCC:*_*_*_VFRPP_FLAGS       = -DPM_ENGINEERING_SUPPORT=0
 +!endif
 +
  ################################################################################
@@ -1475,10 +1623,10 @@ index ab2a9371..eb5cdf3b 100644
  #include "I2cConfig.hfr"
 diff --git a/Platform/Radxa/Platforms/CIX/Sky1/Drivers/PlatformConfigDxe/PmMenu/PmConfig.hfr b/Platform/Radxa/Platforms/CIX/Sky1/Drivers/PlatformConfigDxe/PmMenu/PmConfig.hfr
 new file mode 100644
-index 00000000..3f683307
+index 00000000..eb2d2794
 --- /dev/null
 +++ b/Platform/Radxa/Platforms/CIX/Sky1/Drivers/PlatformConfigDxe/PmMenu/PmConfig.hfr
-@@ -0,0 +1,320 @@
+@@ -0,0 +1,349 @@
 +#define PM_FREQ_FIRST(Index, Next, DefaultValue)                                 \
 +  numeric varid = RadxaPmTuningVar.CpuFrequency[Index],                         \
 +    prompt = STRING_TOKEN(STR_PM_FREQUENCY_PROMPT),                              \
@@ -1643,12 +1791,25 @@ index 00000000..3f683307
 +      default = RADXA_PM_PROFILE_VENDOR,
 +      option text = STRING_TOKEN(STR_PM_PROFILE_VENDOR), value = RADXA_PM_PROFILE_VENDOR, flags = RESET_REQUIRED;
 +      option text = STRING_TOKEN(STR_PM_PROFILE_PARTIAL), value = RADXA_PM_PROFILE_PARTIAL, flags = RESET_REQUIRED;
++#if (PM_ENGINEERING_SUPPORT == 1)
 +      option text = STRING_TOKEN(STR_PM_PROFILE_2700), value = RADXA_PM_PROFILE_GB1_2700, flags = RESET_REQUIRED;
 +      option text = STRING_TOKEN(STR_PM_PROFILE_CUSTOM), value = RADXA_PM_PROFILE_CUSTOM, flags = RESET_REQUIRED;
++#endif
++      inconsistentif prompt = STRING_TOKEN(STR_PM_PARTIAL_REQUIRED),
++        ideqval RadxaPmTuningVar.Profile == RADXA_PM_PROFILE_PARTIAL AND
++        ideqval RadxaPmTuningVar.CpuDomainEnabled[0] == 0 AND
++        ideqval RadxaPmTuningVar.CpuDomainEnabled[1] == 0 AND
++        ideqval RadxaPmTuningVar.CpuDomainEnabled[2] == 0 AND
++        ideqval RadxaPmTuningVar.CpuDomainEnabled[3] == 0
++      endif;
 +    endoneof;
 +
++#if (PM_ENGINEERING_SUPPORT == 1)
 +    suppressif NOT ideqval RadxaPmTuningVar.Profile == RADXA_PM_PROFILE_CUSTOM AND
 +               NOT ideqval RadxaPmTuningVar.Profile == RADXA_PM_PROFILE_PARTIAL;
++#else
++    suppressif NOT ideqval RadxaPmTuningVar.Profile == RADXA_PM_PROFILE_PARTIAL;
++#endif
 +      goto PM_CUSTOM_FORM_ID,
 +        prompt = STRING_TOKEN(STR_PM_CUSTOM_FORM_TITLE),
 +        help = STRING_TOKEN(STR_PM_CUSTOM_FORM_HELP);
@@ -1661,7 +1822,11 @@ index 00000000..3f683307
 +  form formid = PM_CUSTOM_FORM_ID,
 +    title = STRING_TOKEN(STR_PM_CUSTOM_FORM_TITLE);
 +
++#if (PM_ENGINEERING_SUPPORT == 1)
 +    subtitle text = STRING_TOKEN(STR_PM_CUSTOM_WARNING);
++#else
++    subtitle text = STRING_TOKEN(STR_PM_PARTIAL_WARNING);
++#endif
 +    subtitle text = STRING_TOKEN(STR_PM_CUSTOM_LIMITS);
 +    subtitle text = STRING_TOKEN(STR_PM_BOOT_LOCKED);
 +    subtitle text = STRING_TOKEN(STR_PM_DSU_LOCKED);
@@ -1671,6 +1836,8 @@ index 00000000..3f683307
 +    suppressif NOT ideqval RadxaPmTuningVar.Profile == RADXA_PM_PROFILE_PARTIAL;
 +      PM_DOMAIN_ENABLE(0)
 +    endif;
++    suppressif ideqval RadxaPmTuningVar.Profile == RADXA_PM_PROFILE_PARTIAL AND
++               ideqval RadxaPmTuningVar.CpuDomainEnabled[0] == 0;
 +    subtitle text = STRING_TOKEN(STR_PM_OPP0);
 +    PM_FREQ_FIRST(0, 1, 800)
 +    PM_VOLT_FIRST(0, 1, 750)
@@ -1695,12 +1862,15 @@ index 00000000..3f683307
 +    PM_FREQ_LAST(6, 5, 2500)
 +    PM_VOLT_LAST(6, 5, 920)
 +    PM_VOLT_MODE(6)
++    endif;
 +    subtitle text = STRING_TOKEN(STR_EMPTY_STRING);
 +
 +    subtitle text = STRING_TOKEN(STR_PM_DOMAIN_GB1);
 +    suppressif NOT ideqval RadxaPmTuningVar.Profile == RADXA_PM_PROFILE_PARTIAL;
 +      PM_DOMAIN_ENABLE(1)
 +    endif;
++    suppressif ideqval RadxaPmTuningVar.Profile == RADXA_PM_PROFILE_PARTIAL AND
++               ideqval RadxaPmTuningVar.CpuDomainEnabled[1] == 0;
 +    subtitle text = STRING_TOKEN(STR_PM_OPP0);
 +    PM_FREQ_FIRST(13, 14, 800)
 +    PM_VOLT_FIRST(13, 14, 750)
@@ -1725,12 +1895,15 @@ index 00000000..3f683307
 +    PM_FREQ_LAST(19, 18, 2600)
 +    PM_VOLT_LAST(19, 18, 920)
 +    PM_VOLT_MODE(19)
++    endif;
 +    subtitle text = STRING_TOKEN(STR_EMPTY_STRING);
 +
 +    subtitle text = STRING_TOKEN(STR_PM_DOMAIN_GM0);
 +    suppressif NOT ideqval RadxaPmTuningVar.Profile == RADXA_PM_PROFILE_PARTIAL;
 +      PM_DOMAIN_ENABLE(2)
 +    endif;
++    suppressif ideqval RadxaPmTuningVar.Profile == RADXA_PM_PROFILE_PARTIAL AND
++               ideqval RadxaPmTuningVar.CpuDomainEnabled[2] == 0;
 +    subtitle text = STRING_TOKEN(STR_PM_OPP0);
 +    PM_FREQ_FIRST(26, 27, 800)
 +    PM_VOLT_FIRST(26, 27, 750)
@@ -1755,12 +1928,15 @@ index 00000000..3f683307
 +    PM_FREQ_LAST(32, 31, 2300)
 +    PM_VOLT_LAST(32, 31, 890)
 +    PM_VOLT_MODE(32)
++    endif;
 +    subtitle text = STRING_TOKEN(STR_EMPTY_STRING);
 +
 +    subtitle text = STRING_TOKEN(STR_PM_DOMAIN_GM1);
 +    suppressif NOT ideqval RadxaPmTuningVar.Profile == RADXA_PM_PROFILE_PARTIAL;
 +      PM_DOMAIN_ENABLE(3)
 +    endif;
++    suppressif ideqval RadxaPmTuningVar.Profile == RADXA_PM_PROFILE_PARTIAL AND
++               ideqval RadxaPmTuningVar.CpuDomainEnabled[3] == 0;
 +    subtitle text = STRING_TOKEN(STR_PM_OPP0);
 +    PM_FREQ_FIRST(39, 40, 800)
 +    PM_VOLT_FIRST(39, 40, 750)
@@ -1781,6 +1957,7 @@ index 00000000..3f683307
 +    PM_FREQ_LAST(44, 43, 2200)
 +    PM_VOLT_LAST(44, 43, 890)
 +    PM_VOLT_MODE(44)
++    endif;
 +
 +    subtitle text = STRING_TOKEN(STR_EMPTY_STRING);
 +    subtitle text = STRING_TOKEN(STR_EXIT_STRING);
@@ -1801,10 +1978,10 @@ index 00000000..3f683307
 +#undef PM_DOMAIN_ENABLE
 diff --git a/Platform/Radxa/Platforms/CIX/Sky1/Drivers/PlatformConfigDxe/PmMenu/PmConfig.uni b/Platform/Radxa/Platforms/CIX/Sky1/Drivers/PlatformConfigDxe/PmMenu/PmConfig.uni
 new file mode 100644
-index 00000000..af9d9f13
+index 00000000..118bf522
 --- /dev/null
 +++ b/Platform/Radxa/Platforms/CIX/Sky1/Drivers/PlatformConfigDxe/PmMenu/PmConfig.uni
-@@ -0,0 +1,44 @@
+@@ -0,0 +1,46 @@
 +#langdef en-US  "English"
 +
 +#string STR_PM_CONFIG_FORM_TITLE       #language en-US "Power Management"
@@ -1816,10 +1993,12 @@ index 00000000..af9d9f13
 +#string STR_PM_PROFILE_PARTIAL         #language en-US "Vendor-Capped Custom (partial CPU domains)"
 +#string STR_PM_PROFILE_2700            #language en-US "Engineering Unlock: GB1 2700 MHz, 950 mV floor + Vmin1"
 +#string STR_PM_PROFILE_CUSTOM          #language en-US "Engineering/Unsafe Custom (complete table)"
++#string STR_PM_PARTIAL_REQUIRED        #language en-US "Vendor-Capped Custom requires at least one enabled CPU domain."
 +
 +#string STR_PM_CUSTOM_FORM_TITLE       #language en-US "Custom CPU OPPs"
 +#string STR_PM_CUSTOM_FORM_HELP        #language en-US "Edit non-boot OPPs. Vendor-Capped Custom applies only enabled domains; Engineering Custom applies all four CPU domains."
 +#string STR_PM_CUSTOM_WARNING          #language en-US "Engineering settings can prevent boot or permanently damage hardware. Keep a tested SPI recovery path available. Release PM firmware still enforces the chip OPN frequency limits."
++#string STR_PM_PARTIAL_WARNING         #language en-US "Only enabled CPU domains are overridden. Disabled domains keep their PM firmware-native OPN/Vmin tables."
 +#string STR_PM_CUSTOM_LIMITS           #language en-US "Input boundaries: 800-3200 MHz and 550-1250 mV base voltage, in steps of 10. They are not safe operating guarantees. Frequency must increase and base voltage must not decrease within each domain."
 +#string STR_PM_BOOT_LOCKED             #language en-US "The effective CPU boot/sustained OPP at 1500 MHz / 790 mV is fixed and intentionally not shown."
 +#string STR_PM_DSU_LOCKED              #language en-US "DSU and non-CPU domains are never editable."
@@ -1850,7 +2029,7 @@ index 00000000..af9d9f13
 +#string STR_PM_OPP5                    #language en-US "OPP 5"
 +#string STR_PM_OPP6                    #language en-US "OPP 6"
 diff --git a/Platform/Radxa/Platforms/CIX/Sky1/Include/RadxaSetupVar.h b/Platform/Radxa/Platforms/CIX/Sky1/Include/RadxaSetupVar.h
-index eb2f388c..6b3eac8a 100644
+index eb2f388c..e6bfd8a2 100644
 --- a/Platform/Radxa/Platforms/CIX/Sky1/Include/RadxaSetupVar.h
 +++ b/Platform/Radxa/Platforms/CIX/Sky1/Include/RadxaSetupVar.h
 @@ -5,6 +5,7 @@
@@ -1861,7 +2040,7 @@ index eb2f388c..6b3eac8a 100644
  
  extern EFI_GUID  gRadxaSetupVariableGuid;
  
-@@ -21,6 +22,35 @@ typedef struct {
+@@ -21,6 +22,45 @@ typedef struct {
    UINT8     UFSPowerMode;
  } RADXA_SETUP_DATA;
  
@@ -1881,6 +2060,8 @@ index eb2f388c..6b3eac8a 100644
 +#define RADXA_PM_CPU_DOMAIN_COUNT    4
 +#define RADXA_PM_OPP_COUNT           13
 +#define RADXA_PM_CPU_VALUE_COUNT     52
++#define RADXA_PM_TUNING_REVISION     2
++#define RADXA_PM_TUNING_SIGNATURE    0x54504D52U
 +
 +typedef struct {
 +  UINT8     Profile;
@@ -1888,11 +2069,19 @@ index eb2f388c..6b3eac8a 100644
 +  UINT16    CpuVoltage[RADXA_PM_CPU_VALUE_COUNT];
 +  UINT8     CpuDomainEnabled[RADXA_PM_CPU_DOMAIN_COUNT];
 +  UINT8     CpuVoltageMode[RADXA_PM_CPU_VALUE_COUNT];
++  UINT16    Revision;
++  UINT16    DataSize;
++  UINT32    Signature;
 +} RADXA_PM_TUNING_DATA;
 +
 +#define RADXA_PM_TUNING_LEGACY_SIZE  \
 +  (sizeof (UINT8) +                  \
 +   2 * RADXA_PM_CPU_VALUE_COUNT * sizeof (UINT16))
++
++#define RADXA_PM_TUNING_V1_SIZE                                  \
++  (RADXA_PM_TUNING_LEGACY_SIZE +                                 \
++   RADXA_PM_CPU_DOMAIN_COUNT * sizeof (UINT8) +                   \
++   RADXA_PM_CPU_VALUE_COUNT * sizeof (UINT8))
 +
  #pragma pack()
  

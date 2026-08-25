@@ -116,8 +116,8 @@ class PmConfigVerifierTests(unittest.TestCase):
         ):
             verify_pm_config.verify(bytes(data), "vendor-auto")
 
-    def test_experiment_uses_pm_firmware_measured_power(self) -> None:
-        self.assertEqual(verify_pm_config.GB1_2700_TOP_OPP, (2700, 950, 0, 5500))
+    def test_experiment_uses_voltage_adjusted_measured_power(self) -> None:
+        self.assertEqual(verify_pm_config.GB1_2700_TOP_OPP, (2700, 950, 0, 5865))
         self.assertEqual(
             verify_pm_config.interpolate_measured_power(
                 verify_pm_config.GB1_MEASURED_POWER, 2500
@@ -129,6 +129,25 @@ class PmConfigVerifierTests(unittest.TestCase):
                 verify_pm_config.GB1_MEASURED_POWER, 2800
             ),
             5900,
+        )
+        self.assertEqual(
+            verify_pm_config.conservative_opp_power(
+                verify_pm_config.GB1_MEASURED_POWER,
+                verify_pm_config.GB1_REFERENCE_VOLTAGE,
+                2700,
+                950,
+                vmin_mode=True,
+            ),
+            6241,
+        )
+        self.assertEqual(
+            verify_pm_config.conservative_opp_power(
+                verify_pm_config.GB1_MEASURED_POWER,
+                verify_pm_config.GB1_REFERENCE_VOLTAGE,
+                2700,
+                1250,
+            ),
+            10154,
         )
 
     def test_experiment_changes_only_gb1_top_opp(self) -> None:

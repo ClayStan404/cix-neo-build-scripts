@@ -115,6 +115,10 @@ GB1_MEASURED_POWER = (
     (800, 500),
     (100, 50),
 )
+GB1_REFERENCE_VOLTAGE = tuple(
+    (opp[0], opp[1]) for opp in EXPECTED_OPP_TABLES[GB1_DOMAIN_INDEX][1:]
+)
+VMIN_VOLTAGE_CEILING = 980
 
 
 def interpolate_measured_power(
@@ -138,11 +142,51 @@ def interpolate_measured_power(
     ) // (upper_frequency - lower_frequency)
 
 
+def interpolate_reference_voltage(
+    points: tuple[tuple[int, int], ...], frequency: int
+) -> int:
+    """Interpolate the source-table voltage, clamping outside its range."""
+    if frequency <= points[0][0]:
+        return points[0][1]
+    for index in range(1, len(points)):
+        upper_frequency, upper_voltage = points[index]
+        if frequency <= upper_frequency:
+            lower_frequency, lower_voltage = points[index - 1]
+            return lower_voltage + (upper_voltage - lower_voltage) * (
+                frequency - lower_frequency
+            ) // (upper_frequency - lower_frequency)
+    return points[-1][1]
+
+
+def conservative_opp_power(
+    measured_points: tuple[tuple[int, int], ...],
+    voltage_points: tuple[tuple[int, int], ...],
+    frequency: int,
+    voltage: int,
+    *,
+    vmin_mode: bool = False,
+) -> int:
+    """Scale measured power upward when configured voltage exceeds reference."""
+    base_power = interpolate_measured_power(measured_points, frequency)
+    reference_voltage = interpolate_reference_voltage(voltage_points, frequency)
+    power_voltage = max(voltage, VMIN_VOLTAGE_CEILING) if vmin_mode else voltage
+    if power_voltage <= reference_voltage:
+        return base_power
+    numerator = base_power * power_voltage * power_voltage
+    denominator = reference_voltage * reference_voltage
+    return (numerator + denominator - 1) // denominator
+
+
 GB1_2700_TOP_OPP = (
     2700,
     950,
     0,
-    interpolate_measured_power(GB1_MEASURED_POWER, 2700),
+    conservative_opp_power(
+        GB1_MEASURED_POWER,
+        GB1_REFERENCE_VOLTAGE,
+        2700,
+        950,
+    ),
 )
 
 

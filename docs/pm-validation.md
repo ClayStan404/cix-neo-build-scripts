@@ -42,10 +42,12 @@ Do not flash until all of the following are known for the exact test board:
 
 ## Baseline Capture
 
-Copy only the inspection tool to the board and verify it before use:
+Copy the inspection tool and read-only collector to the board, then verify the
+tool before use:
 
 ```bash
 scp output/pmtool/pmtool TEST_BOARD:/tmp/pmtool
+scp build-scripts/tests/collect-o6-pm-state.sh TEST_BOARD:/tmp/
 ssh TEST_BOARD 'sha256sum /tmp/pmtool'
 ```
 
@@ -55,14 +57,18 @@ The expected SHA-256 for the manifest-pinned tool is:
 4e49c2050759766716af7760de1daaf79ab7074dd56e907dea221000b96f8c71
 ```
 
-Capture the effective table before flashing:
+Capture a checksummed snapshot before flashing:
 
 ```bash
-ssh -t TEST_BOARD 'sudo /tmp/pmtool cli opp_config'
+ssh -t TEST_BOARD \
+  'sudo /tmp/collect-o6-pm-state.sh /tmp/pmtool /var/tmp/o6-pm-before'
+scp -r TEST_BOARD:/var/tmp/o6-pm-before ./
 ```
 
-Also record the current firmware version, Linux CPU frequency tables, kernel
-version, and serial boot log. Preserve these results outside `/tmp`.
+The snapshot includes the effective OPP table, firmware identity, Linux CPU
+frequency policy, thermal zones, kernel version, relevant kernel messages, and
+checksums. Record the serial boot log separately. Preserve the copied results
+outside `/tmp` and `/var/tmp`.
 
 ## Stock-Table Image Test
 
@@ -70,8 +76,9 @@ Flash only with the board's already validated recovery-aware procedure. This
 document intentionally does not provide a generic SPI write command because a
 wrong device or image can make the board unbootable.
 
-After a cold boot, capture the same data again. Acceptance requires all of the
-following:
+After a cold boot, run the collector again with a new output directory (for
+example, `/var/tmp/o6-pm-after`) and copy it off the board. Acceptance requires
+all of the following:
 
 - Serial output reports a valid v3.0 PM config and the external/configured OPP
   source rather than a checksum or version rejection.
@@ -104,10 +111,11 @@ The experiment artifacts are:
 The `gb1-2700` verifier profile requires the source-stock table except for one
 entry: the GB1 top OPP changes from 2600 MHz at 920 mV to 2700 MHz at 950 mV.
 The sustained OPP, DSU table, all other domains, PMIC rails, and OPP limits
-remain unchanged. Its power cost is set to 5500 mW by linearly extrapolating the
-measured GB1 power points in PM firmware source revision `a2327331813f`. The
-higher voltage follows the previously observed vendor table ceiling and is not
-a stability guarantee.
+remain unchanged. Its power cost is set to 5865 mW: the implementation first
+linearly extrapolates the measured GB1 power points in PM firmware source
+revision `a2327331813f`, then conservatively scales the result upward for the
+950 mV request relative to the source voltage curve. The higher voltage follows
+the previously observed vendor table ceiling and is not a stability guarantee.
 
 Use the same recovery-aware full-image flashing procedure and perform a cold
 boot. Before applying CPU load, capture:
@@ -145,21 +153,31 @@ bootloaders until an ARM64-native RKMS packaging frontend is available. Tuning
 OTA images are also not published because that payload does not carry the PM
 firmware needed to distinguish Release from Engineering Debug behavior.
 
-In UEFI setup, open `Device Manager -> Platform Configuration -> Advanced
-Configuration -> Power Management` and select a profile:
+The Vendor Release image exposes these profiles:
 
 - `Vendor/Automatic (PM firmware native OPPs)`
 - `Vendor-Capped Custom (partial CPU domains)`
+
+The Engineering Debug image additionally exposes:
+
 - `Engineering Unlock: GB1 2700 MHz, 950 mV floor + Vmin1`
 - `Engineering/Unsafe Custom (complete table)`
+
+In UEFI setup, open `Device Manager -> Platform Configuration -> Advanced
+Configuration -> Power Management` and select an available profile. The
+firmware enforces the same capability split at runtime: a Vendor Release image
+migrates a persisted engineering profile to Vendor/Automatic rather than
+consuming it.
 
 Vendor/Automatic sets the external OPP table invalid and leaves its contents
 unused, allowing PM firmware to use its native per-part OPN/Vmin/guardband
 path. Vendor-Capped Custom sets `OPP_PARTIAL_VALID` and overrides only enabled
-CPU domains. Every disabled CPU domain, DSU, GPU, and other domain keeps the PM
-firmware-native table and the chip's OPN limit. Engineering profiles enable the
-complete external table. The Release PM firmware still applies retail OPN
-limits; only the Engineering Debug image can use a complete table above them.
+CPU domains. At least one CPU domain must be selected, and the edit controls
+for disabled domains are hidden. Every disabled CPU domain, DSU, GPU, and other
+domain keeps the PM firmware-native table and the chip's OPN limit. Engineering
+profiles enable the complete external table; only the Engineering Debug image
+contains both the UEFI controls and PM firmware needed to use a complete table
+above retail OPN limits.
 The custom form edits non-boot OPPs of GB0, GB1, GM0, and GM1. Frequency is
 800-3200 MHz and base voltage is 550-1250 mV in steps of 10. Each OPP can use
 Fixed voltage or per-chip Vmin profile 1-3; internally the profile is encoded in
@@ -174,12 +192,15 @@ delivery, cooling, firmware payload, and silicon population. The 2.7 GHz fixed
 profile and all Engineering/Unsafe settings therefore remain experiments on the
 retail O6 until they pass board-specific validation.
 
-CPU OPP power uses the same measured-power points and linear interpolation as
-PM firmware source revision `a2327331813f`; GB1 at 2700 MHz is therefore 5500
-mW. The build rejects either PM firmware binary unless its embedded revision and
-SHA-256 match the validated Debug or Release payload. This pins partial-OPP and
-Vmin behavior to PM config ABI v3.4 while the board-owned generator and DXE
-writer deliberately remain pinned to config schema v3.0.
+CPU OPP power starts with the same measured-power points and linear
+interpolation as PM firmware source revision `a2327331813f`. It then scales
+power upward with voltage squared when the requested voltage exceeds the
+source curve; Vmin modes reserve power at the source firmware's 980 mV
+ceiling. The fixed 2700 MHz / 950 mV + Vmin1 tuning profile therefore records
+6241 mW. The build rejects either PM firmware binary unless its embedded
+revision and SHA-256 match the validated Debug or Release payload. This pins
+partial-OPP and Vmin behavior to PM config ABI v3.4 while the board-owned
+generator and DXE writer deliberately remain pinned to config schema v3.0.
 
 Save and exit. The normal setup reset is followed by one additional cold reset
 after the firmware has updated and read back the dedicated PM configuration.
@@ -189,6 +210,8 @@ DSU table, out-of-range value, or non-monotonic CPU table. It validates the
 complete generated block before writing and compares the complete flash entry
 afterwards. The setup-save path removes the legacy CPU limit for every profile
 so it cannot mask PM firmware's native or externally selected table.
+The setup variable also carries a revision, exact data size, and signature;
+known older layouts are migrated, while unknown layouts are rejected.
 
 The tuning image also repairs the existing Memory Data Rate selector. Open
 `Device Manager -> Platform Configuration -> Advanced Configuration -> Memory
