@@ -471,6 +471,8 @@ projects:
     rules:
       - paths: ["device/misc/**"]
         targets: [pmtool]
+      - paths: ["host/security/sky1/**"]
+        targets: [radxa-o6-pm-tuning]
     ignore:
       - "debug-tools/**"
       - "device/fct_test/**"
@@ -478,7 +480,14 @@ projects:
       - "device/openssl/**"
       - "device/sysdump/**"
       - "device/vendor_misc/**"
-      - "host/**"
+      - "host/fct_test/**"
+      - "host/flash_tool/**"
+      - "host/openssl/**"
+      - "host/packagetool/**"
+      - "host/pm_env/**"
+      - "host/rkms/**"
+      - "host/security/sky1p/**"
+      - "host/security/star1/**"
 
   cix_opensource/linux:
     path: sources/linux
@@ -553,6 +562,36 @@ projects:
     rules:
       - paths: ["**"]
         targets: *radxa_firmware_targets
+
+  cix_security/ddr:
+    path: sources/radxa-o6/bootloader/ddr
+    rules:
+      - paths: ["**"]
+        targets: [radxa-o6-pm-tuning]
+
+  cix_security/firmware:
+    path: sources/radxa-o6/bootloader/firmware
+    rules:
+      - paths: ["**"]
+        targets: [radxa-o6-pm-tuning]
+
+  cix_security/library:
+    path: sources/radxa-o6/bootloader/library
+    rules:
+      - paths: ["**"]
+        targets: [radxa-o6-pm-tuning]
+
+  cix_private/sw_tools_private:
+    path: sources/radxa-o6/bootloader/sw-tools-private
+    rules:
+      - paths: ["**"]
+        targets: [radxa-o6-pm-tuning]
+
+  cix_proprietary/cix_firmware:
+    path: sources/radxa-o6/bootloader/firmware-binaries
+    rules:
+      - paths: ["**"]
+        targets: [radxa-o6-pm-tuning]
 
   github_mirror/google/brotli:
     path: sources/radxa-o6/uefi_release/edk2/BaseTools/Source/C/BrotliCompress/brotli
@@ -773,6 +812,8 @@ projects:
         targets: [audio-sof]
       - paths: ["builders/direct/firmware-radxa.sh"]
         targets: [radxa-o6-firmware, radxa-o6n-firmware, radxa-o6-pm-validation, radxa-o6-opp-validation, radxa-o6-gb1-2700-experiment, radxa-o6-pm-tuning, radxa-o6n-pm-validation]
+      - paths: ["builders/direct/bootloader1.sh", "patches/radxa-bootloader/**"]
+        targets: [radxa-o6-pm-tuning]
       - paths: ["builders/direct/pmtool.sh"]
         targets: [pmtool]
       - paths: ["patches/radxa-o6n/**"]

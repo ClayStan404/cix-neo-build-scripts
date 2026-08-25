@@ -147,6 +147,7 @@ readonly host_packages=(
     g++-12
     gawk
     gcc-12
+    gcc-arm-none-eabi
     gperf
     git
     git-lfs
@@ -198,6 +199,7 @@ readonly host_packages=(
     libncurses-dev
     libmp3lame-dev
     libmpg123-dev
+    libnewlib-arm-none-eabi
     libogg-dev
     libopenjp2-7-dev
     libopencore-amrnb-dev
@@ -370,8 +372,9 @@ fi
 
 if ((!dry_run)); then
     for command_name in \
+        arm-none-eabi-gcc arm-none-eabi-ld arm-none-eabi-objcopy \
         bc bison ccache clang cmake cpio curl dh dh_dkms dkms dpkg-buildpackage fakeroot \
-        flex gcc git git-lfs make mmdebstrap modinfo openssl pahole python3 \
+        flex gcc git git-lfs make mmdebstrap modinfo openssl pahole pkg-config python3 \
         patchelf repo rsync sbuild shellcheck unshare xz zstd; do
         command_is_available "${command_name}" ||
             die "required command is unavailable after package setup: ${command_name}"

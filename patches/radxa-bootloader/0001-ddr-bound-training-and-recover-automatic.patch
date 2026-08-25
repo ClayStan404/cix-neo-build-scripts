@@ -1,0 +1,190 @@
+diff --git a/src/sky1/Include/Lib/Cdcb.h b/src/sky1/Include/Lib/Cdcb.h
+index 6e9d216e75db8c2e3a7e6e56b1fe7d440f2294ac..8e7bc92448390ea96ebd8f0f71f9b74d3bd2ec75 100644
+--- a/src/sky1/Include/Lib/Cdcb.h
++++ b/src/sky1/Include/Lib/Cdcb.h
+@@ -30,7 +30,7 @@ CdcbDeallocateBuffer (
+   void
+   );
+ 
+-void
++uint8_t
+ CdcbUpdateBlockBuf (
+   void* buf
+   );
+diff --git a/src/sky1/Include/syscall.h b/src/sky1/Include/syscall.h
+index 96e99112fa79127b76302aa25a9f7c0f5e76dba5..d1a493d4fd375c46661fd097e6ee708c14d68cf2 100644
+--- a/src/sky1/Include/syscall.h
++++ b/src/sky1/Include/syscall.h
+@@ -10,7 +10,8 @@
+ 
+ void log_print (uint32_t flag, const char *fmt, ...);
+ uint8_t get_memcfg_img(uint8_t *img, uint32_t *outlen);
+-void set_memcfg_img(uint8_t *img, uint32_t offset, uint32_t len);
++uint8_t set_memcfg_img(uint8_t *img, uint32_t offset, uint32_t len);
++void reset_system(void);
+ void udelay(uint32_t microseconds);
+ void postcode(uint32_t pc);
+ void SmnRegWrite32 (uint32_t addr, uint32_t val);
+diff --git a/src/sky1/Lib/Cdcb.c b/src/sky1/Lib/Cdcb.c
+index cecb848a4fc55a570d9ccd1da1322e80c1e0b090..926ef3df8e3d3d802e69f50b9c78e9887d8a8265 100644
+--- a/src/sky1/Lib/Cdcb.c
++++ b/src/sky1/Lib/Cdcb.c
+@@ -38,7 +38,7 @@ GenCheckSum (
+   return ~CheckSum;
+ }
+ 
+-void
++uint8_t
+ CdcbUpdateBlockBuf (
+   void* buf
+   )
+@@ -47,7 +47,7 @@ CdcbUpdateBlockBuf (
+   Header = (MEM_CONFIG_BLOCK_HEADER*)buf;
+   Header->BlockChecksum = 0;
+   Header->BlockChecksum = GenCheckSum((uint8_t*)Header, Header->BlockSize);
+-  set_memcfg_img((uint8_t*)buf, (size_t)buf - (size_t)mCdcbBuf, Header->BlockChecksum);
++  return set_memcfg_img((uint8_t*)buf, (size_t)buf - (size_t)mCdcbBuf, Header->BlockSize);
+ }
+ 
+ void
+diff --git a/src/sky1/drv_ddr.c b/src/sky1/drv_ddr.c
+index d6c85d60c6d3b519619c5121b8c509b97964d6b6..58faf3d76f4c04412a8a06245675e2e312dc5a37 100644
+--- a/src/sky1/drv_ddr.c
++++ b/src/sky1/drv_ddr.c
+@@ -15,15 +15,47 @@
+ #undef FILECODE
+ #define FILECODE DRV_DDR_FILECODE
+ 
++#define DDR_TRAIN_MAX_ATTEMPTS 3
++#define DDR_FREQUENCY_AUTO     0xFFFF
++
+ extern MEMORY_INIT_S* GetMemInitPtr(void);
+ 
++static
+ void
++MemHandleTrainingFailure (
++  void
++  )
++{
++  MEM_CONFIG_BIOS_SETUP *BiosSetup;
++  uint32_t               Size;
++
++  if (FW_OK == CdcbLocateBlockBuf(MEM_CONFIG_BLOCK_BIOS_SETUP_GUID, &Size, (uint8_t**)&BiosSetup) &&
++      BiosSetup->MemFreq != DDR_FREQUENCY_AUTO) {
++    DDR_DRV_FORCE_PRINT(
++      "DDR training failed at explicit %d MT/s; restore Automatic and reset.\n",
++      BiosSetup->MemFreq << 1
++      );
++    BiosSetup->MemFreq = DDR_FREQUENCY_AUTO;
++    if (CdcbUpdateBlockBuf(BiosSetup)) {
++      reset_system();
++    }
++    DDR_DRV_FORCE_PRINT("Failed to persist the Automatic DDR recovery setting.\n");
++  } else {
++    DDR_DRV_FORCE_PRINT("DDR training failed while using the Automatic setting.\n");
++  }
++
++  DDR_DRV_FORCE_PRINT("DDR initialization stopped after %d attempts.\n", DDR_TRAIN_MAX_ATTEMPTS);
++  while (1) {
++  }
++}
++
++uint8_t
+ drv_ddr_init (
+   void
+   )
+ {
+-  uint8_t st;
+-  uint8_t retrain_needed = 0;
++  uint8_t st = PHY_TRN_PASS;
++  uint8_t TrainAttempt;
+   DDR_POSTCODE(PC_DDR_START);
+   DDR_DRV_FORCE_PRINT("drv_ddr_init start ...\n");
+ 
+@@ -32,7 +64,7 @@ drv_ddr_init (
+   if (ENV_ATE != MemGetBootEnv()) {
+     MemStructInit();
+ 
+-    do {
++    for (TrainAttempt = 1; TrainAttempt <= DDR_TRAIN_MAX_ATTEMPTS; TrainAttempt ++) {
+       MemDramFunctionalInit();
+       MEM_BP_INSERT(MEM_BP_BEFORE_RESET);
+ 
+@@ -57,15 +89,20 @@ drv_ddr_init (
+       DDR_DRV_PRINT(BASE_INFO, "\tInit Ddrss\n");
+ 
+       st = MemDdrssInit();
+-      if (st != PHY_TRN_PASS) {
+-        retrain_needed = 1;
+-        if (st != PHY_TRN_RETRAIN) {
+-          DDR_DRV_PRINT(BASE_INFO, "Retrain triggered due to Training failed...\n");
+-        }
+-      } else {
+-        retrain_needed = 0;
++      if (st == PHY_TRN_PASS) {
++        break;
+       }
+-    } while (retrain_needed);
++      DDR_DRV_FORCE_PRINT(
++        "DDR training attempt %d/%d failed with status %d.\n",
++        TrainAttempt,
++        DDR_TRAIN_MAX_ATTEMPTS,
++        st
++        );
++    }
++
++    if (st != PHY_TRN_PASS) {
++      MemHandleTrainingFailure();
++    }
+ 
+     RunMemBistTest();
+ 
+@@ -89,6 +126,7 @@ drv_ddr_init (
+ 
+   DDR_POSTCODE(PC_DDR_END);
+   DDR_DRV_FORCE_PRINT("drv_ddr_init end ...\n");
++  return st;
+ }
+ 
+ void
+diff --git a/src/sky1/syscall/syscall_se.c b/src/sky1/syscall/syscall_se.c
+index 2f9e9d0292d206fde8e6b05540882b7527c8f8fd..3b19e997315e8bc0391b53654769c30aad014b3a 100644
+--- a/src/sky1/syscall/syscall_se.c
++++ b/src/sky1/syscall/syscall_se.c
+@@ -10,6 +10,7 @@
+ #include "base.h"
+ #include "ddr_register_def.h"
+ #include "MemIrq.h"
++#include "drv_wdt.h"
+ 
+ #define FUSE_SW_HARVEST_ADDR   0xB00404CC
+ #define	IRQn_Ddrc(ch)          IRQn_Ddrc##ch
+@@ -200,7 +201,7 @@ get_soc_gpio (
+ 
+ extern errcode_t drv_memcfg_flash_write(uint32_t flash_offset,uint8_t *buf,uint32_t buf_len);
+ 
+-void
++uint8_t
+ set_memcfg_img (
+   uint8_t *img,
+   uint32_t offset,
+@@ -208,7 +209,16 @@ set_memcfg_img (
+   )
+ {
+   firmware_entry sub_img_info;
+-  hal_stor_get_firmware_entry(MEMORY_CONFIG_IMG_DATA_TYPE, &sub_img_info);
+-  // drv_qspi_flash_write(sub_img_info.img_addr + offset, img, len);
+-  drv_memcfg_flash_write(sub_img_info.img_addr + offset, img, len);
++  if (hal_stor_get_firmware_entry(MEMORY_CONFIG_IMG_DATA_TYPE, &sub_img_info) != FW_OK) {
++    return 0;
++  }
++  return drv_memcfg_flash_write(sub_img_info.img_addr + offset, img, len) == FW_OK ? 1 : 0;
++}
++
++void
++reset_system (
++  void
++  )
++{
++  drv_wdt_reset_sys();
+ }

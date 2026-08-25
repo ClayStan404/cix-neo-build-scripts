@@ -223,8 +223,19 @@ is confirmed.
   BSET checksum, preserve the source image's vendor limits and tuning blocks,
   recalculate the changed BSET checksum, and verify the dedicated memory
   configuration entry by reading it back. Treat explicit values above a
-  board's vendor limit as recovery-gated requests that closed DDR firmware may
-  cap, reject, or fail to train rather than as product-qualified rates.
+  board's vendor limit as recovery-gated requests that the DDR implementation
+  may reject, the SoC fuse limit may cap, or memory may fail to train rather
+  than as product-qualified rates. Bound training to three attempts. When an
+  explicit request fails, persist `Auto`, verify the flash update, and reset;
+  when `Auto` itself fails, stop initialization instead of reset-looping.
+- Track `cix_security/ddr`, `cix_security/firmware`, `cix_security/library`,
+  `cix_private/sw_tools_private`, and `cix_proprietary/cix_firmware` for the
+  Sky1 bootloader source and version-matched target payloads. Build SE/DDR and
+  the signing tool natively on ARM64 with Debian 13 packages, then build and
+  verify product and prototype `bootloader1` images. Keep `pr2` revision-pinned
+  until its RKMS-only product key can be supplied to CI. Keep PM and PBL as
+  version-matched payloads until their licensed Xtensa source toolchain has a
+  supported Debian 13 ARM64 workflow.
 - Track internal `tools/cix_binary` at commit
   `cf4388565546e14ab4c566e55495cd6757edd92e` under `sources/cix-binary` for
   the ARM64 `pmtool` validation utility. Publish only the checked executable as
@@ -439,7 +450,7 @@ or voltage offsets. They are experimental direct targets grouped by the
 explicit `pm-validation` build set, are not members of either product build
 set, and publish a separately verified PM configuration block with their
 firmware images. Normal O6/O6N firmware builds do not apply the validation
-patch. Treat a board boot test as the acceptance gate for closed-firmware
+patch. Treat a board boot test as the acceptance gate for PM-firmware
 consumption; build-time binary validation alone is insufficient.
 
 The `radxa-o6-opp-validation` target extends only the O6 experiment with the
@@ -468,7 +479,12 @@ limits. Every supported setup rate changes only the BSET request; no runtime
 path may rewrite a per-board CONF maximum. All LPDDR5 bus, PHY-pad, and
 training blocks must retain their source entries, and every memory write must
 pass checksum validation and complete read-back comparison. This behavior is
-not enabled in the normal O6 firmware target.
+not enabled in the normal O6 firmware target. The same flow builds the Sky1
+SE/DDR firmware from source with Debian 13's native ARM embedded toolchain,
+limits training to three attempts, restores an explicit failed request to
+Automatic, and packages verified product and prototype `bootloader1` images
+with the ARM64-native signing tool. It retains the manifest-pinned `pr2`, PM,
+and PBL payloads at the documented signing/toolchain boundary.
 
 ## Legacy Reference
 

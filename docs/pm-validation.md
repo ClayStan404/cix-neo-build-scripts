@@ -165,7 +165,7 @@ retail O6 until they pass board-specific validation.
 When an editable OPP changes, its power cost is rounded up from
 `stock_power * new_frequency * new_voltage^2 /
 (stock_frequency * stock_voltage^2)`. The result is never allowed below the
-stock power cost. This keeps the closed PM firmware's power model conservative
+stock power cost. This keeps the PM firmware's power model conservative
 for undervolting and avoids retaining an underestimated stock cost when
 overclocking.
 
@@ -186,11 +186,14 @@ per-board CONF maximum, so all vendor limits and DRAM topology data remain
 intact. It updates the BSET checksum, writes the memory configuration entry,
 and verifies it by reading the complete entry back.
 
-Memory training happens before UEFI setup. Closed DDR firmware may cap or
-reject a request above the detected board's qualified limit; if it accepts an
-unstable rate, training may fail before the profile selector is available.
-Recover by flashing the known-good image over USB. After a successful boot,
-verify the controller PLL with:
+Memory training happens before UEFI setup. The source-built SE/DDR firmware
+tries training no more than three times. If an explicit request fails, it
+persists `Auto` to the dedicated memory configuration entry, verifies the
+write, and resets. If training fails while already using `Auto`, initialization
+stops rather than reset-looping. A request above the detected board's qualified
+limit may also be capped by the SoC fuse limit. Keep the known-good USB recovery
+image available even with automatic recovery. After a successful boot, verify
+the controller PLL with:
 
 ```bash
 sudo ./pmtool cli pllst | grep ddrc_pll

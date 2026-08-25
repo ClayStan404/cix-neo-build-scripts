@@ -181,9 +181,22 @@ by the vendor: normally 5500 MT/s, 4800 MT/s for the low-speed variants, and
 6000 MT/s for the 32 GB Hynix variant. The updater validates the current image
 and BSET checksum, writes the dedicated memory configuration entry, and
 verifies the complete entry by reading it back. Rates above a board's qualified
-limit remain experiments: closed DDR firmware may cap or reject them, and an
-accepted rate can still fail training before UEFI setup. Use such rates only
-with the tested USB recovery path.
+limit remain experiments: the DDR implementation may reject them, the SoC
+fuse limit may cap them, and an accepted rate can still fail training before
+UEFI setup. Use such rates only with the tested USB recovery path.
+
+For this tuning image, the Sky1 SE/DDR firmware and its `bootloader1` container
+are built from the manifest-pinned sources on the ARM64 host. The build uses
+Debian 13's `gcc-arm-none-eabi`, newlib, native GCC, OpenSSL, and libxml2; it
+does not execute an x86 cross-toolchain. DDR training is limited to three
+attempts. If an explicit rate fails, firmware writes `Auto` back to the
+dedicated memory configuration entry, verifies the flash update, and resets.
+Failure while already using `Auto` stops initialization instead of entering an
+unbounded reset loop. Product (`pr`) and prototype images are source-built and
+verified. The `pr2` image remains the manifest-pinned binary because its
+private signing key is available only through RKMS. PM and PBL target payloads
+also remain version-matched manifest binaries because their source build needs
+the licensed Xtensa toolchain, which Debian does not provide.
 
 The same set publishes the manifest-pinned ARM64 CIX `pmtool` binary at
 `output/pmtool/pmtool`. On the O6 test board, capture the effective PM firmware

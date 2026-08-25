@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Build and package Radxa Orion platform firmware on native ARM64.
 
+# shellcheck source=builders/direct/bootloader1.sh
+source "${CIX_ROOT}/build-scripts/builders/direct/bootloader1.sh"
+
 cix_radxa_validate_edk2_inputs() {
     local edk2_source="$1"
     local dependency
@@ -35,6 +38,8 @@ cix_radxa_remove_workspace() {
     local work_root="${build_output}/work"
     local work_uefi="${work_root}/uefi_release"
     local dependency
+
+    cix_bootloader1_remove_workspace "${source_root}" "${build_output}"
 
     while IFS= read -r dependency; do
         cix_radxa_remove_worktree \
@@ -121,8 +126,13 @@ cix_radxa_prepare_workspace() {
             awk '$1 == "160000" {print $4}'
     )
 
-    ln -s -- "${source_root}/cix_bsp_release" \
-        "${work_root}/cix_bsp_release"
+    if [[ "${enable_pm_tuning}" == true ]]; then
+        cp -a --reflink=auto -- "${source_root}/cix_bsp_release" \
+            "${work_root}/cix_bsp_release"
+    else
+        ln -s -- "${source_root}/cix_bsp_release" \
+            "${work_root}/cix_bsp_release"
+    fi
 
     if [[ "${platform}" == "O6N" ]]; then
         cix_radxa_apply_patch "${work_uefi}/edk2-platforms" \
@@ -225,7 +235,7 @@ cix_direct_radxa_firmware_build() (
     local image_output="${build_output}/images"
     local package_script="${uefi_source}/edk2-non-osi/Platform/CIX/Sky1/PackageTool/build_and_package.sh"
     local package_tool="${uefi_source}/edk2-non-osi/Platform/CIX/Sky1/PackageTool/AARCH64/cix_package_tool"
-    local internal_package_script="${firmware_source}/cix_bsp_release/sky1/package_internal_flash_binary.sh"
+    local internal_package_script="${build_output}/work/cix_bsp_release/sky1/package_internal_flash_binary.sh"
     local platform_config_ifr
 
     if [[ "${TARGET[flow]}" == "radxa-pm-validation" ]]; then
@@ -242,6 +252,9 @@ cix_direct_radxa_firmware_build() (
     if [[ "${build_action}" == "clean" ]]; then
         cix_clean_artifacts "${build_output}"
         cix_radxa_remove_workspace "${firmware_source}" "${build_output}"
+        if [[ "${enable_pm_tuning}" == true ]]; then
+            cix_bootloader1_clean_artifacts "${build_output}"
+        fi
         if [[ -d "${image_output}" ]]; then
             cix_log "Remove Radxa ${platform} firmware artifacts"
             find "${image_output}" -mindepth 1 -delete
@@ -263,6 +276,16 @@ cix_direct_radxa_firmware_build() (
     cix_radxa_prepare_workspace \
         "${firmware_source}" "${build_output}" "${platform}" \
         "${validation_profile}" "${enable_pm_tuning}"
+
+    if [[ "${enable_pm_tuning}" == true ]]; then
+        cix_require_command \
+            arm-none-eabi-gcc arm-none-eabi-ld arm-none-eabi-objcopy \
+            install openssl pkg-config sha256sum
+        cix_bootloader1_build \
+            "${firmware_source}" "${build_output}" "${build_jobs}" \
+            "${build_output}/work/cix_bsp_release" \
+            "${uefi_source}/edk2-non-osi"
+    fi
 
     [[ -x "${package_script}" ]] ||
         cix_die "Radxa firmware package script is missing: ${package_script}"

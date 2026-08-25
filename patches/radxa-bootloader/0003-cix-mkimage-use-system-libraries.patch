@@ -1,0 +1,32 @@
+diff --git a/host/cix_mkimage/Makefile b/host/cix_mkimage/Makefile
+index b01fe1e4bc97f886fe7924555ac93c478315ce7c..66c67675c7f8f589f0aecec82185fe81730a611e 100644
+--- a/host/cix_mkimage/Makefile
++++ b/host/cix_mkimage/Makefile
+@@ -11,6 +11,7 @@ C_OBJDIR = ./obj
+ C_SRCDIR = ./src
+ C_INCDIR = ./inc
+ C_LIBDIR = ./lib
++PKG_CONFIG ?= pkg-config
+ 
+ MAJOR_VERSION := 2
+ MINOR_VERSION := 0
+@@ -19,12 +20,10 @@ export COMPILE_COMMIT_ID
+ C_SRC = $(wildcard $(C_SRCDIR)/*.c)
+ OBJ_C = $(patsubst %c, %o, $(C_SRC))
+ 
+-CFLAGS += -I$(C_INCDIR) -DCOMPILE_COMMIT_ID=$(COMPILE_COMMIT_ID) -Wall -Werror -DMAJOR_VERSION=$(MAJOR_VERSION) -DMINOR_VERSION=$(MINOR_VERSION)
+-LDADD += -lcrypto
+-LDADD += -lxml2
++CFLAGS += -I$(C_INCDIR) $(shell $(PKG_CONFIG) --cflags libxml-2.0 openssl) -DCOMPILE_COMMIT_ID=$(COMPILE_COMMIT_ID) -Wall -Werror -DMAJOR_VERSION=$(MAJOR_VERSION) -DMINOR_VERSION=$(MINOR_VERSION)
++LDADD += $(shell $(PKG_CONFIG) --libs libxml-2.0 openssl)
+ LDADD += -ldl
+ LDADD += -lpthread
+-LDADD += -L$(C_LIBDIR)
+ LDADD += -lm
+ 
+ BINARY = cix_mkimage_rsa
+@@ -60,4 +59,3 @@ ifneq ($(wildcard $(COMMIT_ID_FILE)),)
+ endif
+ 
+ 
+-

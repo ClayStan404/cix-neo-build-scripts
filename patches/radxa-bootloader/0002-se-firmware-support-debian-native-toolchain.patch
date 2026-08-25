@@ -1,0 +1,423 @@
+diff --git a/Makefile b/Makefile
+index 9c7c7070f708c6adda780fbe6c200d5605054b7b..6f1944e22eb33331d9a586d2f9f6626418234f9c 100644
+--- a/Makefile
++++ b/Makefile
+@@ -13,9 +13,7 @@ CLEAN_FILES := $(TARGET) $(OBJS) *.disass *.sym *.map *.bin *.md5 *.hex *.elf *.
+ 
+ rwildcard=$(foreach d,$(wildcard $(addsuffix *,$(1))),$(call rwildcard,$(d)/,$(2))$(filter $(subst *,%,$(2)),$(d)))
+ 
+-CROSS_COMPILE_PATH := $(shell realpath $(CROSS_COMPILE)ld)
+-CROSS_COMPILE_PATH := $(dir $(CROSS_COMPILE_PATH))
+-$(info CROSS_COMPILE_PATH: $(CROSS_COMPILE_PATH))
++LIBGCC = $(shell $(CC) $(CPUTARGET) -print-libgcc-file-name)
+ 
+ ifeq ($(SOC_TYPE), sky1)
+ 	SE_FW_SZ := 392703
+@@ -25,16 +23,20 @@ else
+ 	SE_FW_SZ := 392703
+ endif
+ 
+-default: prebuild all
++default: all
+ TARGET := se_fw.elf
+-$(TARGET): build-subdirs $(OBJS) find-all-objs
+-	@echo -e "\t" LD $(CFLAGS) $(ALL_OBJS) -L $(LDS_INC) -L $(CROSS_COMPILE_PATH)/../lib/gcc/arm-none-eabi/10.3.1/thumb/v8-m.main+fp/softfp/ -lgcc -T $(LDS) -o $@
+-	@$(LD) $(ALL_OBJS) -L $(LDS_INC) -L $(CROSS_COMPILE_PATH)/../lib/gcc/arm-none-eabi/10.3.1/thumb/v8-m.main+fp/softfp/ -L $(CROSS_COMPILE_PATH)/platform/sky1 -L $(CROSS_COMPILE_PATH)/../../tools/gcc/gcc-arm-none-eabi-10.3-2021.10-x86_64-linux/bin/../lib/gcc/arm-none-eabi/10.3.1/thumb/v8-m.main+fp/softfp/ -lgcc -T $(LDS) -Map se_fw.map -o $@
++$(TARGET): $(OBJS) find-all-objs
++	@echo -e "\t" LD $(CFLAGS) $(ALL_OBJS) $(LIBGCC) -T $(LDS) -o $@
++	@$(LD) $(ALL_OBJS) -L $(LDS_INC) $(LIBGCC) -T $(LDS) -Map se_fw.map -o $@
+ # @$(LD) $(ALL_OBJS) -L $(LDS_INC) -L $(CROSS_COMPILE_PATH)/../lib/gcc/arm-none-eabi/10.3.1/thumb/v8-m.main+fp/hard/ -lgcc -T $(LDS) -Map se_fw.map -o $@
+ 
+ # phony targets
+ .PHONY: all
+-all: $(TARGET) postbuild
++all:
++	@$(MAKE) prebuild
++	@$(MAKE) build-subdirs
++	@$(MAKE) $(TARGET)
++	@$(MAKE) postbuild
+ 	#TODO, below are for make proxy library
+ 	#cd ./proxy && pwd && make lib_all
+ 	@echo Target $(TARGET) build finished.
+@@ -66,11 +68,10 @@ postbuild:
+ 	$(OBJDUMP) -t $(TARGET) | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > se_fw.sym
+ 	$(READELF) -A $(TARGET)
+ 	md5sum se_fw.elf > se_fw.md5
+-	se_fw_sz_limit=$(SE_FW_SZ)
+ 	python3 ./tool/bin2hex/bin2hex.py  -bh se_fw.bin se_fw.hex
+ 	@file_size=$$(stat -c%s "se_fw.bin"); \
+-	if [ $$file_size -gt $$se_fw_sz_limit ]; then \
+-		echo "Error: se_fw.bin size ($$file_size bytes) exceeds 392703"; \
++	if [ $$file_size -gt $(SE_FW_SZ) ]; then \
++		echo "Error: se_fw.bin size ($$file_size bytes) exceeds $(SE_FW_SZ)"; \
+ 		rm se_fw.*; \
+ 		exit 1; \
+ 	else \
+diff --git a/driver/dap/dap_rsp.c b/driver/dap/dap_rsp.c
+index 11ebc530ce1d97de56c8bc3f76e1650de083b7c5..56d966d56112eeed2efa70ec44e35bba0c4f0e82 100644
+--- a/driver/dap/dap_rsp.c
++++ b/driver/dap/dap_rsp.c
+@@ -57,7 +57,7 @@ static uint32_t dap_packet_size = 64; //usb2.0
+ 
+ static int rtp_rom_pwron(uint32_t base_address)
+ {
+-	uint val;
++	uint32_t val;
+ 
+ 	SMN_WRITEL(ARM_CS_SYSPCR_ROM_TABLE_PR, base_address + ARM_CS_ROM_TABLE_SYSPCR);
+ 	hal_mdelay(10);
+@@ -377,7 +377,7 @@ static int rsp_query_cmd(char *data)
+ 		len = sprintf(data, "PacketSize=%08x#1", dap_buf.size);
+ 	} else if (!strncmp(data, "qSetPacketNum=", 14)) {
+ 		char *buf = data + 14;
+-		uint num = strtoul(buf, NULL, 16);
++		uint32_t num = strtoul(buf, NULL, 16);
+ 		if (!num)
+ 			num = 1;
+ 		dap_buf.size = num * dap_packet_size;
+diff --git a/driver/memory/drv_mem_config.c b/driver/memory/drv_mem_config.c
+index 45b0324816910b6c2336e529c7ff133c1c5af6ed..81cd6bba311de54e77453601352d4e291543c215 100644
+--- a/driver/memory/drv_mem_config.c
++++ b/driver/memory/drv_mem_config.c
+@@ -213,6 +213,8 @@ static errcode_t drv_memcfg_write_by_flash(uint32_t flash_offset, uint8_t *buf,
+ 		//LOG_I("flash write 4k success!\n");
+ 	} else {
+ 		LOG_I("flash write 4k fail, crc wrong!\n");
++		ret = FW_ERROR;
++		goto err_exit;
+ 	}
+ 
+ 	// judge if cross boundary
+@@ -245,6 +247,8 @@ static errcode_t drv_memcfg_write_by_flash(uint32_t flash_offset, uint8_t *buf,
+ 			//LOG_I("flash write 4k success!\n");
+ 		} else {
+ 			LOG_I("flash write 4k fail, crc wrong!\n");
++			ret = FW_ERROR;
++			goto err_exit;
+ 		}
+ 	}
+ 
+diff --git a/driver/uart/drv_uart.c b/driver/uart/drv_uart.c
+index 75f6ccc7392a15045f1214768e59ea0bc504e017..4eebf59f18d55f4d9bfdabbcf5982ad3ffdc39cd 100644
+--- a/driver/uart/drv_uart.c
++++ b/driver/uart/drv_uart.c
+@@ -185,7 +185,7 @@ errcode_t drv_putstring(const char *s, unsigned int count)
+ /**
+  * @brief uart getchar
+  *
+- * @param tmr_out uint in cpu cycles
++ * @param tmr_out uint32_t in cpu cycles
+  *
+  * @return the character it receives, otherwise, it is -1 indicates error.
+  */
+diff --git a/framework/fastboot/fw_fastboot.c b/framework/fastboot/fw_fastboot.c
+index fb3e3e941ad77369c72ff834992bc4b5646ef3b8..aca5a76e6c92dd605b7400be8cf2c17376605d9c 100644
+--- a/framework/fastboot/fw_fastboot.c
++++ b/framework/fastboot/fw_fastboot.c
+@@ -137,7 +137,7 @@ static void _fw_fastboo_ack(const char *code, const char *info)
+ 	sprintf(gFastbootData.TxBuffer, "%s%s", code, info);
+ 
+ 	/** 3) Send TxBuffer to host side */
+-	UsbDeviceControlSend(ENDPOINT_OUT, strlen(gFastbootData.TxBuffer), (uint64_t)(uint)gFastbootData.TxBuffer);
++	UsbDeviceControlSend(ENDPOINT_OUT, strlen(gFastbootData.TxBuffer), (uint64_t)(uint32_t)gFastbootData.TxBuffer);
+ }
+ 
+ static void _fw_fastboot_fail_ack(const char *Reason)
+@@ -709,7 +709,7 @@ static void _fw_fastboot_process_rec_data(uint64_t Size, void *UsbDataBuffer)
+ 	} else {
+ 		/* Continue to receive data */
+ 		UsbDeviceControlSend(ENDPOINT_IN, _fw_fastboot_get_xfree_size(),
+-				     (uint64_t)(uint)(UsbDataBuffer + gFastbootData.DataBytesReceived));
++				     (uint64_t)(uint32_t)(UsbDataBuffer + gFastbootData.DataBytesReceived));
+ 		hal_printf_level(LOG_LEVEL_CRIT, "AcceptData: Send %d\n", _fw_fastboot_get_xfree_size());
+ 	}
+ #ifdef CONFIG_PERF_ENABLE
+@@ -724,11 +724,11 @@ void _fw_fastboot_process_send_buf(void)
+ 	switch (gFastbootData.FastbootState) {
+ 	case CMD_STATE:
+ 		UsbDeviceControlSend(ENDPOINT_IN, _fw_fastboot_get_xfree_size(),
+-				     (uint64_t)(uint)gFastbootData.RxBuffer);
++				     (uint64_t)(uint32_t)gFastbootData.RxBuffer);
+ 		break;
+ 	case DATA_STATE:
+ 		UsbDeviceControlSend(ENDPOINT_IN, _fw_fastboot_get_xfree_size(),
+-				     (uint64_t)(uint)gFastbootData.UsbDataBuffer);
++				     (uint64_t)(uint32_t)gFastbootData.UsbDataBuffer);
+ 		break;
+ 	default:
+ 		hal_printf_level(LOG_LEVEL_CRIT, "Unknown fastboot state \r\n");
+diff --git a/hal/crash/amu_einfo.c b/hal/crash/amu_einfo.c
+index f1247767b26f2ee9fd7fb0274c7b2c4f8ee71389..86bf7e0c88158b34ae43d16b23362e385639ed0b 100644
+--- a/hal/crash/amu_einfo.c
++++ b/hal/crash/amu_einfo.c
+@@ -7,15 +7,15 @@
+ #define CPU_MAX_NUM (__builtin_ctzl(~FW_CORE_FULL_MASK))
+ 
+ struct amu_data {
+-	uint cpu;
+-	uint cpu_cycle_low;
+-	uint cpu_cycle_high;
+-	uint cnt_cycle_low;
+-	uint cnt_cycle_high;
+-	uint cnt_inst_low;
+-	uint cnt_inst_high;
+-	uint memory_stall_cycle_low;
+-	uint memory_stall_cycle_high;
++	uint32_t cpu;
++	uint32_t cpu_cycle_low;
++	uint32_t cpu_cycle_high;
++	uint32_t cnt_cycle_low;
++	uint32_t cnt_cycle_high;
++	uint32_t cnt_inst_low;
++	uint32_t cnt_inst_high;
++	uint32_t memory_stall_cycle_low;
++	uint32_t memory_stall_cycle_high;
+ };
+ 
+ struct amu_einfo_head {
+@@ -23,27 +23,27 @@ struct amu_einfo_head {
+ };
+ 
+ struct amu_einfo {
+-	uint cpunum;
+-	uint per_amu_size;
++	uint32_t cpunum;
++	uint32_t per_amu_size;
+ 	struct amu_einfo_head head;
+ 	struct amu_data amu[CPU_MAX_NUM];
+ };
+ 
+-void save_amu_data(struct amu_data *amu, uint cpu)
++void save_amu_data(struct amu_data *amu, uint32_t cpu)
+ {
+-	uint *data = &amu->cpu_cycle_low;
+-	uint amu_base = AP_AMU_ADDR(cpu);
++	uint32_t *data = &amu->cpu_cycle_low;
++	uint32_t amu_base = AP_AMU_ADDR(cpu);
+ 
+ 	amu->cpu = cpu;
+-	for (uint i = 0; i < 8; i++) {
++	for (uint32_t i = 0; i < 8; i++) {
+ 		data[i] = SMN_READL(amu_base + i * 4);
+ 	}
+ }
+ 
+-void amu_save_einfo(uint num)
++void amu_save_einfo(uint32_t num)
+ {
+ 	struct amu_einfo *einfo;
+-	uint cpu, cpu_mask;
++	uint32_t cpu, cpu_mask;
+ 	struct amu_data *amu;
+ 
+ 	einfo = hal_crash_get_eaddr("AMU", sizeof(*einfo) * 2);
+diff --git a/hal/crash/crash_inner.h b/hal/crash/crash_inner.h
+index 73c02f7571cba44865437f35c19271f0918daf3b..040f77f2b8d778ed16c6c29180b2261921a367a4 100644
+--- a/hal/crash/crash_inner.h
++++ b/hal/crash/crash_inner.h
+@@ -12,15 +12,15 @@
+ 	einfo->head.member.size = sizeof(einfo->member)
+ 
+ struct einfo_offset {
+-	uint offset;
+-	uint size;
++	uint32_t offset;
++	uint32_t size;
+ };
+ 
+ uint32_t crc32(uint8_t *data, uint16_t length);
+ 
+ void ddr_einfo_copy_to_ddr(void);
+ bool ddr_check(void);
+-void amu_save_einfo(uint num);
++void amu_save_einfo(uint32_t num);
+ 
+ void rc_se_assert_policy(uint32_t tmp);
+ void rc_pm_assert_policy(uint32_t tmp);
+diff --git a/hal/crash/ddr_einfo.c b/hal/crash/ddr_einfo.c
+index ad19773b76719cbc6c6e814de1976955e641b0d1..fb2222515a789f427e2270a074094ce797a7f04e 100644
+--- a/hal/crash/ddr_einfo.c
++++ b/hal/crash/ddr_einfo.c
+@@ -59,7 +59,7 @@ static const uint32_t ddr_rcsu_regs_bases[] = {
+ 
+ bool ddr_check(void)
+ {
+-	uint full, tmp;
++	uint32_t full, tmp;
+ 
+ 	full = 0;
+ 	for (int i = 0; i < ARRAY_SIZE(ddr_rcsu_regs_bases); i++) {
+@@ -70,23 +70,23 @@ bool ddr_check(void)
+ 	return full == 0;
+ }
+ 
+-static void ddr_save_channel(uint channel, void *addr)
++static void ddr_save_channel(uint32_t channel, void *addr)
+ {
+-	uint rcsu_base = ddr_rcsu_regs_bases[channel];
++	uint32_t rcsu_base = ddr_rcsu_regs_bases[channel];
+ 	struct ddr_channel_info *cinfo = addr;
+ 	struct ddr_reg *reg = &cinfo->regs[0];
+-	uint index = 0;
++	uint32_t index = 0;
+ 
+ 	cinfo->channel = channel;
+ 	cinfo->num = REGS_NUM;
+-	for (uint i = 0; i < ARRAY_SIZE(rcsu_regs_offsets); i++) {
++	for (uint32_t i = 0; i < ARRAY_SIZE(rcsu_regs_offsets); i++) {
+ 		reg[index].offset = rcsu_regs_offsets[i];
+ 		reg[index].type = TYPE_RCSU;
+ 		reg[index].val = SMN_READL(rcsu_base + rcsu_regs_offsets[i]);
+ 		index++;
+ 	}
+ 
+-	for (uint i = 0; i < ARRAY_SIZE(ctrl_regs_offsets); i++) {
++	for (uint32_t i = 0; i < ARRAY_SIZE(ctrl_regs_offsets); i++) {
+ 		reg[index].offset = ctrl_regs_offsets[i];
+ 		reg[index].type = TYPE_CTRL;
+ 		reg[index].val = SMN_READL(rcsu_base + 0x10000 + ctrl_regs_offsets[i]);
+@@ -97,7 +97,7 @@ static void ddr_save_channel(uint channel, void *addr)
+ void ddr_einfo_save_to_sram(void)
+ {
+ 	struct ddr_einfo *einfo_sram = (void *)RC_DDR_REG_TO_SRAM_BASE;
+-	uint channel_start = 0, channel_num;
++	uint32_t channel_start = 0, channel_num;
+ 	uint32_t *crc = (void *)einfo_sram + EINFO_SIZE;
+ 
+ 	channel_num = drv_ddr_get_ch_num();
+@@ -107,7 +107,7 @@ void ddr_einfo_save_to_sram(void)
+ 
+ 	einfo_sram->channel = channel_num;
+ 
+-	for (uint i = channel_start; i < 4; i++) {
++	for (uint32_t i = channel_start; i < 4; i++) {
+ 		ddr_save_channel(i, &einfo_sram->info[i]);
+ 	}
+ 	*crc = crc32((void *)einfo_sram, EINFO_SIZE);
+@@ -124,7 +124,7 @@ static bool ddr_sram_einfo_is_valid(struct ddr_einfo *einfo)
+ 	if (einfo->channel > 4 || !einfo->channel)
+ 		return false;
+ 
+-	for (uint i = 0; i < einfo->channel; i++) {
++	for (uint32_t i = 0; i < einfo->channel; i++) {
+ 		if (einfo->info[i].num != REGS_NUM)
+ 			return false;
+ 	}
+diff --git a/hal/crash/hal_crash.c b/hal/crash/hal_crash.c
+index 965982e702303014744497fc5e9a0e55c9ca8996..c60d03cb3884eab1a3be21d608a20450a48e4474 100644
+--- a/hal/crash/hal_crash.c
++++ b/hal/crash/hal_crash.c
+@@ -141,9 +141,9 @@ static struct se_mem_info *hc_add_mem_info(char *name, uint32_t size)
+ 	return info;
+ }
+ 
+-static uint hc_get_size(void)
++static uint32_t hc_get_size(void)
+ {
+-	uint size = 0;
++	uint32_t size = 0;
+ 
+ 	if (!g_rc || g_rc->flag == AP_USE)
+ 		goto out;
+diff --git a/hal/crash/pm_wdt_einfo.c b/hal/crash/pm_wdt_einfo.c
+index 7032bc8e5ca097df3002c460116039d179bfd082..2574b9b38b92b734af1b81037b869245c05cb270 100644
+--- a/hal/crash/pm_wdt_einfo.c
++++ b/hal/crash/pm_wdt_einfo.c
+@@ -18,7 +18,7 @@ struct pm_reg {
+ };
+ 
+ struct pm_einfo {
+-	uint num;
++	uint32_t num;
+ 	struct pm_reg reg[];
+ };
+ 
+@@ -76,19 +76,19 @@ void se_save_pm_einfo(void)
+ {
+ 	struct pm_einfo *einfo = NULL;
+ 	uint32_t sram_size = (RC_PM_DBG_SRAM_END - RC_PM_DBG_SRAM_BASE) / sizeof(uint32_t) + 1;
+-	uint index = 0;
++	uint32_t index = 0;
+ 
+ 	einfo = hal_crash_get_eaddr(SE_MEM_PM_WDT, EINFO_SIZE + sram_size * sizeof(struct pm_reg));
+ 	if (!einfo)
+ 		return;
+ 
+-	for (uint i = 0; i < REGS_NUM; i++) {
++	for (uint32_t i = 0; i < REGS_NUM; i++) {
+ 		einfo->reg[index].val = SMN_READL(pm_debug_regs[i]);
+ 		einfo->reg[index].addr = pm_debug_regs[i];
+ 		index++;
+ 	}
+ 
+-	for (uint i = 0; i < sram_size; i++) {
++	for (uint32_t i = 0; i < sram_size; i++) {
+ 		einfo->reg[index].val = SMN_READL(RC_PM_DBG_SRAM_BASE + (i * sizeof(uint32_t)));
+ 		einfo->reg[index].addr = RC_PM_DBG_SRAM_BASE + (i * sizeof(uint32_t));
+ 		index++;
+diff --git a/hal/crash/se_wdt_einfo.c b/hal/crash/se_wdt_einfo.c
+index d120df09c9c856ff0c2e9c2377c71788e933af03..68c3bf3bfb5548d74f49d5ab0899f0ad2c865e68 100644
+--- a/hal/crash/se_wdt_einfo.c
++++ b/hal/crash/se_wdt_einfo.c
+@@ -34,7 +34,7 @@ struct se_einfo_head {
+ 
+ struct se_einfo {
+ 	struct se_einfo_head head;
+-	uint stack[RC_SE_STACK_DUMP_SIZE / 4];
++	uint32_t stack[RC_SE_STACK_DUMP_SIZE / 4];
+ 	saved_reg_ex reg;
+ };
+ 
+diff --git a/platform/sky1/plat_monitor_clk.c b/platform/sky1/plat_monitor_clk.c
+index 2951771d5ba3ab1638cbd0b7ef8d93235d4e8c97..b776639a90edf9a60a619e33eba6ff5df1539db1 100644
+--- a/platform/sky1/plat_monitor_clk.c
++++ b/platform/sky1/plat_monitor_clk.c
+@@ -1905,11 +1905,11 @@ void clk_save_einfo(void)
+ {
+ 	int ret;
+ 	uint32_t map_index_low, map_index_high;
+-	uint num_clk = 0, size = 0, len = 0, index;
++	uint32_t num_clk = 0, size = 0, len = 0, index;
+ 	struct clk_einfo *einfo;
+ 
+ 	/*Calculate the number of clocks that need to be dumped.*/
+-	for (uint i = 0; i < ARRAY_SIZE(clk_components); i++) {
++	for (uint32_t i = 0; i < ARRAY_SIZE(clk_components); i++) {
+ 		if (clk_components[i] == NULL)
+ 			break;
+ 
+@@ -1928,7 +1928,7 @@ void clk_save_einfo(void)
+ 	/*save clk info*/
+ 	einfo->count = num_clk;
+ 	index = 0;
+-	for (uint i = 0; i < ARRAY_SIZE(clk_components); i++) {
++	for (uint32_t i = 0; i < ARRAY_SIZE(clk_components); i++) {
+ 		if (clk_components[i] == NULL)
+ 			break;
+ 
+diff --git a/platform/sky1/plat_monitor_power.c b/platform/sky1/plat_monitor_power.c
+index f4111683cdaf98cf4ede251623f5b6ab4bb1ab21..1a6f70e3296fc51280b203d06ea6ce9f78ba4b6b 100644
+--- a/platform/sky1/plat_monitor_power.c
++++ b/platform/sky1/plat_monitor_power.c
+@@ -299,10 +299,10 @@ void pwr_save_einfo(void)
+ {
+ 	int ret;
+ 	uint32_t map_index_low, map_index_high;
+-	uint num_pwr = 0, size = 0, len = 0, index;
++	uint32_t num_pwr = 0, size = 0, len = 0, index;
+ 	struct pwr_einfo *einfo;
+ 
+-	for (uint i = 0; i < ARRAY_SIZE(pwr_components); i++) {
++	for (uint32_t i = 0; i < ARRAY_SIZE(pwr_components); i++) {
+ 		if (pwr_components[i] == NULL)
+ 			break;
+ 
+@@ -320,7 +320,7 @@ void pwr_save_einfo(void)
+ 	/*save clk info*/
+ 	einfo->count = num_pwr;
+ 	index = 0;
+-	for (uint i = 0; i < ARRAY_SIZE(pwr_components); i++) {
++	for (uint32_t i = 0; i < ARRAY_SIZE(pwr_components); i++) {
+ 		if (pwr_components[i] == NULL)
+ 			break;
+ 
