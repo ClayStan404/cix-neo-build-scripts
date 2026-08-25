@@ -59,7 +59,6 @@ EXPECTED_OPP_TABLES = (
 )
 
 GB1_DOMAIN_INDEX = 4
-GB1_STOCK_TOP_OPP = EXPECTED_OPP_TABLES[GB1_DOMAIN_INDEX][-1]
 OPP_PROFILES = ("stock-opp", "gb1-2700", "vendor-auto")
 
 
@@ -107,24 +106,43 @@ def expected_opp_tables(profile: str) -> tuple:
     raise VerificationError(f"unsupported OPP profile: {profile}")
 
 
-def estimate_opp_power(
-    stock_opp: tuple[int, int, int, int],
-    frequency: int,
-    voltage: int,
+GB1_MEASURED_POWER = (
+    (2600, 5100),
+    (2500, 4700),
+    (2200, 3600),
+    (1500, 2000),
+    (1200, 1600),
+    (800, 500),
+    (100, 50),
+)
+
+
+def interpolate_measured_power(
+    points: tuple[tuple[int, int], ...], frequency: int
 ) -> int:
-    """Conservatively scale OPP power with frequency and voltage squared."""
-    stock_frequency, stock_voltage, _unused_frequency, stock_power = stock_opp
-    numerator = stock_power * frequency * voltage * voltage
-    denominator = stock_frequency * stock_voltage * stock_voltage
-    estimate = (numerator + denominator - 1) // denominator
-    return max(stock_power, estimate)
+    """Match the pinned PM firmware's linear measured-power interpolation."""
+    for index, (point_frequency, point_power) in enumerate(points):
+        if point_frequency == frequency:
+            return point_power
+        if point_frequency < frequency:
+            break
+    else:
+        index = len(points) - 1
+
+    if index == 0:
+        index = 1
+    lower_frequency, lower_power = points[index]
+    upper_frequency, upper_power = points[index - 1]
+    return lower_power + (upper_power - lower_power) * (
+        frequency - lower_frequency
+    ) // (upper_frequency - lower_frequency)
 
 
 GB1_2700_TOP_OPP = (
     2700,
     950,
     0,
-    estimate_opp_power(GB1_STOCK_TOP_OPP, 2700, 950),
+    interpolate_measured_power(GB1_MEASURED_POWER, 2700),
 )
 
 

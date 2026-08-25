@@ -152,24 +152,26 @@ GB1 OPP changes from 2600 MHz at 920 mV to 2700 MHz at 950 mV. The verifier
 rejects any other OPP-table difference. This experiment is never included in
 a product build set and must be used only on a recoverable O6 test board.
 
-`radxa-o6-pm-tuning` provides Vendor/Automatic, Experimental, and
-Expert/Custom profiles in
+`radxa-o6-pm-tuning` provides Vendor/Automatic, Vendor-Capped Custom,
+Engineering Unlock, and Engineering/Unsafe Custom profiles in
 the O6 UEFI setup menu under `Device Manager -> Platform Configuration ->
 Advanced Configuration -> Power Management`. Vendor/Automatic disables the
 external OPP table so PM firmware can use its native OPN/Vmin/guardband path.
-Experimental and Expert/Custom enable a complete external table. The fixed
-2.7 GHz profile is experimental rather than validated for a retail Radxa O6;
-the available K000086 results came from a different internal EVB.
-Expert/Custom permits edits to the non-startup OPPs of GB0, GB1, GM0, and GM1
-within 800-3200 MHz and 550-1250 mV in steps of 10. These are input boundaries,
-not safe operating guarantees. It enforces increasing frequencies and
-non-decreasing voltages. Changed OPP power costs are conservatively scaled with
-frequency and voltage squared. Startup OPPs, DSU, and non-CPU domains remain
-locked. All profiles remove the legacy CPU cap so it cannot mask PM firmware's
-selected table. On the following boot, a DXE driver validates the submitted
-settings and complete current v3.0 PM block, updates the external-table state,
-recalculates the checksum, writes the dedicated PM flash entry, reads back and
-compares the complete entry, then performs one additional cold reset.
+Vendor-Capped Custom uses the PM firmware v3.4 partial-table ABI and overrides
+only explicitly enabled CPU domains, so all other domains retain native tables
+and OPN frequency limits. Engineering profiles enable a complete table; only
+the Debug PM firmware removes the retail OPN frequency limit, while Release PM
+firmware still caps it. The fixed 2.7 GHz profile uses a 950 mV floor with
+per-chip Vmin profile 1. It remains experimental on a retail Radxa O6.
+Custom profiles permit edits to the non-boot OPPs of GB0, GB1, GM0, and GM1
+within 800-3200 MHz and 550-1250 mV base voltage in steps of 10. Each editable
+OPP can use a fixed voltage or Vmin profile 1-3. The effective 1500 MHz / 790 mV
+boot OPP, DSU, and non-CPU domains remain locked. CPU power entries use the
+measured-power table and interpolation from the exact pinned PM firmware source.
+The build verifies both PM binaries against source revision `a2327331813f`,
+their SHA-256 digests, PM config ABI v3.4, and the generated v3.0 schema. On the
+following boot, a DXE driver validates, writes, reads back, and compares the
+complete dedicated PM entry before performing one additional cold reset.
 This target is not part of a product build set and the ordinary O6 firmware
 target remains unchanged.
 
@@ -193,14 +195,16 @@ attempts. If an explicit rate fails, firmware writes `Auto` back to the
 dedicated memory configuration entry, verifies the flash update, and resets.
 Failure while already using `Auto` stops initialization instead of entering an
 unbounded reset loop. Local signing is restricted to the documented prototype
-key, and the tuning target publishes only explicitly named `proto_release` and
-`proto_debug` full-flash images. It never labels the repository's example
-release keys as production keys. Product `pr` and `pr2` bootloaders remain the
-manifest-pinned binaries: regenerating them requires RKMS, while the available
-`cix_kms` frontend is x86-only and its source is not present. It is therefore
-not executed by the ARM64-native build. PM and PBL target payloads also remain
-version-matched manifest binaries because their source build needs the licensed
-Xtensa toolchain, which Debian does not provide.
+key, and the tuning target publishes only explicitly named `vendor_release` and
+`engineering_debug` full-flash images. It never labels the repository's example
+release keys as production keys. It intentionally does not publish tuning OTA
+images because that payload does not carry the PM firmware that distinguishes
+Release from Engineering Debug behavior. Product `pr` and `pr2` bootloaders
+remain the manifest-pinned binaries: regenerating them requires RKMS, while the
+available `cix_kms` frontend is x86-only and its source is not present. It is
+therefore not executed by the ARM64-native build. PM and PBL target payloads
+also remain version-matched manifest binaries because their source build needs
+the licensed Xtensa toolchain, which Debian does not provide.
 
 The same set publishes the manifest-pinned ARM64 CIX `pmtool` binary at
 `output/pmtool/pmtool`. On the O6 test board, capture the effective PM firmware

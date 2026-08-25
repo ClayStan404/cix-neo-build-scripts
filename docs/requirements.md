@@ -198,20 +198,27 @@ is confirmed.
   higher frequencies or new voltage points until the stock-table image has
   passed a recoverable board test.
 - Provide a separate O6 firmware target with BIOS-selectable Vendor/Automatic,
-  Experimental, and Expert/Custom PM profiles. Keep source checkouts clean by
-  carrying the implementation as a build-time patch. Vendor/Automatic must
-  disable the external OPP table so PM firmware can use its native per-part
-  OPN/Vmin/guardband path. Experimental and Expert/Custom must enable a complete
-  external OPP table. Do not treat frequency/voltage evidence from the internal
-  K000086 EVB as qualification of the publicly sold Radxa O6 board.
-  Expert/Custom may edit only the non-startup OPPs of GB0, GB1, GM0, and GM1,
-  within 800-3200 MHz and 550-1250 mV in steps of 10. These are input boundaries,
-  not safe operating guarantees; the voltage boundary reflects the documented
-  Big/Mid CPU rail range. Require strictly increasing frequencies and
-  non-decreasing voltages within each domain. Conservatively scale each
-  changed OPP power cost with frequency and voltage squared, rounding up and
-  never reducing the value below the source-stock cost. Do not expose startup
-  OPPs, DSU, or non-CPU domains.
+  Vendor-Capped Custom, Engineering Unlock, and Engineering/Unsafe Custom PM
+  profiles. Keep source checkouts clean by carrying the implementation as a
+  build-time patch. Vendor/Automatic must disable the external OPP table.
+  Vendor-Capped Custom must use the PM v3.4 partial-table ABI and override only
+  explicitly enabled CPU domains; all other domains must retain native per-part
+  OPN/Vmin tables. Engineering profiles may enable a complete external table,
+  but the UI and artifacts must state that Release PM firmware retains the OPN
+  frequency cap and only Debug PM firmware unlocks a complete table above it.
+  Do not treat K000086 EVB evidence as qualification of a retail Radxa O6.
+  Custom modes may edit only the non-boot OPPs of GB0, GB1, GM0, and GM1 within
+  800-3200 MHz and 550-1250 mV base voltage in steps of 10. Each editable OPP
+  may use fixed voltage or fused Vmin profile 1-3. Require strictly increasing
+  frequencies and non-decreasing base voltages. Fix the effective boot OPP at
+  1500 MHz / 790 mV; do not expose it, DSU, or non-CPU domains. Populate CPU
+  power from the measured-power points and interpolation in the exact PM
+  firmware source instead of estimating from frequency and voltage squared.
+  Verify the Debug and Release PM binaries against source revision
+  `a2327331813f`, their expected SHA-256 values, PM config ABI v3.4, and the
+  deliberately pinned generated config schema v3.0 before packaging. Publish
+  only full-flash tuning images because the OTA payload does not carry the PM
+  firmware that distinguishes Release from Engineering Debug behavior.
   Validate both the submitted settings and the complete existing v3 PM block
   before writing; recalculate the checksum; read back and compare the complete
   PM entry; and cold-reset only after a verified write. The setup-save path
@@ -465,16 +472,18 @@ target is included in a product build set, installs software, invokes `sudo`,
 or flashes firmware.
 
 The `radxa-o6-pm-tuning` direct target layers a BIOS profile selector and a v3
-PM update driver over an image that contains a complete external OPP table.
-The image marks that table disabled by default, and Vendor/Automatic keeps it
-disabled so PM firmware can generate its native per-part table. Experimental
-and Expert/Custom re-enable a complete external table; Expert/Custom exposes
-only non-startup OPPs for GB0, GB1, GM0, and GM1 under bounded and monotonic
-input rules. Startup OPPs, DSU, and non-CPU domains remain locked. The updater
-validates the complete current and generated PM blocks and verifies the
-dedicated PM flash entry after every update. It belongs only to the explicit
-`pm-tuning` set. The normal O6 firmware target and both product build sets do
-not apply this patch.
+PM update driver over an image that contains source backup OPP tables.
+Vendor/Automatic leaves external OPPs disabled. Vendor-Capped Custom enables
+the v3.4 partial flag and only selected CPU domains; Engineering modes restore
+and enable the complete table. Release PM firmware retains OPN limits, while
+the separately named Engineering Debug image permits the full-table debug
+unlock. Custom modes expose only non-boot OPPs under bounded and monotonic
+input rules, with optional fused Vmin profiles. The 1500 MHz / 790 mV boot OPP,
+DSU, and non-CPU domains remain locked. CPU power follows the exact pinned PM
+firmware measured-power interpolation. The updater validates current and
+generated PM blocks and verifies the dedicated flash entry after every update.
+It belongs only to the explicit `pm-tuning` set; normal firmware and product
+build sets do not apply this patch.
 
 That target also layers an isolated memory updater fix. The checked-in source
 memory configuration remains Automatic with its original per-population

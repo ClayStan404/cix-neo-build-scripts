@@ -5,6 +5,6 @@
          { .level = 2200UL, .voltage = 790, .power = 1360 },
          { .level = 2500UL, .voltage = 850, .power = 1663 },
 -        { .level = 2600UL, .voltage = 920, .power = 2292 },
-+        { .level = 2700UL, .voltage = 950, .power = 2538 },   /* experimental */
++        { .level = 2700UL, .voltage = 950, .power = 5500 },   /* PM FW measured-power extrapolation */
      },
  };

@@ -818,7 +818,7 @@ projects:
         targets: [pmtool]
       - paths: ["patches/radxa-o6n/**"]
         targets: [radxa-o6n-firmware, radxa-o6n-pm-validation]
-      - paths: ["patches/radxa-pm-validation/**", "ci/verify_pm_config.py", "ci/test_pm_config.py"]
+      - paths: ["patches/radxa-pm-validation/**", "ci/verify_pm_config.py", "ci/test_pm_config.py", "ci/verify_pm_firmware.py", "ci/test_pm_firmware.py"]
         targets: [radxa-o6-pm-validation, radxa-o6-opp-validation, radxa-o6-gb1-2700-experiment, radxa-o6-pm-tuning, radxa-o6n-pm-validation]
       - paths: ["patches/radxa-opp-validation/**"]
         targets: [radxa-o6-opp-validation, radxa-o6-gb1-2700-experiment, radxa-o6-pm-tuning]

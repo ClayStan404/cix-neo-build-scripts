@@ -167,15 +167,16 @@ cix_radxa_prepare_workspace() {
         local pm_form="${work_uefi}/edk2-platforms/Platform/Radxa/Platforms/CIX/Sky1/Drivers/PlatformConfigDxe/PmMenu/PmConfig.hfr"
         local memory_form="${work_uefi}/edk2-platforms/Platform/Radxa/Platforms/CIX/Sky1/Drivers/PlatformConfigDxe/MemMenu/MemoryConfig.hfr"
         local memory_updater="${work_uefi}/edk2-platforms/Platform/CIX/Sky1/Drivers/MemConfigUpdateDxe/MemConfigUpdateDxe.c"
-        [[ -s "${pm_form}" ]] || cix_die "O6 Expert/Custom PM form is missing"
+        [[ -s "${pm_form}" ]] || cix_die "O6 custom PM form is missing"
         [[ -s "${memory_form}" ]] || cix_die "O6 memory configuration form is missing"
         [[ -s "${memory_updater}" ]] || cix_die "O6 memory updater is missing"
         awk '
-            /CpuFrequency\[(3|16|29|42)\]/ ||
-            /CpuVoltage\[(3|16|29|42)\]/ { protected_opp = 1 }
+            /CpuFrequency\[(2|15|28|41)\]/ ||
+            /CpuVoltage\[(2|15|28|41)\]/ ||
+            /CpuVoltageMode\[(2|15|28|41)\]/ { protected_opp = 1 }
             END { exit protected_opp }
         ' "${pm_form}" ||
-            cix_die "O6 Expert/Custom PM form exposes a protected startup OPP"
+            cix_die "O6 custom PM form exposes the protected boot OPP"
         awk '
             /minimum = 800, maximum = 3200, step = 10/ {
                 frequency_boundary = 1
@@ -185,7 +186,20 @@ cix_radxa_prepare_workspace() {
             }
             END { exit !(frequency_boundary && voltage_boundary) }
         ' "${pm_form}" ||
-            cix_die "O6 Expert/Custom PM form has unexpected input boundaries"
+            cix_die "O6 custom PM form has unexpected input boundaries"
+        awk '
+            /RADXA_PM_PROFILE_PARTIAL/ { partial_profile = 1 }
+            /RadxaPmTuningVar.CpuDomainEnabled\[Index\]/ { partial_macro = 1 }
+            /PM_DOMAIN_ENABLE\(0\)/ { partial_domain = 1 }
+            /RadxaPmTuningVar.CpuVoltageMode\[Index\]/ { vmin_macro = 1 }
+            /PM_VOLT_MODE\(0\)/ { vmin_policy = 1 }
+            /PM_FREQ_AFTER_BOOT\(3, 4, 1800\)/ { editable_opp3 = 1 }
+            END {
+                exit !(partial_profile && partial_macro && partial_domain &&
+                       vmin_macro && vmin_policy && editable_opp3)
+            }
+        ' "${pm_form}" ||
+            cix_die "O6 custom PM form is missing partial-domain or Vmin controls"
         awk '
             /STR_DDR_1600.*value = 800/ { rate_1600 = 1 }
             /STR_DDR_2133.*value = 1067/ { rate_2133 = 1 }
@@ -278,6 +292,12 @@ cix_direct_radxa_firmware_build() (
         "${validation_profile}" "${enable_pm_tuning}"
 
     if [[ "${enable_pm_tuning}" == true ]]; then
+        local pm_firmware_root="${firmware_source}/bootloader/firmware-binaries/sky1/evb"
+
+        python3 "${CIX_ROOT}/build-scripts/ci/verify_pm_firmware.py" \
+            --build-type debug "${pm_firmware_root}/debug/pm_fw/pm_fw.bin"
+        python3 "${CIX_ROOT}/build-scripts/ci/verify_pm_firmware.py" \
+            --build-type release "${pm_firmware_root}/release/pm_fw/pm_fw.bin"
         cix_require_command \
             arm-none-eabi-gcc arm-none-eabi-ld arm-none-eabi-objcopy \
             cmp install openssl pkg-config sha256sum
@@ -345,16 +365,24 @@ cix_direct_radxa_firmware_build() (
             /numeric varid = RadxaPmTuningVar.CpuVoltage\[[0-9]+\],/ {
                 voltage_fields++
             }
-            /CpuFrequency\[(3|16|29|42)\]/ ||
-            /CpuVoltage\[(3|16|29|42)\]/ { protected_opp = 1 }
+            /oneof varid = RadxaPmTuningVar.CpuVoltageMode\[[0-9]+\],/ {
+                vmin_fields++
+            }
+            /oneof varid = RadxaPmTuningVar.CpuDomainEnabled\[[0-9]+\],/ {
+                partial_domains++
+            }
+            /CpuFrequency\[(2|15|28|41)\]/ ||
+            /CpuVoltage\[(2|15|28|41)\]/ ||
+            /CpuVoltageMode\[(2|15|28|41)\]/ { protected_opp = 1 }
             END {
                 exit !(profile_form && custom_form && selector &&
                        first_frequency && last_voltage &&
                        frequency_fields == 23 && voltage_fields == 23 &&
+                       vmin_fields == 23 && partial_domains == 4 &&
                        !protected_opp)
             }
         ' "${platform_config_ifr}" ||
-            cix_die "compiled O6 firmware does not contain the safe Expert/Custom PM menu"
+            cix_die "compiled O6 firmware does not contain the safe custom PM menu"
         python3 "${CIX_ROOT}/build-scripts/ci/verify_memory_config.py" \
             "${generated_output}/pr/Firmwares/memory_config.bin"
         cix_log "Verified O6 PM and experimental memory tuning firmware"
@@ -379,12 +407,16 @@ cix_direct_radxa_firmware_build() (
     if [[ "${enable_pm_tuning}" == true ]]; then
         for artifact in \
             cix_flash_all_rsa_proto.bin \
-            cix_flash_ota_rsa_proto.bin \
-            cix_flash_all_rsa_proto_debug.bin \
-            cix_flash_ota_rsa_proto_debug.bin; do
+            cix_flash_all_rsa_proto_debug.bin; do
             [[ -s "${generated_output}/${artifact}" ]] ||
                 cix_die "Radxa ${platform} prototype artifact is missing: ${artifact}"
         done
+
+        if cmp -s -- \
+            "${generated_output}/cix_flash_all_rsa_proto.bin" \
+            "${generated_output}/cix_flash_all_rsa_proto_debug.bin"; then
+            cix_die "prototype release and debug full-flash images are identical"
+        fi
 
         cmp -- "${build_output}/bootloader1/bootloader1_proto_release.img" \
             "${generated_output}/proto_release/Firmwares/bootloader1.img" ||
@@ -418,13 +450,9 @@ cix_direct_radxa_firmware_build() (
 
     if [[ "${enable_pm_tuning}" == true ]]; then
         cp -- "${generated_output}/cix_flash_all_rsa_proto.bin" \
-            "${image_output}/cix_flash_all_${platform}_proto_release.bin"
-        cp -- "${generated_output}/cix_flash_ota_rsa_proto.bin" \
-            "${image_output}/cix_flash_ota_${platform}_proto_release.bin"
+            "${image_output}/cix_flash_all_${platform}_vendor_release.bin"
         cp -- "${generated_output}/cix_flash_all_rsa_proto_debug.bin" \
-            "${image_output}/cix_flash_all_${platform}_proto_debug.bin"
-        cp -- "${generated_output}/cix_flash_ota_rsa_proto_debug.bin" \
-            "${image_output}/cix_flash_ota_${platform}_proto_debug.bin"
+            "${image_output}/cix_flash_all_${platform}_engineering_debug.bin"
     else
         cp -- "${generated_output}/cix_flash_all.bin" \
             "${image_output}/cix_flash_all_${platform}.bin"

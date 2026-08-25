@@ -104,10 +104,10 @@ The experiment artifacts are:
 The `gb1-2700` verifier profile requires the source-stock table except for one
 entry: the GB1 top OPP changes from 2600 MHz at 920 mV to 2700 MHz at 950 mV.
 The sustained OPP, DSU table, all other domains, PMIC rails, and OPP limits
-remain unchanged. Its power cost is conservatively increased from 2292 mW to
-2538 mW using the frequency-times-voltage-squared model. The higher voltage
-follows the previously observed vendor table ceiling and is not a stability
-guarantee.
+remain unchanged. Its power cost is set to 5500 mW by linearly extrapolating the
+measured GB1 power points in PM firmware source revision `a2327331813f`. The
+higher voltage follows the previously observed vendor table ceiling and is not
+a stability guarantee.
 
 Use the same recovery-aware full-image flashing procedure and perform a cold
 boot. Before applying CPU load, capture:
@@ -135,50 +135,56 @@ passed the board checks above:
 
 Flash only one of these recovery-gated O6 prototype artifacts:
 
-- `output/radxa-o6-pm-tuning/images/cix_flash_all_O6_proto_release.bin`
-- `output/radxa-o6-pm-tuning/images/cix_flash_all_O6_proto_debug.bin`
+- `output/radxa-o6-pm-tuning/images/cix_flash_all_O6_vendor_release.bin`
+- `output/radxa-o6-pm-tuning/images/cix_flash_all_O6_engineering_debug.bin`
 
 These locally signed images are for blank/prototype development boards. They
 are not product-signed images. The target does not publish a tuning image named
 `pr` or `pr2`; those trust states require RKMS and retain their manifest-pinned
-bootloaders until an ARM64-native RKMS packaging frontend is available.
+bootloaders until an ARM64-native RKMS packaging frontend is available. Tuning
+OTA images are also not published because that payload does not carry the PM
+firmware needed to distinguish Release from Engineering Debug behavior.
 
 In UEFI setup, open `Device Manager -> Platform Configuration -> Advanced
 Configuration -> Power Management` and select a profile:
 
 - `Vendor/Automatic (PM firmware native OPPs)`
-- `Experimental: GB1 up to 2700 MHz at 950 mV`
-- `Expert/Custom CPU OPPs`
+- `Vendor-Capped Custom (partial CPU domains)`
+- `Engineering Unlock: GB1 2700 MHz, 950 mV floor + Vmin1`
+- `Engineering/Unsafe Custom (complete table)`
 
 Vendor/Automatic sets the external OPP table invalid and leaves its contents
 unused, allowing PM firmware to use its native per-part OPN/Vmin/guardband
-path. Experimental and Expert/Custom set the external complete table valid.
-Expert/Custom opens a separate form for the non-startup OPPs of GB0, GB1, GM0,
-and GM1. Each frequency must be 800-3200 MHz and each voltage must be 550-1250
-mV, in steps of 10. These are input boundaries, not safe operating guarantees.
-The voltage boundary reflects the documented Big/Mid CPU rail range; it does
-not establish a safe voltage for the SoC or the retail board. Frequencies must
-strictly increase and voltages must not decrease within a domain. Startup OPP 3
-remains fixed at 1800 MHz / 790 mV and is not shown. DSU and non-CPU domains are
-not exposed.
+path. Vendor-Capped Custom sets `OPP_PARTIAL_VALID` and overrides only enabled
+CPU domains. Every disabled CPU domain, DSU, GPU, and other domain keeps the PM
+firmware-native table and the chip's OPN limit. Engineering profiles enable the
+complete external table. The Release PM firmware still applies retail OPN
+limits; only the Engineering Debug image can use a complete table above them.
+The custom form edits non-boot OPPs of GB0, GB1, GM0, and GM1. Frequency is
+800-3200 MHz and base voltage is 550-1250 mV in steps of 10. Each OPP can use
+Fixed voltage or per-chip Vmin profile 1-3; internally the profile is encoded in
+the PM firmware's voltage field. These are input boundaries, not safe operating
+guarantees. Frequencies must strictly increase and base voltages must not
+decrease. The effective boot/sustained OPP at 1500 MHz / 790 mV is fixed and not
+shown. DSU and non-CPU domains are not exposed.
 
 The available frequency/voltage test data for K000086 was collected on an
 internal EVB. The publicly sold Radxa O6 may differ in board revision, power
 delivery, cooling, firmware payload, and silicon population. The 2.7 GHz fixed
-profile and all Expert/Custom settings therefore remain experiments on the
+profile and all Engineering/Unsafe settings therefore remain experiments on the
 retail O6 until they pass board-specific validation.
 
-When an editable OPP changes, its power cost is rounded up from
-`stock_power * new_frequency * new_voltage^2 /
-(stock_frequency * stock_voltage^2)`. The result is never allowed below the
-stock power cost. This keeps the PM firmware's power model conservative
-for undervolting and avoids retaining an underestimated stock cost when
-overclocking.
+CPU OPP power uses the same measured-power points and linear interpolation as
+PM firmware source revision `a2327331813f`; GB1 at 2700 MHz is therefore 5500
+mW. The build rejects either PM firmware binary unless its embedded revision and
+SHA-256 match the validated Debug or Release payload. This pins partial-OPP and
+Vmin behavior to PM config ABI v3.4 while the board-owned generator and DXE
+writer deliberately remain pinned to config schema v3.0.
 
 Save and exit. The normal setup reset is followed by one additional cold reset
 after the firmware has updated and read back the dedicated PM configuration.
 Do not interrupt power during that update. The updater rejects an unknown PM
-version, invalid checksum, unexpected OPP layout, modified startup OPP, changed
+version, invalid checksum, unexpected OPP layout, modified boot OPP, changed
 DSU table, out-of-range value, or non-monotonic CPU table. It validates the
 complete generated block before writing and compares the complete flash entry
 afterwards. The setup-save path removes the legacy CPU limit for every profile
@@ -218,7 +224,7 @@ not require that baseline to equal the PackageTool source table or a fixed
 2600 MHz / 920 mV entry. This bidirectional board test is the acceptance gate;
 a successful build alone does not approve the tuning image for product use.
 
-Expert/Custom is a development interface, not a validated performance profile.
-Use it only after Vendor/Automatic recovery has been confirmed on a board with
-a tested SPI recovery path. Stability testing and board qualification remain
-separate acceptance work.
+Engineering/Unsafe Custom is a development interface, not a validated
+performance profile. Use it only after Vendor/Automatic recovery has been
+confirmed on a board with a tested SPI recovery path. Stability testing and
+board qualification remain separate acceptance work.
