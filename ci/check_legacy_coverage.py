@@ -15,7 +15,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_LEDGER = ROOT / "legacy-build-map.yaml"
 DEFAULT_BUILD_MAP = ROOT / "build-map.yaml"
-ALLOWED_STATUSES = {"implemented", "pending", "blocked", "retired"}
+ALLOWED_STATUSES = {"implemented", "partial", "pending", "blocked", "retired"}
 
 
 class CoverageError(ValueError):
@@ -92,13 +92,15 @@ def validate_ledger(
         counts[default_status] -= 1
         counts[status] += 1
 
-        if status == "implemented":
+        if status in {"implemented", "partial"}:
             replacement = override.get("replacement")
             if replacement not in replacements:
                 raise CoverageError(
-                    f"implemented entry {entry} has unknown replacement: "
+                    f"{status} entry {entry} has unknown replacement: "
                     f"{replacement!r}"
                 )
+            if status == "partial" and not override.get("reason"):
+                raise CoverageError(f"partial entry {entry} must have a reason")
         elif status == "blocked" and not override.get("reason"):
             raise CoverageError(f"blocked entry {entry} must have a reason")
         elif status == "retired" and not override.get("reason"):

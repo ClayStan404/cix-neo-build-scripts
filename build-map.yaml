@@ -2,6 +2,21 @@ version: 7
 executor: build-scripts/cix-build
 
 build_sets:
+  uefi-development:
+    description: Native ARM64 development UEFI matrix for CIX validation platforms
+    targets: &uefi_development_targets
+      - sky1-emu-uefi
+      - sky1-fpga-uefi
+      - sky1-merak-uefi
+      - sky1p-emu-uefi
+      - sky1p-fpga-uefi
+      - sky1p-evb-uefi
+      - sky1p-crb1-uefi
+      - sky1p-crb2-uefi
+      - star1-emu-uefi
+      - star1-fpga-uefi
+      - star1-merak-uefi
+
   firmware-sky1:
     description: All native ARM64 Sky1 product firmware variants
     targets:
@@ -122,6 +137,83 @@ targets:
     flow: sky1-firmware
     source: sources/radxa-o6
     board: Edge
+
+  sky1-emu-uefi:
+    description: CIX Sky1 Emu development UEFI image
+    builder: direct
+    flow: uefi-development
+    source: sources/uefi-development
+    board: Sky1-Emu
+
+  sky1-fpga-uefi:
+    description: CIX Sky1 FPGA development UEFI image
+    builder: direct
+    flow: uefi-development
+    source: sources/uefi-development
+    board: Sky1-Fpga
+
+  sky1-merak-uefi:
+    description: CIX Sky1 Merak development UEFI image
+    builder: direct
+    flow: uefi-development
+    source: sources/uefi-development
+    board: Sky1-Merak
+
+  sky1p-emu-uefi:
+    description: CIX Sky1P Emu development UEFI image
+    builder: direct
+    flow: uefi-development
+    source: sources/uefi-development
+    board: Sky1P-Emu
+
+  sky1p-fpga-uefi:
+    description: CIX Sky1P FPGA development UEFI image
+    builder: direct
+    flow: uefi-development
+    source: sources/uefi-development
+    board: Sky1P-Fpga
+
+  sky1p-evb-uefi:
+    description: CIX Sky1P EVB development UEFI image
+    builder: direct
+    flow: uefi-development
+    source: sources/uefi-development
+    board: Sky1P-Evb
+
+  sky1p-crb1-uefi:
+    description: CIX Sky1P CRB1 development UEFI image
+    builder: direct
+    flow: uefi-development
+    source: sources/uefi-development
+    board: Sky1P-Crb1
+
+  sky1p-crb2-uefi:
+    description: CIX Sky1P CRB2 development UEFI image
+    builder: direct
+    flow: uefi-development
+    source: sources/uefi-development
+    board: Sky1P-Crb2
+
+  star1-emu-uefi:
+    description: CIX Star1 Emu development UEFI image
+    builder: direct
+    flow: uefi-development
+    source: sources/uefi-development
+    board: Star1-Emu
+
+  star1-fpga-uefi:
+    description: CIX Star1 FPGA development UEFI image
+    builder: direct
+    flow: uefi-development
+    source: sources/uefi-development
+    board: Star1-Fpga
+
+  star1-merak-uefi:
+    description: CIX Star1 Merak development UEFI image
+    builder: direct
+    flow: uefi-development
+    source: sources/uefi-development
+    board: Star1-Merak
 
   radxa-o6-pm-validation:
     description: Radxa Orion O6 stock-equivalent custom PM config validation image
@@ -475,6 +567,18 @@ targets:
     lfs: true
 
 projects:
+  cix_private/edk2:
+    path: sources/uefi-development/edk2
+    rules:
+      - paths: ["**"]
+        targets: *uefi_development_targets
+
+  cix_private/edk2-platforms:
+    path: sources/uefi-development/edk2-platforms
+    rules:
+      - paths: ["**"]
+        targets: *uefi_development_targets
+
   tools/cix_binary:
     path: sources/cix-binary
     rules:
@@ -564,7 +668,7 @@ projects:
     path: sources/radxa-o6/uefi_release/tools/acpica
     rules:
       - paths: ["**"]
-        targets: *sky1_firmware_targets
+        targets: &all_uefi_targets [radxa-o6-firmware, radxa-o6n-firmware, sky1-merak-firmware, sky1-edge-firmware, radxa-o6-pm-validation, radxa-o6-opp-validation, radxa-o6-pm-tuning, radxa-o6n-pm-validation, sky1-emu-uefi, sky1-fpga-uefi, sky1-merak-uefi, sky1p-emu-uefi, sky1p-fpga-uefi, sky1p-evb-uefi, sky1p-crb1-uefi, sky1p-crb2-uefi, star1-emu-uefi, star1-fpga-uefi, star1-merak-uefi]
 
   cix_proprietary/cix_bsp_release:
     path: sources/radxa-o6/cix_bsp_release
@@ -606,67 +710,67 @@ projects:
     path: sources/radxa-o6/uefi_release/edk2/BaseTools/Source/C/BrotliCompress/brotli
     rules:
       - paths: ["**"]
-        targets: *sky1_firmware_targets
+        targets: *all_uefi_targets
 
   github_mirror/ARMmbed/mbedtls:
     path: sources/radxa-o6/uefi_release/edk2/CryptoPkg/Library/MbedTlsLib/mbedtls
     rules:
       - paths: ["**"]
-        targets: *sky1_firmware_targets
+        targets: *all_uefi_targets
 
   github_mirror/openssl/openssl:
     path: sources/radxa-o6/uefi_release/edk2/CryptoPkg/Library/OpensslLib/openssl
     rules:
       - paths: ["**"]
-        targets: *sky1_firmware_targets
+        targets: *all_uefi_targets
 
   github_mirror/kkos/oniguruma:
     path: sources/radxa-o6/uefi_release/edk2/MdeModulePkg/Universal/RegularExpressionDxe/oniguruma
     rules:
       - paths: ["**"]
-        targets: *sky1_firmware_targets
+        targets: *all_uefi_targets
 
   github_mirror/devicetree-org/pylibfdt:
     path: sources/radxa-o6/uefi_release/edk2/MdePkg/Library/BaseFdtLib/libfdt
     rules:
       - paths: ["**"]
-        targets: *sky1_firmware_targets
+        targets: *all_uefi_targets
 
   github_mirror/MIPI-Alliance/public-mipi-sys-t:
     path: sources/radxa-o6/uefi_release/edk2/MdePkg/Library/MipiSysTLib/mipisyst
     rules:
       - paths: ["**"]
-        targets: *sky1_firmware_targets
+        targets: *all_uefi_targets
 
   github_mirror/akheron/jansson:
     path: sources/radxa-o6/uefi_release/edk2/RedfishPkg/Library/JsonLib/jansson
     rules:
       - paths: ["**"]
-        targets: *sky1_firmware_targets
+        targets: *all_uefi_targets
 
   github_mirror/DMTF/libspdm:
     path: sources/radxa-o6/uefi_release/edk2/SecurityPkg/DeviceSecurity/SpdmLib/libspdm
     rules:
       - paths: ["**"]
-        targets: *sky1_firmware_targets
+        targets: *all_uefi_targets
 
   github_mirror/tianocore/edk2-cmocka:
     path: sources/radxa-o6/uefi_release/edk2/UnitTestFrameworkPkg/Library/CmockaLib/cmocka
     rules:
       - paths: ["**"]
-        targets: *sky1_firmware_targets
+        targets: *all_uefi_targets
 
   github_mirror/google/googletest:
     path: sources/radxa-o6/uefi_release/edk2/UnitTestFrameworkPkg/Library/GoogleTestLib/googletest
     rules:
       - paths: ["**"]
-        targets: *sky1_firmware_targets
+        targets: *all_uefi_targets
 
   github_mirror/tianocore/edk2-subhook:
     path: sources/radxa-o6/uefi_release/edk2/UnitTestFrameworkPkg/Library/SubhookLib/subhook
     rules:
       - paths: ["**"]
-        targets: *sky1_firmware_targets
+        targets: *all_uefi_targets
 
   cix_opensource/gpu_kernel:
     path: sources/gpu-kernel
@@ -815,6 +919,10 @@ projects:
         targets: ["*"]
       - paths: ["builders/direct.sh"]
         targets: [kernel, stable-kernel, audio-sof, pmtool, radxa-o6-firmware, radxa-o6n-firmware, sky1-merak-firmware, sky1-edge-firmware, radxa-o6-pm-validation, radxa-o6-opp-validation, radxa-o6-pm-tuning, radxa-o6n-pm-validation]
+      - paths: ["builders/direct.sh", "builders/direct/uefi-development.sh"]
+        targets: *uefi_development_targets
+      - paths: ["patches/uefi-development/**"]
+        targets: *uefi_development_targets
       - paths: ["builders/direct/kernel.sh"]
         targets: [kernel, stable-kernel]
       - paths: ["builders/direct/audio-sof.sh"]

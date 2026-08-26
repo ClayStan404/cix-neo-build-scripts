@@ -26,6 +26,13 @@ cix_direct_build() {
                 "${TARGET[board]}" \
                 "${requested_action}" "${target_output}" "${target_jobs}"
             ;;
+        uefi-development)
+            # shellcheck source=builders/direct/uefi-development.sh
+            source "${CIX_ROOT}/build-scripts/builders/direct/uefi-development.sh"
+            cix_direct_uefi_development_build \
+                "${TARGET[board]}" \
+                "${requested_action}" "${target_output}" "${target_jobs}"
+            ;;
         pmtool)
             # shellcheck source=builders/direct/pmtool.sh
             source "${CIX_ROOT}/build-scripts/builders/direct/pmtool.sh"

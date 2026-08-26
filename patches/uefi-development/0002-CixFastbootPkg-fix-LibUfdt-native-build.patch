@@ -1,0 +1,55 @@
+From: CIX Neo Build System <noreply@localhost>
+Subject: [PATCH] CixFastbootPkg: fix LibUfdt native build
+
+Use the EDK2 allocation and string conversion APIs explicitly. Relying on
+implicit C runtime declarations is rejected by the Debian 13 native GCC and
+would also give AllocatePool the wrong return type on AArch64.
+
+---
+ .../Library/LibUfdt/LibUfdt.inf                    |  1 +
+ .../LibUfdt/sysdeps/libufdt_sysdeps_vendor.c       | 20 +++++++++++++++++++-
+ 2 files changed, 20 insertions(+), 1 deletion(-)
+
+diff --git a/Platform/CIX/CixFastbootPkg/Library/LibUfdt/LibUfdt.inf b/Platform/CIX/CixFastbootPkg/Library/LibUfdt/LibUfdt.inf
+--- a/Platform/CIX/CixFastbootPkg/Library/LibUfdt/LibUfdt.inf
++++ b/Platform/CIX/CixFastbootPkg/Library/LibUfdt/LibUfdt.inf
+@@ -35,3 +35,4 @@
+ [LibraryClasses]
+   BaseLib
+   DebugLib
++  MemoryAllocationLib
+diff --git a/Platform/CIX/CixFastbootPkg/Library/LibUfdt/sysdeps/libufdt_sysdeps_vendor.c b/Platform/CIX/CixFastbootPkg/Library/LibUfdt/sysdeps/libufdt_sysdeps_vendor.c
+--- a/Platform/CIX/CixFastbootPkg/Library/LibUfdt/sysdeps/libufdt_sysdeps_vendor.c
++++ b/Platform/CIX/CixFastbootPkg/Library/LibUfdt/sysdeps/libufdt_sysdeps_vendor.c
+@@ -1,4 +1,7 @@
+ #include <include/libufdt_sysdeps.h>
++#include <Library/BaseLib.h>
++#include <Library/MemoryAllocationLib.h>
++
+ #define EFI_DTBO_ERROR -1
+ #define PRE_ALLOC_BUFFER_SZ (5 * 1024 * 1024)
+ 
+@@ -236,7 +239,22 @@
+ char *dto_strchr(const char *s, int c) { return strchr(s, c); }
+ 
+ unsigned long int dto_strtoul(const char *nptr, char **endptr, int base) {
+-  return strtoul(nptr, endptr, base);
++  RETURN_STATUS status;
++  UINTN value;
++
++  if (base == 10) {
++    status = AsciiStrDecimalToUintnS(nptr, endptr, &value);
++  } else if (base == 16) {
++    status = AsciiStrHexToUintnS(nptr, endptr, &value);
++  } else {
++    status = RETURN_INVALID_PARAMETER;
++  }
++
++  if (RETURN_ERROR(status)) {
++    return MAX_UINTN;
++  }
++
++  return value;
+ }
+ 
+ size_t dto_strlen(const char *s) { return strlen(s); }

@@ -10,6 +10,7 @@ Build one complete CIX kernel stack at a time:
 ./build-scripts/cix-build all-6.6
 ./build-scripts/cix-build all-7.0
 ./build-scripts/cix-build firmware-sky1
+./build-scripts/cix-build uefi-development
 ./build-scripts/cix-build pm-validation
 ./build-scripts/cix-build pm-tuning
 ```
@@ -24,6 +25,8 @@ Build an individual target with the same command:
 ./build-scripts/cix-build radxa-o6n-firmware
 ./build-scripts/cix-build sky1-merak-firmware
 ./build-scripts/cix-build sky1-edge-firmware
+./build-scripts/cix-build sky1p-evb-uefi
+./build-scripts/cix-build star1-merak-uefi
 ./build-scripts/cix-build radxa-o6-pm-validation
 ./build-scripts/cix-build radxa-o6-opp-validation
 ./build-scripts/cix-build radxa-o6-pm-tuning
@@ -128,6 +131,16 @@ The shared flow creates isolated Git worktrees under `output/TARGET/work`, so
 repo checkouts remain clean. It publishes each board's full-flash, OTA, debug,
 and OCB images under its own `output/TARGET/images` directory; it does not
 create Debian packages and is not affected by `--backend`.
+
+`uefi-development` builds the manifest-available validation-platform matrix
+from the private development EDK2 sources: Sky1 Emu, FPGA, and Merak; Sky1P
+Emu, FPGA, EVB, CRB1, and CRB2; and Star1 Emu, FPGA, and Merak. Every target
+uses a native Debian 13 toolchain, an isolated worktree, and the canonical
+RELEASE Debian/optee/nvme profile, then publishes `SKY1_BL33_UEFI.fd` and its
+build report under `output/TARGET`. These are UEFI firmware volumes, not
+signed full-flash images. Sky1P and Star1 full-image packaging remains blocked
+where the only manifest-pinned `cix_cbff` executable is x86-64. Development
+UEFI targets are direct builds and are not affected by `--backend`.
 
 The remaining legacy firmware platforms and their native-build blockers are
 tracked in [`docs/legacy-build-coverage.md`](docs/legacy-build-coverage.md).

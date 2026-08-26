@@ -283,6 +283,15 @@ overrides:
     status: implemented
     replacement: wlan-dkms
 
+  build-uefi.sh:
+    status: partial
+    replacement: uefi-development
+    reason: The canonical RELEASE Debian/optee/nvme profile is implemented for all manifest-available platforms; DEBUG, Android capsule, alternate TEE, loader, and boot variants remain pending.
+  build-uefi-star1.sh:
+    status: partial
+    replacement: uefi-development
+    reason: Emu, FPGA, and Merak canonical RELEASE profiles build natively; Megrez, CloudBook, and Batura DSC sources are absent, and full-image packaging remains separate.
+
   build-ffmpeg-ubuntu24.sh:
     status: blocked
     reason: Ubuntu package builds are outside the Debian 13 host and package baseline.
@@ -295,10 +304,6 @@ overrides:
   build-mkimage-star1.sh:
     status: blocked
     reason: The manifest-pinned Star1 cix_cbff packaging tool is x86-64 only and no buildable source is available.
-  build-uefi-star1.sh:
-    status: blocked
-    reason: Star1 sources are absent from the curated manifest and its full-image cix_cbff packaging tool is x86-64 only.
-
   build-with-timestamp.sh:
     status: retired
     replacement: Built-in elapsed-time reporting in cix-build

@@ -1,0 +1,124 @@
+From: CIX Neo Build System <noreply@localhost>
+Subject: [PATCH] Platform: CIX: fix Sky1 validation platform builds
+
+The upstream ArmPlatformPkg PrePi implementation was retired from the EDK2
+revision used by the private development platform tree. Sky1P, Star1, and the
+physical Sky1 platform already use the CIX-maintained replacement. Use that
+replacement for the two remaining Sky1 validation platforms as well.
+
+Also declare the package dependencies and null EC implementation that these
+validation platforms require. The physical Sky1 platform and the newer SoC
+platform descriptions already carry the equivalent declarations.
+
+---
+ Platform/CIX/Sky1/Emu/Emu.dsc                         | 1 +
+ Platform/CIX/Sky1/Emu/Emu.fdf                         | 2 +-
+ .../Sky1/Emu/Library/PlatformBootHookLib/PlatformBootHookLib.inf | 1 +
+ Platform/CIX/Sky1/Drivers/DtbUpdateDxe/DtbUpdateDxe.inf | 1 +
+ Platform/CIX/Sky1/Fpga/Fpga.dsc                       | 1 +
+ Platform/CIX/Sky1/Fpga/Fpga.fdf                       | 2 +-
+ .../Sky1/Fpga/Library/PlatformBootHookLib/PlatformBootHookLib.inf | 1 +
+ .../Sky1/Library/PlatformEnvHookNullLib/PlatformEnvHookNullLib.inf | 1 +
+ 8 files changed, 9 insertions(+), 2 deletions(-)
+
+diff --git a/Platform/CIX/Sky1/Emu/Emu.dsc b/Platform/CIX/Sky1/Emu/Emu.dsc
+--- a/Platform/CIX/Sky1/Emu/Emu.dsc
++++ b/Platform/CIX/Sky1/Emu/Emu.dsc
+@@ -75,6 +75,7 @@
+ # PlatformConfigParamsHookLib - RTC voltage drop detect + Get EC Board ID
+ 
+   PlatformBootHookLib|Platform/CIX/Sky1/Emu/Library/PlatformBootHookLib/PlatformBootHookLib.inf
++  EcLib|Platform/CIX/CixPlatformCommonPkg/Library/EcLibNull/EcLibNull.inf
+   ArmGenericTimerCounterLib|Platform/CIX/Sky1/Library/ArmGenericTimerPhyCounterLib/ArmGenericTimerPhyCounterLib.inf
+ 
+ ################################################################################
+diff --git a/Platform/CIX/Sky1/Emu/Emu.fdf b/Platform/CIX/Sky1/Emu/Emu.fdf
+--- a/Platform/CIX/Sky1/Emu/Emu.fdf
++++ b/Platform/CIX/Sky1/Emu/Emu.fdf
+@@ -130,7 +130,7 @@
+ !endif
+   INF Platform/CIX/Sky1/Drivers/PlatformDxe/PlatformDxe.inf
+   }
+-  INF ArmPlatformPkg/PrePi/PeiUniCore.inf
++  INF Platform/CIX/CixPlatformCommonPkg/PrePi/PeiUniCore.inf
+ # inf file list has be move to Sky1Commony1.fdf.inc
+ # please put xxx.inf to Sky1Common.fdf.inc
+ !include Platform/CIX/Sky1/Sky1Common.fdf.inc
+diff --git a/Platform/CIX/Sky1/Emu/Library/PlatformBootHookLib/PlatformBootHookLib.inf b/Platform/CIX/Sky1/Emu/Library/PlatformBootHookLib/PlatformBootHookLib.inf
+--- a/Platform/CIX/Sky1/Emu/Library/PlatformBootHookLib/PlatformBootHookLib.inf
++++ b/Platform/CIX/Sky1/Emu/Library/PlatformBootHookLib/PlatformBootHookLib.inf
+@@ -24,6 +24,7 @@
+   MdePkg/MdePkg.dec
+   Platform/CIX/Sky1/Sky1.dec
+   Silicon/CIX/Sky1/CixPkg.dec
++  Silicon/CIX/CixSiliconCommonPkg/CixSiliconCommonPkg.dec
+ 
+ [LibraryClasses]
+   GpioLib
+diff --git a/Platform/CIX/Sky1/Drivers/DtbUpdateDxe/DtbUpdateDxe.inf b/Platform/CIX/Sky1/Drivers/DtbUpdateDxe/DtbUpdateDxe.inf
+--- a/Platform/CIX/Sky1/Drivers/DtbUpdateDxe/DtbUpdateDxe.inf
++++ b/Platform/CIX/Sky1/Drivers/DtbUpdateDxe/DtbUpdateDxe.inf
+@@ -17,6 +17,7 @@
+ [Packages]
+   MdePkg/MdePkg.dec
+   EmbeddedPkg/EmbeddedPkg.dec
++  Platform/CIX/CixPlatformCommonPkg/CixPlatformCommonPkg.dec
+   Platform/CIX/Sky1/Sky1.dec
+   Silicon/CIX/Sky1/CixPkg.dec
+ 
+diff --git a/Platform/CIX/Sky1/Fpga/Fpga.dsc b/Platform/CIX/Sky1/Fpga/Fpga.dsc
+--- a/Platform/CIX/Sky1/Fpga/Fpga.dsc
++++ b/Platform/CIX/Sky1/Fpga/Fpga.dsc
+@@ -88,6 +88,8 @@
+ # PlatformConfigParamsHookLib - RTC voltage drop detect + Get EC Board ID
+ 
+   PlatformBootHookLib|Platform/CIX/Sky1/Fpga/Library/PlatformBootHookLib/PlatformBootHookLib.inf
++  EcLib|Platform/CIX/CixPlatformCommonPkg/Library/EcLibNull/EcLibNull.inf
++  SiliconDtbUpdateLib|Platform/CIX/Sky1/Library/SiliconDtbUpdateLib/SiliconDtbUpdateLib.inf
+   ArmGenericTimerCounterLib|Platform/CIX/Sky1/Library/ArmGenericTimerPhyCounterLib/ArmGenericTimerPhyCounterLib.inf
+ 
+ ################################################################################
+diff --git a/Platform/CIX/Sky1/Fpga/Fpga.fdf b/Platform/CIX/Sky1/Fpga/Fpga.fdf
+--- a/Platform/CIX/Sky1/Fpga/Fpga.fdf
++++ b/Platform/CIX/Sky1/Fpga/Fpga.fdf
+@@ -182,7 +182,7 @@
+ READ_LOCK_CAP      = TRUE
+ READ_LOCK_STATUS   = TRUE
+ 
+-  INF ArmPlatformPkg/PrePi/PeiUniCore.inf
++  INF Platform/CIX/CixPlatformCommonPkg/PrePi/PeiUniCore.inf
+ 
+   FILE FV_IMAGE = 9E21FD93-9C72-4c15-8C4B-E77F1DB2D792 {
+     SECTION GUIDED EE4E5898-3914-4259-9D6E-DC7BD79403CF PROCESSING_REQUIRED = TRUE {
+diff --git a/Platform/CIX/Sky1/Fpga/Library/PlatformBootHookLib/PlatformBootHookLib.inf b/Platform/CIX/Sky1/Fpga/Library/PlatformBootHookLib/PlatformBootHookLib.inf
+--- a/Platform/CIX/Sky1/Fpga/Library/PlatformBootHookLib/PlatformBootHookLib.inf
++++ b/Platform/CIX/Sky1/Fpga/Library/PlatformBootHookLib/PlatformBootHookLib.inf
+@@ -24,6 +24,7 @@
+   MdePkg/MdePkg.dec
+   Platform/CIX/Sky1/Sky1.dec
+   Silicon/CIX/Sky1/CixPkg.dec
++  Silicon/CIX/CixSiliconCommonPkg/CixSiliconCommonPkg.dec
+ 
+ [LibraryClasses]
+   GpioLib
+diff --git a/Platform/CIX/Sky1/Library/PlatformEnvHookNullLib/PlatformEnvHookNullLib.inf b/Platform/CIX/Sky1/Library/PlatformEnvHookNullLib/PlatformEnvHookNullLib.inf
+--- a/Platform/CIX/Sky1/Library/PlatformEnvHookNullLib/PlatformEnvHookNullLib.inf
++++ b/Platform/CIX/Sky1/Library/PlatformEnvHookNullLib/PlatformEnvHookNullLib.inf
+@@ -19,11 +19,12 @@
+ [Sources.common]
+   PlatformEnvHookNullLib.c
+ 
+-[Packages]
+-  EmbeddedPkg/EmbeddedPkg.dec
+-  MdePkg/MdePkg.dec
+-
+-[LibraryClasses]
++[Packages]
++  EmbeddedPkg/EmbeddedPkg.dec
++  MdePkg/MdePkg.dec
++  Platform/CIX/Sky1/Sky1.dec
++
++[LibraryClasses]
+   BaseMemoryLib
+   MemoryAllocationLib
+   DebugLib

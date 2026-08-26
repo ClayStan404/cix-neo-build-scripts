@@ -64,3 +64,53 @@ cix_clean_artifacts() {
             \( -type f -o -type l \) -delete
     fi
 }
+
+cix_validate_edk2_inputs() {
+    local edk2_source="$1"
+    local dependency
+
+    while IFS= read -r dependency; do
+        git -C "${edk2_source}/${dependency}" rev-parse \
+            --is-inside-work-tree >/dev/null 2>&1 ||
+            cix_die "EDK2 dependency is not synced; run repo sync: ${dependency}"
+    done < <(
+        git -C "${edk2_source}" ls-files --stage |
+            awk '$1 == "160000" {print $4}'
+    )
+}
+
+cix_remove_git_worktree() {
+    local repository="$1"
+    local worktree="$2"
+
+    if git -C "${repository}" worktree list --porcelain |
+        awk -v worktree="${worktree}" \
+            '$1 == "worktree" && substr($0, 10) == worktree {found = 1}
+             END {exit !found}'; then
+        git -C "${repository}" worktree remove --force "${worktree}"
+    fi
+    git -C "${repository}" worktree prune
+}
+
+cix_apply_patch() {
+    local repository="$1"
+    local patch_file="$2"
+    local whitespace_mode="${3:-exact}"
+    local -a apply_options=(--whitespace=nowarn)
+
+    if [[ "${whitespace_mode}" == "ignore-space-change" ]]; then
+        apply_options+=(--ignore-space-change)
+    elif [[ "${whitespace_mode}" != "exact" ]]; then
+        cix_die "unsupported patch whitespace mode: ${whitespace_mode}"
+    fi
+
+    if git -C "${repository}" apply --check "${apply_options[@]}" "${patch_file}"; then
+        cix_log "Apply $(basename "${patch_file}")"
+        git -C "${repository}" apply "${apply_options[@]}" "${patch_file}"
+    elif git -C "${repository}" apply --reverse --check \
+        "${apply_options[@]}" "${patch_file}"; then
+        cix_log "Skip patch already present upstream: $(basename "${patch_file}")"
+    else
+        cix_die "patch does not apply cleanly: ${patch_file}"
+    fi
+}

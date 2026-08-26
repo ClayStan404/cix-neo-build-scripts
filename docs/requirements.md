@@ -325,6 +325,12 @@ is confirmed.
   supported Sky1 product firmware targets. Product OS build sets may select
   only the board images needed by that product; they do not imply coverage of
   every hardware variant.
+- Provide `uefi-development` as the native ARM64 canonical RELEASE profile for
+  every validation platform present in the manifest-pinned private EDK2 tree:
+  Sky1 Emu/FPGA/Merak, Sky1P Emu/FPGA/EVB/CRB1/CRB2, and Star1
+  Emu/FPGA/Merak. Publish the UEFI firmware volume separately from product
+  full-flash images, and never claim that a successful `.fd` build satisfies a
+  signing or image-packaging target.
 - Keep VPU DKMS, VPU firmware, and `cix-grub-config` in both product build
   sets. Keep the CIX Linux 6.6 kernel and legacy CIX GStreamer target in
   `all-6.6`. Keep the stable 7.0 kernel and the Debian Salsa-based GStreamer

@@ -594,6 +594,23 @@ Description: CIX VPU development files
         self.assertEqual(target.board, "O6")
         self.assertIsNone(target.control)
 
+    def test_development_uefi_uses_an_explicit_soc_and_board_selector(self) -> None:
+        target = plan._target_from_mapping(
+            "sky1p-crb1-uefi",
+            {
+                "description": "Sky1P CRB1 development UEFI",
+                "builder": "direct",
+                "flow": "uefi-development",
+                "source": "sources/uefi-development",
+                "board": "Sky1P-Crb1",
+            },
+        )
+
+        self.assertEqual(target.flow, "uefi-development")
+        self.assertEqual(target.source, "sources/uefi-development")
+        self.assertEqual(target.board, "Sky1P-Crb1")
+        self.assertIsNone(target.control)
+
     def test_radxa_pm_tuning_is_a_direct_firmware_flow(self) -> None:
         target = plan._target_from_mapping(
             "radxa-o6-pm-tuning",

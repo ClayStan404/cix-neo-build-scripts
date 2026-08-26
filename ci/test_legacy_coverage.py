@@ -18,6 +18,7 @@ class LegacyCoverageTest(unittest.TestCase):
 
         self.assertEqual(sum(counts.values()), 167)
         self.assertGreater(counts["implemented"], 0)
+        self.assertGreater(counts["partial"], 0)
         self.assertGreater(counts["pending"], 0)
 
     def test_duplicate_snapshot_entry_is_rejected(self) -> None:
@@ -31,6 +32,16 @@ class LegacyCoverageTest(unittest.TestCase):
             ledger_path = Path(temporary_directory) / "ledger.yaml"
             ledger_path.write_text(yaml.safe_dump(ledger), encoding="utf-8")
             with self.assertRaisesRegex(coverage.CoverageError, "duplicates"):
+                coverage.validate_ledger(ledger_path)
+
+    def test_partial_entry_requires_a_reason(self) -> None:
+        ledger = yaml.safe_load(coverage.DEFAULT_LEDGER.read_text(encoding="utf-8"))
+        ledger["overrides"]["build-uefi.sh"].pop("reason")
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            ledger_path = Path(temporary_directory) / "ledger.yaml"
+            ledger_path.write_text(yaml.safe_dump(ledger), encoding="utf-8")
+            with self.assertRaisesRegex(coverage.CoverageError, "must have a reason"):
                 coverage.validate_ledger(ledger_path)
 
 

@@ -6,6 +6,8 @@ entry point is represented by one of the following outcomes:
 
 - a native `cix-build` target;
 - a declarative build set that replaces an orchestration wrapper;
+- a partial replacement that records both the implemented output and the
+  remaining variants;
 - an explicit retired entry with a recorded replacement or reason;
 - an explicit blocked entry with the missing source, tool, or product decision.
 
@@ -32,23 +34,32 @@ legacy checkout.
 | Sky1 Merak internal EVB firmware | `sky1-merak-firmware` | Implemented |
 | Sky1 Edge firmware | `sky1-edge-firmware` | Implemented |
 | All implemented Sky1 product boards | `firmware-sky1` | Implemented |
+| Private development UEFI platforms | `uefi-development` | Canonical native RELEASE profile implemented |
 | O6/O6N PM validation | `pm-validation` | Implemented, recovery-gated |
 | O6 PM and memory tuning | `pm-tuning` | Implemented, recovery-gated |
 
 ## Firmware Platform Backlog
 
-| SoC | Board or environment | Legacy source | Migration status |
+| SoC | Board or environment | Native UEFI `.fd` | Full-image status |
 | --- | --- | --- | --- |
-| Sky1 | Emu | private development EDK2 | Pending UEFI port; legacy full-image packaging uses x86-only tools and needs a native path |
-| Sky1 | FPGA | private development EDK2 | Pending UEFI port; legacy full-image packaging uses x86-only tools and needs a native path |
-| Sky1P | EVB | release and development EDK2 | Blocked by x86-only `cix_cbff` and missing manifest TF-A/TEE inputs |
-| Sky1P | CRB1 | private development EDK2 | Blocked by the Sky1P native packaging prerequisites |
-| Sky1P | CRB2 | private development EDK2 | Blocked; matching firmware payload/configuration is absent in the legacy checkout |
-| Sky1P | Emu | private development EDK2 | Pending after native Sky1P packaging |
-| Sky1P | FPGA | private development EDK2 | Pending after native Sky1P packaging |
-| Star1 | Merak | private development EDK2 | Blocked by missing curated sources and x86-only `cix_cbff` full-image packaging |
-| Star1 | Emu | private development EDK2 | Blocked by missing curated sources and x86-only `cix_cbff` full-image packaging |
-| Star1 | FPGA | private development EDK2 | Blocked by missing curated sources and x86-only `cix_cbff` full-image packaging |
+| Sky1 | Emu | Implemented | No product image target; legacy packaging path still needs a native audit |
+| Sky1 | FPGA | Implemented | No product image target; legacy packaging path still needs a native audit |
+| Sky1 | Merak | Implemented | Implemented by `sky1-merak-firmware` |
+| Sky1P | EVB | Implemented | Blocked by x86-only `cix_cbff` and missing manifest TF-A/TEE inputs |
+| Sky1P | CRB1 | Implemented | Blocked by the Sky1P native packaging prerequisites |
+| Sky1P | CRB2 | Implemented | Blocked; matching full-image payload/configuration is absent in the legacy checkout |
+| Sky1P | Emu | Implemented | No product image target; packaging inputs remain unaudited |
+| Sky1P | FPGA | Implemented | No product image target; packaging inputs remain unaudited |
+| Star1 | Merak | Implemented | Blocked by x86-only `cix_cbff` full-image packaging |
+| Star1 | Emu | Implemented | No product image target; packaging inputs remain unaudited |
+| Star1 | FPGA | Implemented | No product image target; packaging inputs remain unaudited |
+
+The native matrix currently implements the canonical RELEASE Debian/optee/nvme
+profile used by the regular legacy update path. DEBUG, Android capsule,
+alternate TEE/loader, and other legacy flag combinations remain explicit
+migration work. The legacy Star1 wrapper also names Megrez, CloudBook, and
+Batura, but their DSC trees are absent from the pinned `cix_master` sources;
+those board variants are not claimed as supported.
 
 `pr`, `pr2`, and `proto`, and `release` or `debug`, are signing/build variants;
 they are not additional boards. Full/OTA and SPI/UFS are delivery layouts.
