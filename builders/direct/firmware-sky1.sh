@@ -86,6 +86,53 @@ cix_sky1_validate_pm_ifr() {
         cix_die "compiled O6 firmware has an invalid PM menu"
 }
 
+cix_sky1_publish_product_images() {
+    local generated_output="$1"
+    local image_output="$2"
+    local platform="$3"
+    local source_suffix
+    local published_suffix
+    local delivery
+    local source_image
+    local published_image
+    local variant
+    local -a variants=(
+        "|"
+        "rsa_pr_debug|pr_debug"
+        "rsa_pr2_debug|pr2_debug"
+        "rsa_proto|proto"
+        "rsa_proto_debug|proto_debug"
+    )
+
+    for variant in "${variants[@]}"; do
+        source_suffix="${variant%%|*}"
+        published_suffix="${variant#*|}"
+
+        for delivery in all ota; do
+            source_image="cix_flash_${delivery}"
+            published_image="cix_flash_${delivery}_${platform}"
+            if [[ -n "${source_suffix}" ]]; then
+                source_image+="_${source_suffix}"
+            fi
+            if [[ -n "${published_suffix}" ]]; then
+                published_image+="_${published_suffix}"
+            fi
+            source_image+=".bin"
+            published_image+=".bin"
+
+            [[ -s "${generated_output}/${source_image}" ]] ||
+                cix_die "firmware artifact is missing: ${source_image}"
+            install -m 0644 "${generated_output}/${source_image}" \
+                "${image_output}/${published_image}"
+
+            if [[ "${delivery}" == all ]]; then
+                install -m 0644 "${generated_output}/${source_image}" \
+                    "${image_output}/ocb/${published_image}"
+            fi
+        done
+    done
+}
+
 cix_sky1_prepare_workspace() {
     local source_root="$1"
     local build_output="$2"
@@ -303,7 +350,7 @@ cix_direct_sky1_firmware_build() (
         return 0
     fi
 
-    cix_require_command awk file find gcc git make python python3
+    cix_require_command awk file find gcc git install make python python3
     [[ -f "${source_uefi}/edk2/edksetup.sh" ]] ||
         cix_die "EDK2 source is missing: ${source_uefi}/edk2"
     cix_validate_edk2_inputs "${source_uefi}/edk2"
@@ -410,21 +457,15 @@ cix_direct_sky1_firmware_build() (
             cix_die "prototype debug image does not contain the source-built bootloader1"
         cix_log "Verified local engineering prototype signing boundary"
     else
-        cix_log "Generate ${platform_name} internal debug images"
+        cix_log "Generate ${platform_name} internal signing variants"
         (
             cd "${uefi_source}" || exit
             SOC_TYPE=sky1 MAKEFLAGS="-j${build_jobs}" \
                 "${internal_package_script}"
         )
 
-        for artifact in \
-            cix_flash_all.bin \
-            cix_flash_ota.bin \
-            cix_flash_all_rsa_pr_debug.bin \
-            cix_flash_ota_rsa_pr_debug.bin; do
-            [[ -s "${generated_output}/${artifact}" ]] ||
-                cix_die "${platform_name} firmware artifact is missing: ${artifact}"
-        done
+        cix_sky1_publish_product_images \
+            "${generated_output}" "${image_output}" "${platform}"
     fi
 
     if [[ "${validation_profile}" != "none" ]]; then
@@ -444,15 +485,7 @@ cix_direct_sky1_firmware_build() (
         cp -- "${generated_output}/cix_flash_all_rsa_proto_debug.bin" \
             "${image_output}/cix_flash_all_${platform}_engineering_debug.bin"
     else
-        cp -- "${generated_output}/cix_flash_all.bin" \
-            "${image_output}/cix_flash_all_${platform}.bin"
-        cp -- "${generated_output}/cix_flash_ota.bin" \
-            "${image_output}/cix_flash_ota_${platform}.bin"
-        cp -- "${generated_output}/cix_flash_all_rsa_pr_debug.bin" \
-            "${image_output}/cix_flash_all_${platform}_pr_debug.bin"
-        cp -- "${generated_output}/cix_flash_ota_rsa_pr_debug.bin" \
-            "${image_output}/cix_flash_ota_${platform}_pr_debug.bin"
-        cp -- "${image_output}"/cix_flash_all*.bin "${image_output}/ocb/"
+        cix_log "Published ${platform_name} PR, PR2, and prototype images"
     fi
 
     if [[ "${enable_pm_tuning}" != true &&

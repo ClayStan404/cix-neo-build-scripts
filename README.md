@@ -129,9 +129,12 @@ configuration for each target; it never applies O6 board tuning to Merak or
 Edge. Until the corresponding internal changes are merged, O6N source and
 packaging changes are carried under `build-scripts/patches/radxa-o6n`.
 The shared flow creates isolated Git worktrees under `output/TARGET/work`, so
-repo checkouts remain clean. It publishes each board's full-flash, OTA, debug,
-and OCB images under its own `output/TARGET/images` directory; it does not
-create Debian packages and is not affected by `--backend`.
+repo checkouts remain clean. It publishes ten images per board under
+`output/TARGET/images`: Full and OTA layouts for PR release, PR debug, PR2
+debug, prototype release, and prototype debug. The five Full images are also
+collected under `images/ocb`; the unsuffixed board image is the PR release
+variant. It does not create Debian packages and is not affected by
+`--backend`.
 
 `uefi-development` builds the manifest-available validation-platform matrix
 from the private development EDK2 sources: Sky1 Emu, FPGA, and Merak; Sky1P
@@ -141,7 +144,11 @@ RELEASE Debian/optee/nvme profile, then publishes `SKY1_BL33_UEFI.fd` and its
 build report under `output/TARGET`. These are UEFI firmware volumes, not
 signed full-flash images. Sky1P and Star1 full-image packaging remains blocked
 where the only manifest-pinned `cix_cbff` executable is x86-64. Development
-UEFI targets are direct builds and are not affected by `--backend`.
+UEFI targets are direct builds and are not affected by `--backend`. Native
+Sky1P and Star1 signing requires the CBFF 1.4 source maintained in the
+restricted `cix_security/tool` repository. The release trees, including the
+2026-08-26 release, contain only an x86-64 `cix_cbff`; the older source-available
+Sky1 tool implements a different format and is not a safe substitute.
 
 `uefi-stmm` builds the Sky1 Standalone MM firmware from the dedicated
 `cix_master_stmm` EDK2 branches and publishes `BL32_AP_EFI_STMM.fd` with its

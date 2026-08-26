@@ -14,6 +14,11 @@ entry point is represented by one of the following outcomes:
 Legacy command names and their configuration interface are not compatibility
 requirements. Multiple legacy wrappers may map to one new target or build set.
 
+The active firmware milestone covers board UEFI, full-flash packaging,
+Standalone MM, and their signing/delivery variants. The wider ledger remains a
+historical migration inventory; its non-firmware entries do not expand the
+scope of the current firmware work.
+
 The authoritative entry-point snapshot is
 [`legacy-build-map.yaml`](../legacy-build-map.yaml). It records all 167
 top-level legacy `build-*.sh` files at revision
@@ -29,10 +34,10 @@ legacy checkout.
 | --- | --- | --- |
 | Debian 13 Sky1 Linux 6.6 product | `all-6.6` | Implemented |
 | CIX-patched stable Linux 7.0 product | `all-7.0` | Implemented |
-| Radxa Orion O6 firmware | `radxa-o6-firmware` | Implemented |
-| Radxa Orion O6N firmware | `radxa-o6n-firmware` | Implemented with isolated patches |
-| Sky1 Merak internal EVB firmware | `sky1-merak-firmware` | Implemented |
-| Sky1 Edge firmware | `sky1-edge-firmware` | Implemented |
+| Radxa Orion O6 firmware | `radxa-o6-firmware` | Implemented, complete 10-image signing/layout matrix |
+| Radxa Orion O6N firmware | `radxa-o6n-firmware` | Implemented with isolated patches and complete 10-image matrix |
+| Sky1 Merak internal EVB firmware | `sky1-merak-firmware` | Implemented, complete 10-image signing/layout matrix |
+| Sky1 Edge firmware | `sky1-edge-firmware` | Implemented, complete 10-image signing/layout matrix |
 | All implemented Sky1 product boards | `firmware-sky1` | Implemented |
 | Private development UEFI platforms | `uefi-development` | Canonical native RELEASE profile implemented |
 | Sky1 Standalone MM | `uefi-stmm` | Native RELEASE firmware implemented |
@@ -46,12 +51,12 @@ legacy checkout.
 | Sky1 | Emu | Implemented | No product image target; legacy packaging path still needs a native audit |
 | Sky1 | FPGA | Implemented | No product image target; legacy packaging path still needs a native audit |
 | Sky1 | Merak | Implemented | Implemented by `sky1-merak-firmware` |
-| Sky1P | EVB | Implemented | Blocked by x86-only `cix_cbff` and missing manifest TF-A/TEE inputs |
-| Sky1P | CRB1 | Implemented | Blocked by the Sky1P native packaging prerequisites |
+| Sky1P | EVB | Implemented | Blocked by restricted CBFF 1.4 source and x86-only release binary |
+| Sky1P | CRB1 | Implemented | Blocked by the native CBFF prerequisite and missing board package configuration |
 | Sky1P | CRB2 | Implemented | Blocked; matching full-image payload/configuration is absent in the legacy checkout |
 | Sky1P | Emu | Implemented | No product image target; packaging inputs remain unaudited |
 | Sky1P | FPGA | Implemented | No product image target; packaging inputs remain unaudited |
-| Star1 | Merak | Implemented | Blocked by x86-only `cix_cbff` full-image packaging |
+| Star1 | Merak | Implemented | Blocked by restricted CBFF 1.4 source and x86-only release binary |
 | Star1 | Emu | Implemented | No product image target; packaging inputs remain unaudited |
 | Star1 | FPGA | Implemented | No product image target; packaging inputs remain unaudited |
 
@@ -86,3 +91,10 @@ New repositories are added to the manifest only when their first target is
 implemented. Each migration must first confirm that every required executable
 is either native AArch64 or buildable from source on Debian 13. The build map
 then becomes the authoritative target, source-impact, and build-set registry.
+
+The Sky1P/Star1 blocker was rechecked against Gerrit and the 2026-08-26 release
+tree. `cix_security/tool` is restricted to the Security group, while the
+release repository still publishes an x86-64 `cix_cbff` only. Internal change
+72680 identifies its build source as `repo_brom/tool/cix_cbff`. The
+source-available Sky1 `cix_mkimage` implements the older configuration and CBFF
+format, so substituting it would create unvalidated boot containers.
