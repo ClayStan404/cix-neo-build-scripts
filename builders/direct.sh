@@ -33,6 +33,12 @@ cix_direct_build() {
                 "${TARGET[board]}" \
                 "${requested_action}" "${target_output}" "${target_jobs}"
             ;;
+        uefi-stmm)
+            # shellcheck source=builders/direct/uefi-stmm.sh
+            source "${CIX_ROOT}/build-scripts/builders/direct/uefi-stmm.sh"
+            cix_direct_uefi_stmm_build \
+                "${requested_action}" "${target_output}" "${target_jobs}"
+            ;;
         pmtool)
             # shellcheck source=builders/direct/pmtool.sh
             source "${CIX_ROOT}/build-scripts/builders/direct/pmtool.sh"

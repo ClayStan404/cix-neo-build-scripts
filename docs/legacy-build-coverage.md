@@ -35,6 +35,7 @@ legacy checkout.
 | Sky1 Edge firmware | `sky1-edge-firmware` | Implemented |
 | All implemented Sky1 product boards | `firmware-sky1` | Implemented |
 | Private development UEFI platforms | `uefi-development` | Canonical native RELEASE profile implemented |
+| Sky1 Standalone MM | `uefi-stmm` | Native RELEASE firmware implemented |
 | O6/O6N PM validation | `pm-validation` | Implemented, recovery-gated |
 | O6 PM and memory tuning | `pm-tuning` | Implemented, recovery-gated |
 

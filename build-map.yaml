@@ -2,6 +2,11 @@ version: 7
 executor: build-scripts/cix-build
 
 build_sets:
+  secure-firmware:
+    description: Native ARM64 secure-firmware components
+    targets:
+      - uefi-stmm
+
   uefi-development:
     description: Native ARM64 development UEFI matrix for CIX validation platforms
     targets: &uefi_development_targets
@@ -214,6 +219,12 @@ targets:
     flow: uefi-development
     source: sources/uefi-development
     board: Star1-Merak
+
+  uefi-stmm:
+    description: CIX Sky1 Standalone MM firmware
+    builder: direct
+    flow: uefi-stmm
+    source: sources/uefi-stmm
 
   radxa-o6-pm-validation:
     description: Radxa Orion O6 stock-equivalent custom PM config validation image
@@ -572,12 +583,16 @@ projects:
     rules:
       - paths: ["**"]
         targets: *uefi_development_targets
+      - paths: ["**"]
+        targets: [uefi-stmm]
 
   cix_private/edk2-platforms:
     path: sources/uefi-development/edk2-platforms
     rules:
       - paths: ["**"]
         targets: *uefi_development_targets
+      - paths: ["**"]
+        targets: [uefi-stmm]
 
   tools/cix_binary:
     path: sources/cix-binary
@@ -706,11 +721,19 @@ projects:
       - paths: ["**"]
         targets: [radxa-o6-pm-tuning]
 
+  github_mirror/ucb-bar/berkeley-softfloat-3:
+    path: sources/uefi-stmm/edk2/ArmPkg/Library/ArmSoftFloatLib/berkeley-softfloat-3
+    rules:
+      - paths: ["**"]
+        targets: [uefi-stmm]
+
   github_mirror/google/brotli:
     path: sources/radxa-o6/uefi_release/edk2/BaseTools/Source/C/BrotliCompress/brotli
     rules:
       - paths: ["**"]
         targets: *all_uefi_targets
+      - paths: ["**"]
+        targets: [uefi-stmm]
 
   github_mirror/ARMmbed/mbedtls:
     path: sources/radxa-o6/uefi_release/edk2/CryptoPkg/Library/MbedTlsLib/mbedtls
@@ -723,12 +746,16 @@ projects:
     rules:
       - paths: ["**"]
         targets: *all_uefi_targets
+      - paths: ["**"]
+        targets: [uefi-stmm]
 
   github_mirror/kkos/oniguruma:
     path: sources/radxa-o6/uefi_release/edk2/MdeModulePkg/Universal/RegularExpressionDxe/oniguruma
     rules:
       - paths: ["**"]
         targets: *all_uefi_targets
+      - paths: ["**"]
+        targets: [uefi-stmm]
 
   github_mirror/devicetree-org/pylibfdt:
     path: sources/radxa-o6/uefi_release/edk2/MdePkg/Library/BaseFdtLib/libfdt
@@ -747,6 +774,8 @@ projects:
     rules:
       - paths: ["**"]
         targets: *all_uefi_targets
+      - paths: ["**"]
+        targets: [uefi-stmm]
 
   github_mirror/DMTF/libspdm:
     path: sources/radxa-o6/uefi_release/edk2/SecurityPkg/DeviceSecurity/SpdmLib/libspdm
@@ -759,6 +788,8 @@ projects:
     rules:
       - paths: ["**"]
         targets: *all_uefi_targets
+      - paths: ["**"]
+        targets: [uefi-stmm]
 
   github_mirror/google/googletest:
     path: sources/radxa-o6/uefi_release/edk2/UnitTestFrameworkPkg/Library/GoogleTestLib/googletest
@@ -923,6 +954,10 @@ projects:
         targets: *uefi_development_targets
       - paths: ["patches/uefi-development/**"]
         targets: *uefi_development_targets
+      - paths: ["builders/direct/edk2.sh"]
+        targets: *all_uefi_targets
+      - paths: ["builders/direct.sh", "builders/direct/edk2.sh", "builders/direct/uefi-stmm.sh"]
+        targets: [uefi-stmm]
       - paths: ["builders/direct/kernel.sh"]
         targets: [kernel, stable-kernel]
       - paths: ["builders/direct/audio-sof.sh"]

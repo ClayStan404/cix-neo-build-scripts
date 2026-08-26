@@ -611,6 +611,22 @@ Description: CIX VPU development files
         self.assertEqual(target.board, "Sky1P-Crb1")
         self.assertIsNone(target.control)
 
+    def test_standalone_mm_uses_its_dedicated_source_tree(self) -> None:
+        target = plan._target_from_mapping(
+            "uefi-stmm",
+            {
+                "description": "Sky1 Standalone MM",
+                "builder": "direct",
+                "flow": "uefi-stmm",
+                "source": "sources/uefi-stmm",
+            },
+        )
+
+        self.assertEqual(target.flow, "uefi-stmm")
+        self.assertEqual(target.source, "sources/uefi-stmm")
+        self.assertIsNone(target.board)
+        self.assertIsNone(target.control)
+
     def test_radxa_pm_tuning_is_a_direct_firmware_flow(self) -> None:
         target = plan._target_from_mapping(
             "radxa-o6-pm-tuning",

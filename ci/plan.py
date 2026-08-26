@@ -336,6 +336,10 @@ def _target_from_mapping(name: str, entry: dict) -> Target:
             {"source", "board"},
             {"source", "board"},
         ),
+        ("direct", "uefi-stmm"): (
+            {"source"},
+            {"source"},
+        ),
         ("direct", "pmtool"): (
             {"source"},
             {"source"},

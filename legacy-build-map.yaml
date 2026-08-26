@@ -291,6 +291,9 @@ overrides:
     status: partial
     replacement: uefi-development
     reason: Emu, FPGA, and Merak canonical RELEASE profiles build natively; Megrez, CloudBook, and Batura DSC sources are absent, and full-image packaging remains separate.
+  build-uefi-stmm.sh:
+    status: implemented
+    replacement: uefi-stmm
 
   build-ffmpeg-ubuntu24.sh:
     status: blocked

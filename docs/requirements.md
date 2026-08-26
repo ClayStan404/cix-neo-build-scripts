@@ -331,6 +331,11 @@ is confirmed.
   Emu/FPGA/Merak. Publish the UEFI firmware volume separately from product
   full-flash images, and never claim that a successful `.fd` build satisfies a
   signing or image-packaging target.
+- Build Standalone MM as a separate `uefi-stmm` direct target from the
+  dedicated `cix_master_stmm` EDK2 branches. Publish
+  `BL32_AP_EFI_STMM.fd` independently from BL33 UEFI and product images. Keep
+  it in a `secure-firmware` build set that can grow as the other secure
+  firmware components are migrated.
 - Keep VPU DKMS, VPU firmware, and `cix-grub-config` in both product build
   sets. Keep the CIX Linux 6.6 kernel and legacy CIX GStreamer target in
   `all-6.6`. Keep the stable 7.0 kernel and the Debian Salsa-based GStreamer

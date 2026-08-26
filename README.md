@@ -11,6 +11,7 @@ Build one complete CIX kernel stack at a time:
 ./build-scripts/cix-build all-7.0
 ./build-scripts/cix-build firmware-sky1
 ./build-scripts/cix-build uefi-development
+./build-scripts/cix-build secure-firmware
 ./build-scripts/cix-build pm-validation
 ./build-scripts/cix-build pm-tuning
 ```
@@ -141,6 +142,13 @@ build report under `output/TARGET`. These are UEFI firmware volumes, not
 signed full-flash images. Sky1P and Star1 full-image packaging remains blocked
 where the only manifest-pinned `cix_cbff` executable is x86-64. Development
 UEFI targets are direct builds and are not affected by `--backend`.
+
+`uefi-stmm` builds the Sky1 Standalone MM firmware from the dedicated
+`cix_master_stmm` EDK2 branches and publishes `BL32_AP_EFI_STMM.fd` with its
+build report. It does not reuse the normal UEFI source branch, and it does not
+require the old x86-hosted ARM64 cross-toolchain.
+The `secure-firmware` set currently contains this target and will grow as the
+remaining TF-A, TEE, and secure-image components are migrated.
 
 The remaining legacy firmware platforms and their native-build blockers are
 tracked in [`docs/legacy-build-coverage.md`](docs/legacy-build-coverage.md).
