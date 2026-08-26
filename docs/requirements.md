@@ -9,6 +9,16 @@ is confirmed.
 ### Project Direction
 
 - This is a greenfield rewrite.
+- Reach explicit coverage of every legacy build entry point that is still
+  required. Reimplement each output as a native target or build set instead of
+  preserving the legacy command-line interface. Keep duplicate wrappers,
+  orchestration aliases, deprecated products, and externally blocked targets
+  visible in a migration ledger until they are implemented or deliberately
+  retired.
+- Keep the machine-readable legacy entry-point snapshot complete, unique, and
+  synchronized with the audited legacy revision. An implemented entry must
+  name an existing target or build set; blocked and retired entries must record
+  a reason.
 - Push completed commits to each repository's configured remote as part of the
   same workflow unless the user explicitly requests a local-only commit.
 - Do not provide compatibility with the legacy build system, its CLI, its
@@ -26,9 +36,12 @@ is confirmed.
   toolchain from manifest-pinned sources. Xtensa remains the firmware target
   architecture because the firmware executes on the audio DSP; do not reuse
   the legacy x86-hosted prebuilt compiler.
-- Build Radxa Orion O6 EDK2 firmware directly on the ARM64 host with the
-  upstream CIX package scripts. Publish flash and OCB images rather than a
-  Debian package.
+- Build Sky1 product EDK2 firmware directly on the ARM64 host with the upstream
+  CIX package scripts. Publish flash and OCB images rather than Debian packages.
+  The initial native matrix consists of Radxa Orion O6/O6N, CIX Merak EVB, and
+  CIX Edge. Keep board-owned DSC files and configuration payloads isolated;
+  never reuse Radxa PM or memory tuning patches on a CIX reference board merely
+  because both use Sky1.
 - Support ARM64 Debian 13 as the build host baseline. Debian 12, Ubuntu, and
   other host distributions are outside the current scope.
 - Build software as standard Debian packages using conventional Debian package
@@ -133,6 +146,9 @@ is confirmed.
 - Maintain a minimal, curated manifest for the new system.
 - Add a source repository to the manifest only when its corresponding build
   module is introduced and needed.
+- Do not use x86 emulation to claim native support for a legacy target. A
+  target that still requires an x86-only proprietary tool remains explicitly
+  blocked until an ARM64 binary or buildable source is available.
 - Keep upstream source checkouts in a dedicated source directory.
 - Track `cix_opensource/linux` at branch `cix_6.6_master_dev` under
   `sources/linux`.
@@ -174,9 +190,10 @@ is confirmed.
   `cix-sof-gcc10x-dev`, Newlib for Xtensa at `xtensa`, SOF at
   `cix-stable-v2.11-dev`, tomlc99 at `master`, and the Xtensa overlay at
   `cix-sof-gcc10.2-dev`.
-- Track the Radxa Orion O6 and O6N firmware inputs under `sources/radxa-o6`:
+- Track the shared Sky1 release firmware inputs under `sources/radxa-o6`:
   EDK2, EDK2 non-OSI, and EDK2 platforms at `cix_opensource_firmware`; ACPICA at
-  `R2024_12_12`; and `cix_bsp_release` at `cix_master`. Sync the EDK2 gitlinks
+  `R2024_12_12`; and `cix_bsp_release` at `cix_master`. These inputs provide
+  Radxa Orion O6/O6N, CIX Merak EVB, and CIX Edge builds. Sync the EDK2 gitlinks
   as revision-pinned manifest projects directly in the EDK2 tree, and do not
   include the x86-only AArch64 cross-toolchain on the native ARM64 host. Keep
   O6N as patches against the current CIX EDK2 source until the equivalent
@@ -304,6 +321,10 @@ is confirmed.
   total elapsed time after a successful set build. A failed build must report
   the failed target's elapsed time before exiting; a failed set build must also
   report its total elapsed time.
+- Provide `firmware-sky1` as the board-matrix build set for all currently
+  supported Sky1 product firmware targets. Product OS build sets may select
+  only the board images needed by that product; they do not imply coverage of
+  every hardware variant.
 - Keep VPU DKMS, VPU firmware, and `cix-grub-config` in both product build
   sets. Keep the CIX Linux 6.6 kernel and legacy CIX GStreamer target in
   `all-6.6`. Keep the stable 7.0 kernel and the Debian Salsa-based GStreamer
@@ -433,8 +454,8 @@ The current build system contains these build targets:
   `npu-umd`
 - AI runtimes: `ai-engine`, `mnn`
 - System integration and firmware: `grub-config`, `alsa-conf`, `audio-dsp`,
-  `audio-sof`, `radxa-o6-firmware`, `radxa-o6n-firmware`, `cix-env`,
-  `cix-firmware`
+  `audio-sof`, `radxa-o6-firmware`, `radxa-o6n-firmware`,
+  `sky1-merak-firmware`, `sky1-edge-firmware`, `cix-env`, `cix-firmware`
 
 The VPU DKMS package must retain its runtime dependency on
 `cix-vpu-firmware`. Its 16 proprietary `.fwb` files come from the
@@ -447,14 +468,16 @@ caches it by its manifest input revisions, builds Sky1 and Sky1P SOF firmware
 and topology files, and creates the architecture-independent
 `cix-audio-sof` Debian package.
 
-The `radxa-o6-firmware` and `radxa-o6n-firmware` targets share one direct
-firmware flow that invokes the manifest-pinned CIX EDK2 and internal packaging
-scripts on ARM64 with board `O6` or `O6N`. Temporary O6N patches live in the
-build-script repository and are applied to target-owned worktrees, leaving the
-manifest source checkouts unchanged. It emits each board's flash and OCB images
-under `output/TARGET/images` and has no Debian backend. O6N has no EC, so its
-packaging must leave the EC flash region erased rather than include the default
-platform EC firmware.
+The `radxa-o6-firmware`, `radxa-o6n-firmware`, `sky1-merak-firmware`, and
+`sky1-edge-firmware` targets share one direct Sky1 firmware flow. It invokes
+the manifest-pinned CIX EDK2 and internal packaging scripts on ARM64 and selects
+the board-owned DSC and packaging configuration. Temporary O6N patches live in
+the build-script repository and are applied to target-owned worktrees, leaving
+the manifest source checkouts unchanged. It emits each board's flash and OCB
+images under `output/TARGET/images` and has no Debian backend. O6N has no EC, so
+its packaging must leave the EC flash region erased rather than include the
+default platform EC firmware. Radxa PM and memory tuning patches remain scoped
+to their explicit O6/O6N experimental targets.
 
 The `radxa-o6-pm-validation` and `radxa-o6n-pm-validation` targets exercise the
 existing v3.0 custom PMIC path without changing the board's documented limits

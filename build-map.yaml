@@ -2,6 +2,14 @@ version: 7
 executor: build-scripts/cix-build
 
 build_sets:
+  firmware-sky1:
+    description: All native ARM64 Sky1 product firmware variants
+    targets:
+      - radxa-o6-firmware
+      - radxa-o6n-firmware
+      - sky1-merak-firmware
+      - sky1-edge-firmware
+
   pm-validation:
     description: Experimental O6/O6N v3 PM configuration and inspection tools
     targets:
@@ -90,42 +98,56 @@ targets:
   radxa-o6-firmware:
     description: Radxa Orion O6 platform firmware images
     builder: direct
-    flow: radxa-firmware
+    flow: sky1-firmware
     source: sources/radxa-o6
     board: O6
 
   radxa-o6n-firmware:
     description: Radxa Orion O6N platform firmware images
     builder: direct
-    flow: radxa-firmware
+    flow: sky1-firmware
     source: sources/radxa-o6
     board: O6N
+
+  sky1-merak-firmware:
+    description: CIX Sky1 Merak EVB platform firmware images
+    builder: direct
+    flow: sky1-firmware
+    source: sources/radxa-o6
+    board: Merak
+
+  sky1-edge-firmware:
+    description: CIX Sky1 Edge platform firmware images
+    builder: direct
+    flow: sky1-firmware
+    source: sources/radxa-o6
+    board: Edge
 
   radxa-o6-pm-validation:
     description: Radxa Orion O6 stock-equivalent custom PM config validation image
     builder: direct
-    flow: radxa-pm-validation
+    flow: sky1-pm-validation
     source: sources/radxa-o6
     board: O6
 
   radxa-o6-opp-validation:
     description: Radxa Orion O6 stock external OPP table validation image
     builder: direct
-    flow: radxa-opp-validation
+    flow: sky1-opp-validation
     source: sources/radxa-o6
     board: O6
 
   radxa-o6-pm-tuning:
     description: Radxa Orion O6 firmware with BIOS-selectable PM and experimental memory tuning
     builder: direct
-    flow: radxa-pm-tuning
+    flow: sky1-pm-tuning
     source: sources/radxa-o6
     board: O6
 
   radxa-o6n-pm-validation:
     description: Radxa Orion O6N stock-equivalent custom PM config validation image
     builder: direct
-    flow: radxa-pm-validation
+    flow: sky1-pm-validation
     source: sources/radxa-o6
     board: O6N
 
@@ -524,31 +546,31 @@ projects:
     path: sources/radxa-o6/uefi_release/edk2
     rules:
       - paths: ["**"]
-        targets: &radxa_firmware_targets [radxa-o6-firmware, radxa-o6n-firmware, radxa-o6-pm-validation, radxa-o6-opp-validation, radxa-o6-pm-tuning, radxa-o6n-pm-validation]
+        targets: &sky1_firmware_targets [radxa-o6-firmware, radxa-o6n-firmware, sky1-merak-firmware, sky1-edge-firmware, radxa-o6-pm-validation, radxa-o6-opp-validation, radxa-o6-pm-tuning, radxa-o6n-pm-validation]
 
   cix_opensource/release/edk2-non-osi:
     path: sources/radxa-o6/uefi_release/edk2-non-osi
     rules:
       - paths: ["**"]
-        targets: *radxa_firmware_targets
+        targets: *sky1_firmware_targets
 
   cix_opensource/release/edk2-platforms:
     path: sources/radxa-o6/uefi_release/edk2-platforms
     rules:
       - paths: ["**"]
-        targets: *radxa_firmware_targets
+        targets: *sky1_firmware_targets
 
   cix_private/acpica:
     path: sources/radxa-o6/uefi_release/tools/acpica
     rules:
       - paths: ["**"]
-        targets: *radxa_firmware_targets
+        targets: *sky1_firmware_targets
 
   cix_proprietary/cix_bsp_release:
     path: sources/radxa-o6/cix_bsp_release
     rules:
       - paths: ["**"]
-        targets: *radxa_firmware_targets
+        targets: *sky1_firmware_targets
 
   cix_security/ddr:
     path: sources/radxa-o6/bootloader/ddr
@@ -584,67 +606,67 @@ projects:
     path: sources/radxa-o6/uefi_release/edk2/BaseTools/Source/C/BrotliCompress/brotli
     rules:
       - paths: ["**"]
-        targets: *radxa_firmware_targets
+        targets: *sky1_firmware_targets
 
   github_mirror/ARMmbed/mbedtls:
     path: sources/radxa-o6/uefi_release/edk2/CryptoPkg/Library/MbedTlsLib/mbedtls
     rules:
       - paths: ["**"]
-        targets: *radxa_firmware_targets
+        targets: *sky1_firmware_targets
 
   github_mirror/openssl/openssl:
     path: sources/radxa-o6/uefi_release/edk2/CryptoPkg/Library/OpensslLib/openssl
     rules:
       - paths: ["**"]
-        targets: *radxa_firmware_targets
+        targets: *sky1_firmware_targets
 
   github_mirror/kkos/oniguruma:
     path: sources/radxa-o6/uefi_release/edk2/MdeModulePkg/Universal/RegularExpressionDxe/oniguruma
     rules:
       - paths: ["**"]
-        targets: *radxa_firmware_targets
+        targets: *sky1_firmware_targets
 
   github_mirror/devicetree-org/pylibfdt:
     path: sources/radxa-o6/uefi_release/edk2/MdePkg/Library/BaseFdtLib/libfdt
     rules:
       - paths: ["**"]
-        targets: *radxa_firmware_targets
+        targets: *sky1_firmware_targets
 
   github_mirror/MIPI-Alliance/public-mipi-sys-t:
     path: sources/radxa-o6/uefi_release/edk2/MdePkg/Library/MipiSysTLib/mipisyst
     rules:
       - paths: ["**"]
-        targets: *radxa_firmware_targets
+        targets: *sky1_firmware_targets
 
   github_mirror/akheron/jansson:
     path: sources/radxa-o6/uefi_release/edk2/RedfishPkg/Library/JsonLib/jansson
     rules:
       - paths: ["**"]
-        targets: *radxa_firmware_targets
+        targets: *sky1_firmware_targets
 
   github_mirror/DMTF/libspdm:
     path: sources/radxa-o6/uefi_release/edk2/SecurityPkg/DeviceSecurity/SpdmLib/libspdm
     rules:
       - paths: ["**"]
-        targets: *radxa_firmware_targets
+        targets: *sky1_firmware_targets
 
   github_mirror/tianocore/edk2-cmocka:
     path: sources/radxa-o6/uefi_release/edk2/UnitTestFrameworkPkg/Library/CmockaLib/cmocka
     rules:
       - paths: ["**"]
-        targets: *radxa_firmware_targets
+        targets: *sky1_firmware_targets
 
   github_mirror/google/googletest:
     path: sources/radxa-o6/uefi_release/edk2/UnitTestFrameworkPkg/Library/GoogleTestLib/googletest
     rules:
       - paths: ["**"]
-        targets: *radxa_firmware_targets
+        targets: *sky1_firmware_targets
 
   github_mirror/tianocore/edk2-subhook:
     path: sources/radxa-o6/uefi_release/edk2/UnitTestFrameworkPkg/Library/SubhookLib/subhook
     rules:
       - paths: ["**"]
-        targets: *radxa_firmware_targets
+        targets: *sky1_firmware_targets
 
   cix_opensource/gpu_kernel:
     path: sources/gpu-kernel
@@ -792,13 +814,13 @@ projects:
       - paths: ["build-map.yaml", "cix-build", "builders/common.sh"]
         targets: ["*"]
       - paths: ["builders/direct.sh"]
-        targets: [kernel, stable-kernel, audio-sof, pmtool, radxa-o6-firmware, radxa-o6n-firmware, radxa-o6-pm-validation, radxa-o6-opp-validation, radxa-o6-pm-tuning, radxa-o6n-pm-validation]
+        targets: [kernel, stable-kernel, audio-sof, pmtool, radxa-o6-firmware, radxa-o6n-firmware, sky1-merak-firmware, sky1-edge-firmware, radxa-o6-pm-validation, radxa-o6-opp-validation, radxa-o6-pm-tuning, radxa-o6n-pm-validation]
       - paths: ["builders/direct/kernel.sh"]
         targets: [kernel, stable-kernel]
       - paths: ["builders/direct/audio-sof.sh"]
         targets: [audio-sof]
-      - paths: ["builders/direct/firmware-radxa.sh"]
-        targets: [radxa-o6-firmware, radxa-o6n-firmware, radxa-o6-pm-validation, radxa-o6-opp-validation, radxa-o6-pm-tuning, radxa-o6n-pm-validation]
+      - paths: ["builders/direct/firmware-sky1.sh"]
+        targets: [radxa-o6-firmware, radxa-o6n-firmware, sky1-merak-firmware, sky1-edge-firmware, radxa-o6-pm-validation, radxa-o6-opp-validation, radxa-o6-pm-tuning, radxa-o6n-pm-validation]
       - paths: ["builders/direct/bootloader1.sh", "patches/radxa-bootloader/**"]
         targets: [radxa-o6-pm-tuning]
       - paths: ["builders/direct/pmtool.sh"]

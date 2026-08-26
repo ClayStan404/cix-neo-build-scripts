@@ -6,13 +6,13 @@ cix_bootloader1_remove_workspace() {
     local build_output="$2"
     local work_root="${build_output}/bootloader-work"
 
-    cix_radxa_remove_worktree \
+    cix_sky1_remove_worktree \
         "${source_root}/bootloader/ddr" "${work_root}/ddr"
-    cix_radxa_remove_worktree \
+    cix_sky1_remove_worktree \
         "${source_root}/bootloader/firmware" "${work_root}/firmware"
-    cix_radxa_remove_worktree \
+    cix_sky1_remove_worktree \
         "${source_root}/bootloader/library" "${work_root}/library"
-    cix_radxa_remove_worktree \
+    cix_sky1_remove_worktree \
         "${source_root}/bootloader/sw-tools-private" \
         "${work_root}/sw-tools-private"
 
@@ -113,11 +113,11 @@ cix_bootloader1_build() {
             "${work_root}/${component}" HEAD
     done
 
-    cix_radxa_apply_patch "${work_root}/ddr" \
+    cix_sky1_apply_patch "${work_root}/ddr" \
         "${patch_root}/0001-ddr-bound-training-and-recover-automatic.patch"
-    cix_radxa_apply_patch "${work_root}/firmware" \
+    cix_sky1_apply_patch "${work_root}/firmware" \
         "${patch_root}/0002-se-firmware-support-debian-native-toolchain.patch"
-    cix_radxa_apply_patch "${work_root}/sw-tools-private" \
+    cix_sky1_apply_patch "${work_root}/sw-tools-private" \
         "${patch_root}/0003-cix-mkimage-use-system-libraries.patch"
 
     cix_log "Build native ARM64 cix_mkimage with ${build_jobs} jobs"

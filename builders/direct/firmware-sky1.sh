@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Build and package Radxa Orion platform firmware on native ARM64.
+# Build and package Sky1 platform firmware on native ARM64.
 
 # shellcheck source=builders/direct/bootloader1.sh
 source "${CIX_ROOT}/build-scripts/builders/direct/bootloader1.sh"
 
-cix_radxa_validate_edk2_inputs() {
+cix_sky1_validate_edk2_inputs() {
     local edk2_source="$1"
     local dependency
 
@@ -18,7 +18,7 @@ cix_radxa_validate_edk2_inputs() {
     )
 }
 
-cix_radxa_remove_worktree() {
+cix_sky1_remove_worktree() {
     local repository="$1"
     local worktree="$2"
 
@@ -31,7 +31,7 @@ cix_radxa_remove_worktree() {
     git -C "${repository}" worktree prune
 }
 
-cix_radxa_remove_workspace() {
+cix_sky1_remove_workspace() {
     local source_root="$1"
     local build_output="$2"
     local source_edk2="${source_root}/uefi_release/edk2"
@@ -41,12 +41,12 @@ cix_radxa_remove_workspace() {
 
     cix_bootloader1_remove_workspace "${source_root}" "${build_output}"
 
-    cix_radxa_remove_worktree \
+    cix_sky1_remove_worktree \
         "${source_root}/cix_bsp_release" \
         "${work_root}/cix_bsp_release"
 
     while IFS= read -r dependency; do
-        cix_radxa_remove_worktree \
+        cix_sky1_remove_worktree \
             "${source_edk2}/${dependency}" \
             "${work_uefi}/edk2/${dependency}"
     done < <(
@@ -54,15 +54,15 @@ cix_radxa_remove_workspace() {
             awk '$1 == "160000" {print $4}'
     )
 
-    cix_radxa_remove_worktree \
+    cix_sky1_remove_worktree \
         "${source_root}/uefi_release/edk2" "${work_uefi}/edk2"
-    cix_radxa_remove_worktree \
+    cix_sky1_remove_worktree \
         "${source_root}/uefi_release/edk2-platforms" \
         "${work_uefi}/edk2-platforms"
-    cix_radxa_remove_worktree \
+    cix_sky1_remove_worktree \
         "${source_root}/uefi_release/edk2-non-osi" \
         "${work_uefi}/edk2-non-osi"
-    cix_radxa_remove_worktree \
+    cix_sky1_remove_worktree \
         "${source_root}/uefi_release/tools/acpica" \
         "${work_uefi}/tools/acpica"
 
@@ -72,7 +72,7 @@ cix_radxa_remove_workspace() {
     fi
 }
 
-cix_radxa_apply_patch() {
+cix_sky1_apply_patch() {
     local repository="$1"
     local patch_file="$2"
 
@@ -87,7 +87,7 @@ cix_radxa_apply_patch() {
     fi
 }
 
-cix_radxa_validate_pm_ifr() {
+cix_sky1_validate_pm_ifr() {
     local platform_config_ifr="$1"
 
     awk '
@@ -128,7 +128,7 @@ cix_radxa_validate_pm_ifr() {
         cix_die "compiled O6 firmware has an invalid PM menu"
 }
 
-cix_radxa_prepare_workspace() {
+cix_sky1_prepare_workspace() {
     local source_root="$1"
     local build_output="$2"
     local platform="$3"
@@ -145,7 +145,7 @@ cix_radxa_prepare_workspace() {
     local dependency
     local dependency_target
 
-    cix_radxa_remove_workspace "${source_root}" "${build_output}"
+    cix_sky1_remove_workspace "${source_root}" "${build_output}"
     mkdir -p -- "${work_uefi}/tools"
 
     git -C "${source_uefi}/edk2" worktree add --detach \
@@ -173,7 +173,7 @@ cix_radxa_prepare_workspace() {
     if [[ "${enable_pm_tuning}" == true ]]; then
         git -C "${source_root}/cix_bsp_release" worktree add --detach \
             "${work_root}/cix_bsp_release" HEAD
-        cix_radxa_apply_patch "${work_root}/cix_bsp_release" \
+        cix_sky1_apply_patch "${work_root}/cix_bsp_release" \
             "${pm_tuning_patch_root}/0002-PackageTool-select-internal-flash-variant.patch"
     else
         ln -s -- "${source_root}/cix_bsp_release" \
@@ -181,27 +181,27 @@ cix_radxa_prepare_workspace() {
     fi
 
     if [[ "${platform}" == "O6N" ]]; then
-        cix_radxa_apply_patch "${work_uefi}/edk2-platforms" \
+        cix_sky1_apply_patch "${work_uefi}/edk2-platforms" \
             "${patch_root}/0001-Platform-Radxa-add-Orion-O6N-support.patch"
-        cix_radxa_apply_patch "${work_uefi}/edk2-non-osi" \
+        cix_sky1_apply_patch "${work_uefi}/edk2-non-osi" \
             "${patch_root}/0002-Platform-CIX-package-Orion-O6N-firmware.patch"
     fi
 
     if [[ "${validation_profile}" != "none" ]]; then
-        cix_radxa_apply_patch "${work_uefi}/edk2-non-osi" \
+        cix_sky1_apply_patch "${work_uefi}/edk2-non-osi" \
             "${pm_patch_root}/0001-PackageTool-add-safe-PM-config-validation-mode.patch"
     fi
 
     if [[ "${validation_profile}" == "stock-opp" ||
         "${validation_profile}" == "vendor-auto" ]]; then
-        cix_radxa_apply_patch "${work_uefi}/edk2-platforms" \
+        cix_sky1_apply_patch "${work_uefi}/edk2-platforms" \
             "${opp_patch_root}/0001-Platform-Radxa-enable-stock-O6-OPP-table.patch"
     fi
 
     if [[ "${enable_pm_tuning}" == true ]]; then
-        cix_radxa_apply_patch "${work_uefi}/edk2-platforms" \
+        cix_sky1_apply_patch "${work_uefi}/edk2-platforms" \
             "${pm_tuning_patch_root}/0001-Platform-add-selectable-O6-PM-profiles.patch"
-        cix_radxa_apply_patch "${work_uefi}/edk2-platforms" \
+        cix_sky1_apply_patch "${work_uefi}/edk2-platforms" \
             "${memory_tuning_patch_root}/0001-Make-O6-memory-rate-updates-reliable.patch"
 
         local pm_form="${work_uefi}/edk2-platforms/Platform/Radxa/Platforms/CIX/Sky1/Drivers/PlatformConfigDxe/PmMenu/PmConfig.hfr"
@@ -283,7 +283,7 @@ cix_radxa_prepare_workspace() {
     fi
 }
 
-cix_direct_radxa_firmware_build() (
+cix_direct_sky1_firmware_build() (
     local platform="$1"
     local build_action="$2"
     local build_output="$3"
@@ -301,24 +301,45 @@ cix_direct_radxa_firmware_build() (
     local internal_package_script="${build_output}/work/cix_bsp_release/sky1/package_internal_flash_binary.sh"
     local platform_config_ifr
     local debug_bootloader3="${build_output}/bootloader3_engineering_debug.img"
+    local platform_dsc
+    local platform_name
 
-    if [[ "${TARGET[flow]}" == "radxa-pm-validation" ]]; then
+    case "${platform}" in
+        O6|O6N)
+            platform_dsc="Platform/Radxa/Orion/${platform}/${platform}.dsc"
+            platform_name="Radxa Orion ${platform}"
+            ;;
+        Merak|Edge)
+            platform_dsc="Platform/CIX/Sky1/${platform}/${platform}.dsc"
+            platform_name="CIX Sky1 ${platform}"
+            ;;
+        *)
+            cix_die "unsupported Sky1 firmware platform: ${platform}"
+            ;;
+    esac
+
+    if [[ "${TARGET[flow]}" != "sky1-firmware" &&
+        "${platform}" != "O6" && "${platform}" != "O6N" ]]; then
+        cix_die "${TARGET[flow]} is supported only on Radxa O6/O6N"
+    fi
+
+    if [[ "${TARGET[flow]}" == "sky1-pm-validation" ]]; then
         validation_profile=pmic
-    elif [[ "${TARGET[flow]}" == "radxa-opp-validation" ]]; then
+    elif [[ "${TARGET[flow]}" == "sky1-opp-validation" ]]; then
         validation_profile=stock-opp
-    elif [[ "${TARGET[flow]}" == "radxa-pm-tuning" ]]; then
+    elif [[ "${TARGET[flow]}" == "sky1-pm-tuning" ]]; then
         validation_profile=vendor-auto
         enable_pm_tuning=true
     fi
 
     if [[ "${build_action}" == "clean" ]]; then
         cix_clean_artifacts "${build_output}"
-        cix_radxa_remove_workspace "${firmware_source}" "${build_output}"
+        cix_sky1_remove_workspace "${firmware_source}" "${build_output}"
         if [[ "${enable_pm_tuning}" == true ]]; then
             cix_bootloader1_clean_artifacts "${build_output}"
         fi
         if [[ -d "${image_output}" ]]; then
-            cix_log "Remove Radxa ${platform} firmware artifacts"
+            cix_log "Remove ${platform_name} firmware artifacts"
             find "${image_output}" -mindepth 1 -delete
         fi
         return 0
@@ -327,7 +348,7 @@ cix_direct_radxa_firmware_build() (
     cix_require_command awk file find gcc git make python python3
     [[ -f "${source_uefi}/edk2/edksetup.sh" ]] ||
         cix_die "EDK2 source is missing: ${source_uefi}/edk2"
-    cix_radxa_validate_edk2_inputs "${source_uefi}/edk2"
+    cix_sky1_validate_edk2_inputs "${source_uefi}/edk2"
 
     cix_prepare_host_ccache
     cix_clean_artifacts "${build_output}"
@@ -338,7 +359,7 @@ cix_direct_radxa_firmware_build() (
     if [[ "${enable_pm_tuning}" != true ]]; then
         mkdir -p -- "${image_output}/ocb"
     fi
-    cix_radxa_prepare_workspace \
+    cix_sky1_prepare_workspace \
         "${firmware_source}" "${build_output}" "${platform}" \
         "${validation_profile}" "${enable_pm_tuning}"
 
@@ -363,11 +384,11 @@ cix_direct_radxa_firmware_build() (
         cix_die "native ARM64 CIX package tool is missing: ${package_tool}"
     [[ "$(LC_ALL=C file -b "${package_tool}")" == *"ARM aarch64"* ]] ||
         cix_die "CIX package tool is not an ARM64 executable: ${package_tool}"
-    [[ -f "${uefi_source}/edk2-platforms/Platform/Radxa/Orion/${platform}/${platform}.dsc" ]] ||
-        cix_die "Radxa ${platform} EDK2 platform description is missing"
+    [[ -f "${uefi_source}/edk2-platforms/${platform_dsc}" ]] ||
+        cix_die "${platform_name} EDK2 platform description is missing: ${platform_dsc}"
     [[ -f "${uefi_source}/tools/acpica/Makefile" ]] ||
         cix_die "ACPICA source is missing: ${uefi_source}/tools/acpica"
-    cix_radxa_validate_edk2_inputs "${edk2_source}"
+    cix_sky1_validate_edk2_inputs "${edk2_source}"
 
     cix_log "Build EDK2 host tools with ${build_jobs} jobs"
     make -C "${edk2_source}/BaseTools" \
@@ -377,7 +398,7 @@ cix_direct_radxa_firmware_build() (
     make -C "${uefi_source}/tools/acpica" -j"${build_jobs}"
 
     if [[ "${enable_pm_tuning}" == true ]]; then
-        cix_log "Build Radxa Orion ${platform} engineering UEFI with ${build_jobs} jobs"
+        cix_log "Build ${platform_name} engineering UEFI with ${build_jobs} jobs"
         (
             cd "${uefi_source}" || exit
             CIX_PM_VALIDATION=1 NETWORK=open "${package_script}" "${platform}"
@@ -385,14 +406,14 @@ cix_direct_radxa_firmware_build() (
         cp -- "${generated_output}/pr/Firmwares/bootloader3.img" \
             "${debug_bootloader3}"
     elif [[ "${validation_profile}" != "none" ]]; then
-        cix_log "Build Radxa Orion ${platform} firmware with ${build_jobs} jobs"
+        cix_log "Build ${platform_name} firmware with ${build_jobs} jobs"
         (
             cd "${uefi_source}" || exit
             CIX_PM_VALIDATION=1 NETWORK=open \
                 "${package_script}" "${platform}"
         )
     else
-        cix_log "Build Radxa Orion ${platform} firmware with ${build_jobs} jobs"
+        cix_log "Build ${platform_name} firmware with ${build_jobs} jobs"
         (
             cd "${uefi_source}" || exit
             NETWORK=open "${package_script}" "${platform}"
@@ -407,14 +428,14 @@ cix_direct_radxa_firmware_build() (
         )"
         [[ -s "${platform_config_ifr}" ]] ||
             cix_die "compiled O6 engineering platform configuration form is missing"
-        cix_radxa_validate_pm_ifr "${platform_config_ifr}"
+        cix_sky1_validate_pm_ifr "${platform_config_ifr}"
         python3 "${CIX_ROOT}/build-scripts/ci/verify_memory_config.py" \
             "${generated_output}/pr/Firmwares/memory_config.bin"
         cix_log "Verified O6 PM and experimental memory tuning firmware"
     fi
 
     if [[ "${enable_pm_tuning}" == true ]]; then
-        cix_log "Generate CIX internal Radxa ${platform} engineering full-flash image"
+        cix_log "Generate ${platform_name} engineering full-flash image"
         (
             cd "${uefi_source}" || exit
             CIX_INTERNAL_VARIANT=proto-debug CIX_INTERNAL_FULL_ONLY=1 \
@@ -422,7 +443,7 @@ cix_direct_radxa_firmware_build() (
                 "${internal_package_script}"
         )
         [[ -s "${generated_output}/cix_flash_all_rsa_proto_debug.bin" ]] ||
-            cix_die "Radxa ${platform} engineering artifact is missing"
+            cix_die "${platform_name} engineering artifact is missing"
         cmp -- "${debug_bootloader3}" \
             "${generated_output}/proto_debug/Firmwares/bootloader3.img" ||
             cix_die "prototype debug image does not contain engineering UEFI"
@@ -431,7 +452,7 @@ cix_direct_radxa_firmware_build() (
             cix_die "prototype debug image does not contain the source-built bootloader1"
         cix_log "Verified local engineering prototype signing boundary"
     else
-        cix_log "Generate CIX internal Radxa ${platform} debug images"
+        cix_log "Generate ${platform_name} internal debug images"
         (
             cd "${uefi_source}" || exit
             SOC_TYPE=sky1 MAKEFLAGS="-j${build_jobs}" \
@@ -444,7 +465,7 @@ cix_direct_radxa_firmware_build() (
             cix_flash_all_rsa_pr_debug.bin \
             cix_flash_ota_rsa_pr_debug.bin; do
             [[ -s "${generated_output}/${artifact}" ]] ||
-                cix_die "Radxa ${platform} firmware artifact is missing: ${artifact}"
+                cix_die "${platform_name} firmware artifact is missing: ${artifact}"
         done
     fi
 
@@ -485,6 +506,6 @@ cix_direct_radxa_firmware_build() (
         cp -- "${generated_output}/LinuxLoader.efi.cap" "${build_output}/"
     fi
 
-    cix_radxa_remove_workspace "${firmware_source}" "${build_output}"
-    cix_log "Radxa Orion ${platform} firmware build complete"
+    cix_sky1_remove_workspace "${firmware_source}" "${build_output}"
+    cix_log "${platform_name} firmware build complete"
 )

@@ -1,0 +1,305 @@
+version: 1
+
+snapshot:
+  repository: /home/claystan/cix-repo/build-scripts
+  revision: 7ebd44310b8dcb5351033722cbba94127c2ee26a
+  entrypoint_glob: build-*.sh
+  entrypoint_count: 167
+  entrypoints:
+    - build-ai-all.sh
+    - build-ai-engine.sh
+    - build-ai-test.sh
+    - build-all-fip.sh
+    - build-all-nopackage.sh
+    - build-all-private.sh
+    - build-all-qa-firmware.sh
+    - build-all-sec.sh
+    - build-all-yocto.sh
+    - build-all.sh
+    - build-android-bootloader.sh
+    - build-android-only.sh
+    - build-android-xpu.sh
+    - build-android.sh
+    - build-armnn.sh
+    - build-audio_dsp.sh
+    - build-audio_dsp_android.sh
+    - build-audio_dsp_unit_test.sh
+    - build-audio_sof.sh
+    - build-audio_sof_clang.sh
+    - build-bin_hex.sh
+    - build-bluez.sh
+    - build-bootloader.sh
+    - build-bootrom.sh
+    - build-bt.sh
+    - build-buildroot.sh
+    - build-cas-tas.sh
+    - build-cc-uuu.sh
+    - build-cc-uuu25.sh
+    - build-cc.sh
+    - build-chromium.sh
+    - build-cix-bkup.sh
+    - build-cix-cc.sh
+    - build-cix-cme.sh
+    - build-cix-common-misc.sh
+    - build-cix-env.sh
+    - build-cix-firmware.sh
+    - build-cix-go.sh
+    - build-cix-gpu-dkms-src.sh
+    - build-cix-gpu-dkms.impl.sh
+    - build-cix-gpu-dkms.sh
+    - build-cix-grub-config.sh
+    - build-cix-grubcfg.sh
+    - build-cix-isp-dkms.impl.sh
+    - build-cix-isp-dkms.sh
+    - build-cix-isp-v4l2-dkms.sh
+    - build-cix-isp.sh
+    - build-cix-mkimage.sh
+    - build-cix-mm.sh
+    - build-cix-noe.sh
+    - build-cix-npu-dkms.sh
+    - build-cix-vaapi.sh
+    - build-cix-vpu-dkms.sh
+    - build-cix_pipe.sh
+    - build-csidma-driver.sh
+    - build-ddrdump.sh
+    - build-debian.sh
+    - build-debian12.sh
+    - build-debian13.sh
+    - build-dpu-ddk.sh
+    - build-edge-slm.sh
+    - build-ffmpeg-ubuntu24.sh
+    - build-ffmpeg-ubuntu25.sh
+    - build-ffmpeg.sh
+    - build-firmware-radxa-O6.sh
+    - build-firmware-release-Edge.sh
+    - build-firmware-release-android.sh
+    - build-firmware-release.sh
+    - build-firmware.sh
+    - build-full-nopackage.sh
+    - build-full.sh
+    - build-fvp-tc2.sh
+    - build-gnome-shell.sh
+    - build-gpu-driver.sh
+    - build-gpu.sh
+    - build-graphics.sh
+    - build-grub.sh
+    - build-gstreamer.sh
+    - build-hdcp2.sh
+    - build-img2hex.sh
+    - build-imx_boot.sh
+    - build-imx_vpu.sh
+    - build-irqbalance.sh
+    - build-isp-driver-v4l2.sh
+    - build-isp-driver.sh
+    - build-isp-open-source.sh
+    - build-isp-umd.sh
+    - build-jellyfin-ffmpeg.sh
+    - build-kernel.sh
+    - build-kylin-ffmpeg.sh
+    - build-libva.sh
+    - build-lk.sh
+    - build-llamacpp.sh
+    - build-lt7911uxc.sh
+    - build-ltp-opensource.sh
+    - build-ltp.sh
+    - build-make.sh
+    - build-memory-config.sh
+    - build-mesa.sh
+    - build-metapackages.sh
+    - build-minimum-unittest.sh
+    - build-minimum-without-debian.sh
+    - build-minimum.sh
+    - build-mkimage-sky1p.sh
+    - build-mkimage-star1.sh
+    - build-mkimage.sh
+    - build-mnn.sh
+    - build-mpv.sh
+    - build-mutter.sh
+    - build-nnstreamer.sh
+    - build-noe-compiler-sky1.sh
+    - build-noe-compiler-sky1p.sh
+    - build-noe-llm.sh
+    - build-noe-serialization.sh
+    - build-noe-umd.sh
+    - build-npu-kmd.sh
+    - build-npu-runtime.sh
+    - build-npu-umd.sh
+    - build-opencv.sh
+    - build-openocd.sh
+    - build-opensource-firmware.sh
+    - build-opensource-linux-tag.sh
+    - build-opensource.sh
+    - build-optee-client.sh
+    - build-parallel.sh
+    - build-pbl.sh
+    - build-pm_fw.sh
+    - build-prideb.sh
+    - build-qa-pm_fw.sh
+    - build-qa-tfa.sh
+    - build-qspi-flash.sh
+    - build-ramparser.sh
+    - build-rk-kernel.sh
+    - build-rk3588.sh
+    - build-se-config.sh
+    - build-sec-package.sh
+    - build-sec-release.sh
+    - build-sensorfusion.sh
+    - build-storage.sh
+    - build-sysroot.sh
+    - build-tee-sdk.sh
+    - build-tee.sh
+    - build-tf-a.sh
+    - build-tool.sh
+    - build-tvm.sh
+    - build-uefi-ci-android.sh
+    - build-uefi-ci-merge.sh
+    - build-uefi-star1.sh
+    - build-uefi-stmm.sh
+    - build-uefi-unit-test.sh
+    - build-uefi.sh
+    - build-unit_test.sh
+    - build-viplite-acuityllm.sh
+    - build-viplite-dkms.sh
+    - build-viplite-kmd.sh
+    - build-viplite-umd.sh
+    - build-vpu_driver.sh
+    - build-vpu_test.sh
+    - build-whispercpp.sh
+    - build-with-timestamp.sh
+    - build-wlan.sh
+    - build-xwayland.sh
+    - build-yocto.sh
+    - build-zhouyi-dkms.sh
+    - build-zhouyi-kmd.sh
+    - build-zhouyi-onnxruntime.sh
+    - build-zhouyi-umd.sh
+
+default_status: pending
+
+# Overrides are intentionally conservative. An entry is implemented only when
+# its required output, rather than merely a similarly named component, is
+# available through the new build map.
+overrides:
+  build-ai-engine.sh:
+    status: implemented
+    replacement: ai-engine
+  build-audio_dsp.sh:
+    status: implemented
+    replacement: audio-dsp
+  build-audio_sof.sh:
+    status: implemented
+    replacement: audio-sof
+  build-bt.sh:
+    status: implemented
+    replacement: bt-dkms
+  build-cix-cme.sh:
+    status: implemented
+    replacement: libcme
+  build-cix-env.sh:
+    status: implemented
+    replacement: cix-env
+  build-cix-firmware.sh:
+    status: implemented
+    replacement: cix-firmware
+  build-cix-gpu-dkms-src.sh:
+    status: implemented
+    replacement: gpu-dkms
+  build-cix-gpu-dkms.impl.sh:
+    status: implemented
+    replacement: gpu-dkms
+  build-cix-gpu-dkms.sh:
+    status: implemented
+    replacement: gpu-dkms
+  build-cix-grub-config.sh:
+    status: implemented
+    replacement: grub-config
+  build-cix-grubcfg.sh:
+    status: implemented
+    replacement: grub-config
+  build-cix-isp-dkms.impl.sh:
+    status: implemented
+    replacement: isp-dkms
+  build-cix-isp-dkms.sh:
+    status: implemented
+    replacement: isp-dkms
+  build-cix-isp-v4l2-dkms.sh:
+    status: implemented
+    replacement: isp-v4l2-dkms
+  build-cix-npu-dkms.sh:
+    status: implemented
+    replacement: npu-dkms
+  build-cix-vaapi.sh:
+    status: implemented
+    replacement: cix-vaapi
+  build-cix-vpu-dkms.sh:
+    status: implemented
+    replacement: vpu-dkms
+  build-dpu-ddk.sh:
+    status: implemented
+    replacement: dpu-ddk
+  build-ffmpeg.sh:
+    status: implemented
+    replacement: ffmpeg
+  build-firmware-radxa-O6.sh:
+    status: implemented
+    replacement: radxa-o6-firmware
+  build-firmware-release-Edge.sh:
+    status: implemented
+    replacement: sky1-edge-firmware
+  build-gstreamer.sh:
+    status: implemented
+    replacement: gstreamer-6.6
+  build-isp-driver-v4l2.sh:
+    status: implemented
+    replacement: isp-v4l2-dkms
+  build-isp-driver.sh:
+    status: implemented
+    replacement: isp-dkms
+  build-isp-umd.sh:
+    status: implemented
+    replacement: isp-umd
+  build-kernel.sh:
+    status: implemented
+    replacement: kernel
+  build-libva.sh:
+    status: implemented
+    replacement: libva
+  build-mesa.sh:
+    status: implemented
+    replacement: mesa
+  build-mnn.sh:
+    status: implemented
+    replacement: mnn
+  build-nnstreamer.sh:
+    status: implemented
+    replacement: nnstreamer
+  build-noe-umd.sh:
+    status: implemented
+    replacement: noe-umd
+  build-npu-umd.sh:
+    status: implemented
+    replacement: npu-umd
+  build-wlan.sh:
+    status: implemented
+    replacement: wlan-dkms
+
+  build-ffmpeg-ubuntu24.sh:
+    status: blocked
+    reason: Ubuntu package builds are outside the Debian 13 host and package baseline.
+  build-ffmpeg-ubuntu25.sh:
+    status: blocked
+    reason: Ubuntu package builds are outside the Debian 13 host and package baseline.
+  build-mkimage-sky1p.sh:
+    status: blocked
+    reason: The manifest-pinned Sky1P cix_cbff packaging tool is x86-64 only and no buildable source is available.
+  build-mkimage-star1.sh:
+    status: blocked
+    reason: The manifest-pinned Star1 cix_cbff packaging tool is x86-64 only and no buildable source is available.
+  build-uefi-star1.sh:
+    status: blocked
+    reason: Star1 sources are absent from the curated manifest and its full-image cix_cbff packaging tool is x86-64 only.
+
+  build-with-timestamp.sh:
+    status: retired
+    replacement: Built-in elapsed-time reporting in cix-build
+    reason: This legacy wrapper adds no build output.

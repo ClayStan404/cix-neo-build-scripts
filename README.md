@@ -9,6 +9,7 @@ Build one complete CIX kernel stack at a time:
 ```bash
 ./build-scripts/cix-build all-6.6
 ./build-scripts/cix-build all-7.0
+./build-scripts/cix-build firmware-sky1
 ./build-scripts/cix-build pm-validation
 ./build-scripts/cix-build pm-tuning
 ```
@@ -21,6 +22,8 @@ Build an individual target with the same command:
 ./build-scripts/cix-build audio-sof
 ./build-scripts/cix-build radxa-o6-firmware
 ./build-scripts/cix-build radxa-o6n-firmware
+./build-scripts/cix-build sky1-merak-firmware
+./build-scripts/cix-build sky1-edge-firmware
 ./build-scripts/cix-build radxa-o6-pm-validation
 ./build-scripts/cix-build radxa-o6-opp-validation
 ./build-scripts/cix-build radxa-o6-pm-tuning
@@ -86,9 +89,8 @@ the host already has a newer version of the same CIX package. The sbuild
 backend keeps these packages inside its disposable build environment.
 
 The backend selection does not change `direct` targets such as `kernel`,
-`stable-kernel`, `audio-sof`, `radxa-o6-firmware`, and `radxa-o6n-firmware`;
-those always execute
-their target-owned native build flow.
+`stable-kernel`, `audio-sof`, or the Sky1 firmware targets; those always
+execute their target-owned native build flow.
 A build set stops at the first failed target. `cix-build all-6.6 clean` and
 `cix-build all-7.0 clean` clean their targets in reverse dependency order.
 Every target reports its elapsed time as `HH:MM:SS`, and a successful set
@@ -115,18 +117,29 @@ is cached under `output/audio-sof/toolchain` and is rebuilt when any of those
 inputs changes. It then builds the Sky1/Sky1P firmware and topology files and
 packages them as `cix-audio-sof`.
 
-`radxa-o6-firmware` and `radxa-o6n-firmware` build the Radxa Orion O6 and O6N
-EDK2 firmware directly on the ARM64 host. Both targets use the O6 and O6N board
-support based on the manifest-pinned CIX EDK2 source. Until the corresponding
-internal changes are merged, the O6N source and packaging changes are carried
-under `build-scripts/patches/radxa-o6n`. The shared flow creates isolated Git
-worktrees under `output/TARGET/work` and applies the patches there, so repo
-checkouts remain clean. If the changes are later present upstream, the flow
-detects that and skips the patches. Repo also supplies the pinned EDK2
-dependencies, ACPICA, and the CIX internal firmware payload. The flow publishes
-each board's flash and OCB images under its own `output/TARGET/images`
-directory; it does not create Debian packages and is not affected by
-`--backend`.
+`firmware-sky1` builds every currently supported Sky1 product firmware target:
+Radxa Orion O6 and O6N, the CIX Merak EVB, and CIX Edge. They share the
+manifest-pinned Sky1 EDK2, ACPICA, native AArch64 PackageTool, and CIX internal
+payload repositories. The builder selects the board-owned DSC and package
+configuration for each target; it never applies O6 board tuning to Merak or
+Edge. Until the corresponding internal changes are merged, O6N source and
+packaging changes are carried under `build-scripts/patches/radxa-o6n`.
+The shared flow creates isolated Git worktrees under `output/TARGET/work`, so
+repo checkouts remain clean. It publishes each board's full-flash, OTA, debug,
+and OCB images under its own `output/TARGET/images` directory; it does not
+create Debian packages and is not affected by `--backend`.
+
+The remaining legacy firmware platforms and their native-build blockers are
+tracked in [`docs/legacy-build-coverage.md`](docs/legacy-build-coverage.md).
+The machine-readable [`legacy-build-map.yaml`](legacy-build-map.yaml) pins all
+167 legacy `build-*.sh` entry points and records the replacement or migration
+state of each one. Validate it, and optionally compare it with the legacy
+checkout, with:
+
+```bash
+python3 ./build-scripts/ci/check_legacy_coverage.py \
+    --legacy-root /home/claystan/cix-repo/build-scripts
+```
 
 `radxa-o6-pm-validation`, `radxa-o6-opp-validation`, and
 `radxa-o6n-pm-validation` are deliberately kept
@@ -253,8 +266,8 @@ source checkout, Debian metadata directory, and repository/path impact rules.
 The only builders are `direct` and `debian`.
 Direct flows run project-specific tools on the native host; the current flows
 are `kernel-worktree`, `kernel-stable-tarball`, `sof-firmware`,
-`radxa-firmware`, `radxa-pm-validation`, `radxa-opp-validation`,
-`radxa-pm-tuning`, and `pmtool`.
+`sky1-firmware`, `sky1-pm-validation`, `sky1-opp-validation`,
+`sky1-pm-tuning`, and `pmtool`.
 Debian source flows are `quilt`,
 `debian-git`, `native`, and `payload`, independently of the selected
 sbuild/local backend. `cix-build`

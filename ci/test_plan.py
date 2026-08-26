@@ -552,22 +552,28 @@ Description: CIX VPU development files
         self.assertEqual(target.build_packages, ("cix-audio-sof",))
         self.assertIsNone(target.control)
 
-    def test_radxa_boards_use_the_shared_direct_firmware_flow(self) -> None:
-        for board in ("O6", "O6N"):
-            with self.subTest(board=board):
+    def test_sky1_boards_use_the_shared_direct_firmware_flow(self) -> None:
+        boards = (
+            ("radxa-o6-firmware", "O6"),
+            ("radxa-o6n-firmware", "O6N"),
+            ("sky1-merak-firmware", "Merak"),
+            ("sky1-edge-firmware", "Edge"),
+        )
+        for target_name, board in boards:
+            with self.subTest(target=target_name):
                 target = plan._target_from_mapping(
-                    f"radxa-{board.lower()}-firmware",
+                    target_name,
                     {
-                        "description": f"Radxa {board} firmware",
+                        "description": f"Sky1 {board} firmware",
                         "builder": "direct",
-                        "flow": "radxa-firmware",
+                        "flow": "sky1-firmware",
                         "source": "sources/radxa-o6",
                         "board": board,
                     },
                 )
 
                 self.assertEqual(target.builder, "direct")
-                self.assertEqual(target.flow, "radxa-firmware")
+                self.assertEqual(target.flow, "sky1-firmware")
                 self.assertEqual(target.source, "sources/radxa-o6")
                 self.assertEqual(target.board, board)
                 self.assertIsNone(target.control)
@@ -578,13 +584,13 @@ Description: CIX VPU development files
             {
                 "description": "Radxa O6 stock OPP validation",
                 "builder": "direct",
-                "flow": "radxa-opp-validation",
+                "flow": "sky1-opp-validation",
                 "source": "sources/radxa-o6",
                 "board": "O6",
             },
         )
 
-        self.assertEqual(target.flow, "radxa-opp-validation")
+        self.assertEqual(target.flow, "sky1-opp-validation")
         self.assertEqual(target.board, "O6")
         self.assertIsNone(target.control)
 
@@ -594,13 +600,13 @@ Description: CIX VPU development files
             {
                 "description": "Radxa O6 BIOS PM profile selection",
                 "builder": "direct",
-                "flow": "radxa-pm-tuning",
+                "flow": "sky1-pm-tuning",
                 "source": "sources/radxa-o6",
                 "board": "O6",
             },
         )
 
-        self.assertEqual(target.flow, "radxa-pm-tuning")
+        self.assertEqual(target.flow, "sky1-pm-tuning")
         self.assertEqual(target.board, "O6")
         self.assertIsNone(target.control)
 

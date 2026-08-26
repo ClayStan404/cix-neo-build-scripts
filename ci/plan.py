@@ -316,19 +316,19 @@ def _target_from_mapping(name: str, entry: dict) -> Target:
             {"source", "debian"},
             {"source", "debian"},
         ),
-        ("direct", "radxa-firmware"): (
+        ("direct", "sky1-firmware"): (
             {"source", "board"},
             {"source", "board"},
         ),
-        ("direct", "radxa-pm-validation"): (
+        ("direct", "sky1-pm-validation"): (
             {"source", "board"},
             {"source", "board"},
         ),
-        ("direct", "radxa-opp-validation"): (
+        ("direct", "sky1-opp-validation"): (
             {"source", "board"},
             {"source", "board"},
         ),
-        ("direct", "radxa-pm-tuning"): (
+        ("direct", "sky1-pm-tuning"): (
             {"source", "board"},
             {"source", "board"},
         ),
