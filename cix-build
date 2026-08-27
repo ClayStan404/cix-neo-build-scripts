@@ -16,7 +16,13 @@ list_build_sets() {
 usage() {
     cat <<'EOF'
 Usage: cix-build TARGET|BUILD_SET [build|clean] [--backend sbuild|local]
+       cix-build clean-all
+       cix-build distclean
        cix-build --list
+
+Global cleanup commands:
+  clean-all              Clean every registered target; preserve caches
+  distclean              Clean all targets and clear persistent build caches
 
 Options:
   --backend BACKEND      Debian package backend (default: sbuild)
@@ -34,6 +40,7 @@ EOF
     done
 }
 
+global_clean_mode=""
 case "${1:-}" in
     --list)
         (($# == 1)) || cix_die "--list does not accept arguments"
@@ -52,6 +59,11 @@ case "${1:-}" in
     all)
         cix_die "all is ambiguous; choose all-6.6 or all-7.0"
         ;;
+    clean-all|distclean)
+        (($# == 1)) || cix_die "$1 does not accept arguments"
+        global_clean_mode="$1"
+        target_name=""
+        ;;
     --*)
         cix_die "unknown option: $1"
         ;;
@@ -61,47 +73,53 @@ case "${1:-}" in
         ;;
 esac
 
-action=build
-if [[ "${1:-}" == "build" || "${1:-}" == "clean" ]]; then
-    action="$1"
-    shift
-fi
-
 debian_backend=sbuild
 backend_selected=0
-while (($#)); do
-    case "$1" in
-        --backend)
-            (($# >= 2)) || cix_die "--backend requires a value"
-            debian_backend="$2"
-            backend_selected=1
-            shift 2
-            ;;
-        --backend=*)
-            debian_backend="${1#*=}"
-            backend_selected=1
-            shift
-            ;;
-        --*)
-            cix_die "unknown option: $1"
-            ;;
-        *)
-            cix_die "unexpected argument: $1"
-            ;;
-    esac
-done
+if [[ -n "${global_clean_mode}" ]]; then
+    action=clean
+else
+    action=build
+    if [[ "${1:-}" == "build" || "${1:-}" == "clean" ]]; then
+        action="$1"
+        shift
+    fi
+
+    while (($#)); do
+        case "$1" in
+            --backend)
+                (($# >= 2)) || cix_die "--backend requires a value"
+                debian_backend="$2"
+                backend_selected=1
+                shift 2
+                ;;
+            --backend=*)
+                debian_backend="${1#*=}"
+                backend_selected=1
+                shift
+                ;;
+            --*)
+                cix_die "unknown option: $1"
+                ;;
+            *)
+                cix_die "unexpected argument: $1"
+                ;;
+        esac
+    done
+fi
 case "${debian_backend}" in
     sbuild|local) ;;
     *) cix_die "Debian backend must be sbuild or local: ${debian_backend}" ;;
 esac
 
 build_set_name=""
-while IFS=$'\t' read -r name _; do
-    if [[ "${target_name}" == "${name}" ]]; then
-        build_set_name="${name}"
-        break
-    fi
-done < <(list_build_sets)
+if [[ -z "${global_clean_mode}" ]]; then
+    while IFS=$'\t' read -r name _; do
+        if [[ "${target_name}" == "${name}" ]]; then
+            build_set_name="${name}"
+            break
+        fi
+    done < <(list_build_sets)
+fi
 
 cix_require_command nproc python3 realpath
 parallel_jobs="$(nproc)"
@@ -135,7 +153,12 @@ report_exit() {
             elapsed="$((SECONDS - current_target_started_at))"
             cix_log "${current_target} ${action} failed after $(format_duration "${elapsed}")" >&2
         fi
-        if [[ -n "${build_set_name}" ]]; then
+        if [[ -n "${global_clean_mode}" ]]; then
+            elapsed="$((SECONDS - command_started_at))"
+            cix_log \
+                "${global_clean_mode} stopped after" \
+                "$(format_duration "${elapsed}")" >&2
+        elif [[ -n "${build_set_name}" ]]; then
             elapsed="$((SECONDS - command_started_at))"
             cix_log \
                 "${build_set_name} ${action} stopped after" \
@@ -149,6 +172,8 @@ report_exit() {
 source "${CIX_ROOT}/build-scripts/builders/direct.sh"
 # shellcheck source=builders/debian.sh
 source "${CIX_ROOT}/build-scripts/builders/debian.sh"
+# shellcheck source=commands/cleanup.sh
+source "${CIX_ROOT}/build-scripts/commands/cleanup.sh"
 
 load_target() {
     local name="$1"
@@ -205,7 +230,33 @@ current_target=""
 current_target_started_at=0
 trap 'report_exit "$?"' EXIT
 
-if [[ -n "${build_set_name}" ]]; then
+if [[ -n "${global_clean_mode}" ]]; then
+    all_targets_plan="$(
+        "${CIX_ROOT}/build-scripts/ci/plan.py" \
+            --all-targets \
+            --format text \
+            --mode order
+    )"
+    [[ -n "${all_targets_plan}" ]] ||
+        cix_die "registered target plan is empty"
+    mapfile -t build_set_targets < <(printf '%s\n' "${all_targets_plan}")
+    cix_global_cleanup_preflight "${build_set_targets[@]}"
+    if [[ "${global_clean_mode}" == distclean ]]; then
+        cix_persistent_build_cache_preflight
+    fi
+    cix_log \
+        "Run ${global_clean_mode} for ${#build_set_targets[@]} registered targets"
+    for ((index = ${#build_set_targets[@]} - 1; index >= 0; index--)); do
+        run_target "${build_set_targets[index]}"
+    done
+    if [[ "${global_clean_mode}" == distclean ]]; then
+        cix_remove_registered_outputs "${build_set_targets[@]}"
+        cix_clear_persistent_build_caches
+    fi
+    cix_log \
+        "${global_clean_mode} complete in" \
+        "$(format_duration "$((SECONDS - command_started_at))")"
+elif [[ -n "${build_set_name}" ]]; then
     build_set_plan="$(
         "${CIX_ROOT}/build-scripts/ci/plan.py" \
             --build-set "${build_set_name}" \

@@ -199,6 +199,23 @@ Description: package C runtime
             ["build set requested: all-test"],
         )
 
+    def test_all_targets_plan_contains_every_target_in_dependency_order(self) -> None:
+        build_map = self._dependency_fixture(transitive=True)
+        result = plan.create_all_targets_plan(build_map)
+
+        self.assertEqual(
+            result["affected"], ["package-a", "package-b", "package-c"]
+        )
+        self.assertEqual(result["order"], ["package-c", "package-b", "package-a"])
+        self.assertEqual(
+            result["commands"],
+            [
+                "scripts/cix-build package-c",
+                "scripts/cix-build package-b",
+                "scripts/cix-build package-a",
+            ],
+        )
+
     def test_build_set_rejects_missing_internal_dependency(self) -> None:
         build_map = self._dependency_fixture()
         incomplete = plan.BuildMap(
@@ -694,18 +711,20 @@ Description: CIX VPU development files
                 },
             )
 
-    def test_all_target_name_is_reserved(self) -> None:
-        with self.assertRaisesRegex(plan.PlanError, "reserved"):
-            plan._target_from_mapping(
-                "all",
-                {
-                    "description": "reserved target",
-                    "builder": "direct",
-                    "flow": "kernel-worktree",
-                    "source": "sources/linux",
-                    "debian": "debian/kernel",
-                },
-            )
+    def test_command_selector_target_names_are_reserved(self) -> None:
+        for name in ("all", "clean-all", "distclean"):
+            with self.subTest(name=name):
+                with self.assertRaisesRegex(plan.PlanError, "reserved"):
+                    plan._target_from_mapping(
+                        name,
+                        {
+                            "description": "reserved target",
+                            "builder": "direct",
+                            "flow": "kernel-worktree",
+                            "source": "sources/linux",
+                            "debian": "debian/kernel",
+                        },
+                    )
 
     def test_payload_file_mapping_is_validated(self) -> None:
         target = plan._target_from_mapping(

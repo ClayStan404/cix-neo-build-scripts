@@ -40,6 +40,9 @@ class PlanError(RuntimeError):
     """A mapping, Debian metadata, or dependency graph error."""
 
 
+RESERVED_TARGET_NAMES = {"all", "clean-all", "distclean"}
+
+
 @dataclass(frozen=True)
 class Target:
     name: str
@@ -221,8 +224,8 @@ def _target_from_mapping(name: str, entry: dict) -> Target:
 
     if not re.fullmatch(r"[a-z0-9][a-z0-9+.-]*", name):
         raise PlanError(f"invalid target name: {name}")
-    if name == "all":
-        raise PlanError("target name is reserved by the full-build selector: all")
+    if name in RESERVED_TARGET_NAMES:
+        raise PlanError(f"target name is reserved by the build command: {name}")
     description = _string(entry.get("description"), f"{context} description")
     builder = _string(entry.get("builder"), f"{context} builder")
     flow = _string(entry.get("flow"), f"{context} flow")
@@ -516,7 +519,7 @@ def load_build_map(
         context = f"build set {name}"
         if not re.fullmatch(r"[a-z0-9][a-z0-9+.-]*", name):
             raise PlanError(f"invalid build set name: {name}")
-        if name == "all" or name in targets:
+        if name in RESERVED_TARGET_NAMES or name in targets:
             raise PlanError(
                 f"build set name conflicts with a reserved or target name: {name}"
             )
@@ -1203,6 +1206,28 @@ def create_build_set_plan(build_set_name: str, build_map: BuildMap) -> dict:
     }
 
 
+def create_all_targets_plan(build_map: BuildMap) -> dict:
+    """Create a dependency-ordered plan containing every registered target."""
+    graph = build_dependency_graph(build_map)
+    forward = build_environment_forward(graph, build_map)
+    targets = set(build_map.targets)
+    order = topological_sort(targets, forward)
+    return {
+        "build_set": None,
+        "changes": [],
+        "seeds": sorted(targets),
+        "affected": sorted(targets),
+        "order": order,
+        "commands": [
+            shlex.join((build_map.executor, target)) for target in order
+        ],
+        "reasons": {
+            target: ["all registered targets requested"]
+            for target in sorted(targets)
+        },
+    }
+
+
 def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     script_path = Path(__file__).resolve()
     default_workspace = script_path.parents[2]
@@ -1251,6 +1276,11 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         metavar="NAME",
         help="create a dependency-ordered plan for one product build set",
     )
+    selection.add_argument(
+        "--all-targets",
+        action="store_true",
+        help="create a dependency-ordered plan for every registered target",
+    )
     parser.add_argument(
         "--format",
         choices=("json", "text", "shell"),
@@ -1274,6 +1304,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             or args.list_targets
             or args.list_build_sets
             or args.build_set
+            or args.all_targets
         ) and (
             args.check or args.changes
         ):
@@ -1324,6 +1355,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             result["internal_build_packages"] = internal_build_packages
         elif args.build_set:
             result = create_build_set_plan(args.build_set, build_map)
+        elif args.all_targets:
+            result = create_all_targets_plan(build_map)
         else:
             if args.check:
                 graph = build_dependency_graph(build_map)

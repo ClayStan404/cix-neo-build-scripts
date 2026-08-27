@@ -97,6 +97,28 @@ The backend selection does not change `direct` targets such as `kernel`,
 execute their target-owned native build flow.
 A build set stops at the first failed target. `cix-build all-6.6 clean` and
 `cix-build all-7.0 clean` clean their targets in reverse dependency order.
+Clean every target registered in `build-map.yaml`, including targets outside
+the two product sets, with:
+
+```bash
+./build-scripts/cix-build clean-all
+```
+
+`clean-all` keeps reusable source downloads, generated toolchains, the shared
+compiler cache, and the sbuild APT archive cache. Use the stronger cleanup only
+when those caches must also be discarded:
+
+```bash
+./build-scripts/cix-build distclean
+```
+
+`distclean` first runs every target-owned cleaner, then removes all registered
+target directories and empties the persistent ccache and sbuild APT archive
+cache. It preserves the provisioned sbuild chroot and any unregistered entries
+under `output/`; each preserved entry is reported explicitly. Both global
+operations derive the complete target list from `build-map.yaml` rather than a
+duplicated shell list.
+
 Every target reports its elapsed time as `HH:MM:SS`, and a successful set
 reports the total elapsed time. On failure, the command reports the failed
 target's elapsed time and the total time before stopping.
