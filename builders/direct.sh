@@ -19,7 +19,7 @@ cix_direct_build() {
             cix_direct_audio_sof_build \
                 "${requested_action}" "${target_output}" "${target_jobs}"
             ;;
-        sky1-firmware|sky1-pm-validation|sky1-opp-validation|sky1-pm-tuning)
+        sky1-firmware|sky1-firmware-engineering)
             # shellcheck source=builders/direct/firmware-sky1.sh
             source "${CIX_ROOT}/build-scripts/builders/direct/firmware-sky1.sh"
             cix_direct_sky1_firmware_build \

@@ -323,15 +323,7 @@ def _target_from_mapping(name: str, entry: dict) -> Target:
             {"source", "board"},
             {"source", "board"},
         ),
-        ("direct", "sky1-pm-validation"): (
-            {"source", "board"},
-            {"source", "board"},
-        ),
-        ("direct", "sky1-opp-validation"): (
-            {"source", "board"},
-            {"source", "board"},
-        ),
-        ("direct", "sky1-pm-tuning"): (
+        ("direct", "sky1-firmware-engineering"): (
             {"source", "board"},
             {"source", "board"},
         ),

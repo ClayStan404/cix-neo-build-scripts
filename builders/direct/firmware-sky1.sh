@@ -138,7 +138,7 @@ cix_sky1_prepare_workspace() {
     local build_output="$2"
     local platform="$3"
     local validation_profile="$4"
-    local enable_pm_tuning="$5"
+    local enable_engineering="$5"
     local source_uefi="${source_root}/uefi_release"
     local work_root="${build_output}/work"
     local work_uefi="${work_root}/uefi_release"
@@ -175,7 +175,7 @@ cix_sky1_prepare_workspace() {
             awk '$1 == "160000" {print $4}'
     )
 
-    if [[ "${enable_pm_tuning}" == true ]]; then
+    if [[ "${enable_engineering}" == true ]]; then
         git -C "${source_root}/cix_bsp_release" worktree add --detach \
             "${work_root}/cix_bsp_release" HEAD
         cix_apply_patch "${work_root}/cix_bsp_release" \
@@ -203,7 +203,7 @@ cix_sky1_prepare_workspace() {
             "${opp_patch_root}/0001-Platform-Radxa-enable-stock-O6-OPP-table.patch"
     fi
 
-    if [[ "${enable_pm_tuning}" == true ]]; then
+    if [[ "${enable_engineering}" == true ]]; then
         cix_apply_patch "${work_uefi}/edk2-platforms" \
             "${pm_tuning_patch_root}/0001-Platform-add-selectable-O6-PM-profiles.patch"
         cix_apply_patch "${work_uefi}/edk2-platforms" \
@@ -294,7 +294,7 @@ cix_direct_sky1_firmware_build() (
     local build_output="$3"
     local build_jobs="$4"
     local validation_profile=none
-    local enable_pm_tuning=false
+    local enable_engineering=false
     local firmware_source="${CIX_ROOT}/${TARGET[source]}"
     local source_uefi="${firmware_source}/uefi_release"
     local uefi_source="${build_output}/work/uefi_release"
@@ -328,19 +328,15 @@ cix_direct_sky1_firmware_build() (
         cix_die "${TARGET[flow]} is supported only on Radxa O6/O6N"
     fi
 
-    if [[ "${TARGET[flow]}" == "sky1-pm-validation" ]]; then
-        validation_profile=pmic
-    elif [[ "${TARGET[flow]}" == "sky1-opp-validation" ]]; then
-        validation_profile=stock-opp
-    elif [[ "${TARGET[flow]}" == "sky1-pm-tuning" ]]; then
+    if [[ "${TARGET[flow]}" == "sky1-firmware-engineering" ]]; then
         validation_profile=vendor-auto
-        enable_pm_tuning=true
+        enable_engineering=true
     fi
 
     if [[ "${build_action}" == "clean" ]]; then
         cix_clean_artifacts "${build_output}"
         cix_sky1_remove_workspace "${firmware_source}" "${build_output}"
-        if [[ "${enable_pm_tuning}" == true ]]; then
+        if [[ "${enable_engineering}" == true ]]; then
             cix_bootloader1_clean_artifacts "${build_output}"
         fi
         if [[ -d "${image_output}" ]]; then
@@ -361,14 +357,14 @@ cix_direct_sky1_firmware_build() (
         find "${image_output}" -mindepth 1 -delete
     fi
     mkdir -p -- "${image_output}"
-    if [[ "${enable_pm_tuning}" != true ]]; then
+    if [[ "${enable_engineering}" != true ]]; then
         mkdir -p -- "${image_output}/ocb"
     fi
     cix_sky1_prepare_workspace \
         "${firmware_source}" "${build_output}" "${platform}" \
-        "${validation_profile}" "${enable_pm_tuning}"
+        "${validation_profile}" "${enable_engineering}"
 
-    if [[ "${enable_pm_tuning}" == true ]]; then
+    if [[ "${enable_engineering}" == true ]]; then
         local pm_firmware_root="${firmware_source}/bootloader/firmware-binaries/sky1/evb"
 
         python3 "${CIX_ROOT}/build-scripts/ci/verify_pm_firmware.py" \
@@ -402,7 +398,7 @@ cix_direct_sky1_firmware_build() (
         EXTRA_LDFLAGS=-no-pie
     make -C "${uefi_source}/tools/acpica" -j"${build_jobs}"
 
-    if [[ "${enable_pm_tuning}" == true ]]; then
+    if [[ "${enable_engineering}" == true ]]; then
         cix_log "Build ${platform_name} engineering UEFI with ${build_jobs} jobs"
         (
             cd "${uefi_source}" || exit
@@ -425,7 +421,7 @@ cix_direct_sky1_firmware_build() (
         )
     fi
 
-    if [[ "${enable_pm_tuning}" == true ]]; then
+    if [[ "${enable_engineering}" == true ]]; then
         platform_config_ifr="$(
             find "${uefi_source}/Build/${platform}" \
                 -path '*/PlatformConfigDxe/PlatformConfigDxe/OUTPUT/PlatformConfigHii.i' \
@@ -439,7 +435,7 @@ cix_direct_sky1_firmware_build() (
         cix_log "Verified O6 PM and experimental memory tuning firmware"
     fi
 
-    if [[ "${enable_pm_tuning}" == true ]]; then
+    if [[ "${enable_engineering}" == true ]]; then
         cix_log "Generate ${platform_name} engineering full-flash image"
         (
             cd "${uefi_source}" || exit
@@ -481,14 +477,14 @@ cix_direct_sky1_firmware_build() (
             "${validation_output}"
     fi
 
-    if [[ "${enable_pm_tuning}" == true ]]; then
+    if [[ "${enable_engineering}" == true ]]; then
         cp -- "${generated_output}/cix_flash_all_rsa_proto_debug.bin" \
             "${image_output}/cix_flash_all_${platform}_engineering_debug.bin"
     else
         cix_log "Published ${platform_name} PR, PR2, and prototype images"
     fi
 
-    if [[ "${enable_pm_tuning}" != true &&
+    if [[ "${enable_engineering}" != true &&
         -s "${generated_output}/bootloader1_ocb_pr.img" ]]; then
         cp -- "${generated_output}/bootloader1_ocb_pr.img" \
             "${image_output}/ocb/bootloader1_pr.img"

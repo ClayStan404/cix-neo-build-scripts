@@ -48,8 +48,7 @@ published in [`migration-status.md`](migration-status.md).
 | Sky1 OP-TEE | `sky1-optee` | Native Debian GCC build implemented |
 | Sky1 SE firmware | `sky1-se-firmware` | Native RELEASE ARM Embedded build implemented |
 | All implemented secure components | `secure-firmware` | Implemented; PM and BootROM remain explicit blockers |
-| O6/O6N PM validation | `pm-validation` | Implemented, recovery-gated |
-| O6 PM and memory tuning | `pm-tuning` | Implemented, recovery-gated |
+| O6 engineering firmware and inspection tool | `firmware-engineering` | Implemented, recovery-gated |
 
 ## Firmware Platform Backlog
 

@@ -514,7 +514,7 @@ the manifest source checkouts unchanged. It emits each board's flash and OCB
 images under `output/TARGET/images` and has no Debian backend. O6N has no EC, so
 its packaging must leave the EC flash region erased rather than include the
 default platform EC firmware. Radxa PM and memory tuning patches remain scoped
-to their explicit O6/O6N experimental targets.
+to the explicit O6 engineering firmware target.
 
 Sky1P and Star1 complete flash-image targets require a source-buildable native
 CBFF 1.4 host tool. Do not execute the release tree's x86-64 `cix_cbff`, use
@@ -523,25 +523,9 @@ is maintained in restricted repository `cix_security/tool`; a target can be
 claimed only after that source is manifest-managed and its AArch64 binary has
 been validated against the reference image format.
 
-The `radxa-o6-pm-validation` and `radxa-o6n-pm-validation` targets exercise the
-existing v3.0 custom PMIC path without changing the board's documented limits
-or voltage offsets. They are experimental direct targets grouped by the
-explicit `pm-validation` build set, are not members of either product build
-set, and publish a separately verified PM configuration block with their
-firmware images. Normal O6/O6N firmware builds do not apply the validation
-patch. Treat a board boot test as the acceptance gate for PM-firmware
-consumption; build-time binary validation alone is insufficient.
-
-The `radxa-o6-opp-validation` target extends only the O6 experiment with the
-stock 12-domain OPP tables supplied by CIX PackageTool. Its verifier compares
-every generated table field and confirms that no additional domain is enabled.
-The `pmtool` direct target publishes the exact manifest-pinned ARM64 inspection
-binary used to capture the effective firmware OPP table on the board. Neither
-target is included in a product build set, installs software, invokes `sudo`,
-or flashes firmware.
-
-The `radxa-o6-pm-tuning` direct target layers a BIOS profile selector and a v3
-PM update driver over an image that contains source backup OPP tables.
+The `radxa-o6-firmware-engineering` direct target layers a BIOS profile
+selector and a v3 PM update driver over an image that contains source backup
+OPP tables.
 Vendor/Automatic leaves external OPPs disabled. Custom enables the complete
 external CPU table with Debug PM firmware. The single Engineering Debug image
 exposes only those two modes. Custom exposes only
@@ -550,8 +534,11 @@ profiles. The 1500 MHz / 790 mV boot OPP, DSU, and non-CPU domains remain locked
 CPU power follows the exact pinned PM firmware measured-power interpolation and
 is conservatively voltage-adjusted upward. Versioned settings, a host semantic
 model, current/generated PM validation, and complete flash read-back protect
-each update. It belongs only to the explicit `pm-tuning` set; normal firmware
-and product build sets do not apply this patch.
+each update. It belongs only to the explicit `firmware-engineering` set;
+normal firmware and product build sets do not apply this patch. The `pmtool`
+direct target in the same set publishes the manifest-pinned ARM64 inspection
+binary used to capture the effective firmware OPP table on the board. Neither
+target installs software, invokes `sudo`, or flashes firmware.
 
 That target also layers an isolated memory updater fix. The checked-in source
 memory configuration remains Automatic with its original per-population

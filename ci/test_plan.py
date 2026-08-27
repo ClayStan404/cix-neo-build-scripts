@@ -595,22 +595,6 @@ Description: CIX VPU development files
                 self.assertEqual(target.board, board)
                 self.assertIsNone(target.control)
 
-    def test_radxa_stock_opp_validation_is_a_direct_firmware_flow(self) -> None:
-        target = plan._target_from_mapping(
-            "radxa-o6-opp-validation",
-            {
-                "description": "Radxa O6 stock OPP validation",
-                "builder": "direct",
-                "flow": "sky1-opp-validation",
-                "source": "sources/radxa-o6",
-                "board": "O6",
-            },
-        )
-
-        self.assertEqual(target.flow, "sky1-opp-validation")
-        self.assertEqual(target.board, "O6")
-        self.assertIsNone(target.control)
-
     def test_development_uefi_uses_an_explicit_soc_and_board_selector(self) -> None:
         target = plan._target_from_mapping(
             "sky1p-crb1-uefi",
@@ -669,19 +653,19 @@ Description: CIX VPU development files
                 self.assertIsNone(target.board)
                 self.assertIsNone(target.control)
 
-    def test_radxa_pm_tuning_is_a_direct_firmware_flow(self) -> None:
+    def test_radxa_engineering_firmware_is_a_direct_flow(self) -> None:
         target = plan._target_from_mapping(
-            "radxa-o6-pm-tuning",
+            "radxa-o6-firmware-engineering",
             {
-                "description": "Radxa O6 BIOS PM profile selection",
+                "description": "Radxa O6 engineering firmware",
                 "builder": "direct",
-                "flow": "sky1-pm-tuning",
+                "flow": "sky1-firmware-engineering",
                 "source": "sources/radxa-o6",
                 "board": "O6",
             },
         )
 
-        self.assertEqual(target.flow, "sky1-pm-tuning")
+        self.assertEqual(target.flow, "sky1-firmware-engineering")
         self.assertEqual(target.board, "O6")
         self.assertIsNone(target.control)
 

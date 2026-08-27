@@ -12,8 +12,7 @@ Build one complete CIX kernel stack at a time:
 ./build-scripts/cix-build firmware-sky1
 ./build-scripts/cix-build uefi-development
 ./build-scripts/cix-build secure-firmware
-./build-scripts/cix-build pm-validation
-./build-scripts/cix-build pm-tuning
+./build-scripts/cix-build firmware-engineering
 ```
 
 Build an individual target with the same command:
@@ -28,10 +27,7 @@ Build an individual target with the same command:
 ./build-scripts/cix-build sky1-edge-firmware
 ./build-scripts/cix-build sky1p-evb-uefi
 ./build-scripts/cix-build star1-merak-uefi
-./build-scripts/cix-build radxa-o6-pm-validation
-./build-scripts/cix-build radxa-o6-opp-validation
-./build-scripts/cix-build radxa-o6-pm-tuning
-./build-scripts/cix-build radxa-o6n-pm-validation
+./build-scripts/cix-build radxa-o6-firmware-engineering
 ./build-scripts/cix-build pmtool
 ./build-scripts/cix-build gpu-dkms
 ./build-scripts/cix-build bt-dkms
@@ -221,24 +217,9 @@ The dated, exhaustive progress report is
 entry point under its effective status and explains the current product,
 firmware, and infrastructure coverage.
 
-`radxa-o6-pm-validation`, `radxa-o6-opp-validation`, and
-`radxa-o6n-pm-validation` are deliberately kept
-outside the `all-6.6` and `all-7.0` product sets and are grouped only by the
-explicit `pm-validation` set. The PMIC targets build the same firmware from isolated
-worktrees, but enable the existing v3.0 custom PMIC section with the board's
-documented stock limits and voltage offsets. The flow verifies the PM config
-signature, checksum, limits, and rail fields before publishing
-`csu_pm_config_BOARD_pmic.bin`. The O6 OPP target additionally enables the
-12 source-stock OPP tables already shipped by CIX PackageTool and verifies
-every table entry before publishing `csu_pm_config_O6_stock-opp.bin`. It does
-not increase a frequency or change a voltage relative to that source profile.
-The source-stock profile is not claimed to match an installed vendor firmware
-release. The normal firmware targets remain unaffected by these experiments.
-A successful build proves that the config block is well formed, not that PM
-firmware consumed it; that conclusion requires a board boot test.
-
-`radxa-o6-pm-tuning` produces one locally signed `engineering_debug` full-flash
-image. Its BIOS exposes only Vendor/Automatic and Custom. The profiles are in
+`radxa-o6-firmware-engineering` produces one locally signed
+`engineering_debug` full-flash image. Its BIOS exposes only Vendor/Automatic
+and Custom. The profiles are in
 the O6 UEFI setup menu under
 `Device Manager -> Platform Configuration -> Advanced Configuration -> Power
 Management`. Vendor/Automatic disables the external OPP table so PM firmware
@@ -291,7 +272,8 @@ therefore not executed by the ARM64-native build. PM and PBL target payloads
 also remain version-matched manifest binaries because their source build needs
 the licensed Xtensa toolchain, which Debian does not provide.
 
-The same set publishes the manifest-pinned ARM64 CIX `pmtool` binary at
+The `firmware-engineering` set also publishes the manifest-pinned ARM64 CIX
+`pmtool` binary at
 `output/pmtool/pmtool`. On the O6 test board, capture a checksummed read-only PM,
 cpufreq, thermal, firmware, and kernel snapshot before and after flashing with:
 
@@ -303,7 +285,7 @@ sudo ./build-scripts/tests/collect-o6-pm-state.sh \
 Use a new output directory for each capture. The collector needs privileged
 hardware access and is never executed automatically by the build system.
 The full recovery-gated board procedure is documented in
-[`docs/pm-validation.md`](docs/pm-validation.md).
+[`docs/o6-engineering-firmware.md`](docs/o6-engineering-firmware.md).
 
 GPU, Bluetooth, WLAN, VPU, NPU, graphics, multimedia, firmware, boot
 configuration, ALSA configuration, and system environment targets create
@@ -346,8 +328,7 @@ source checkout, Debian metadata directory, and repository/path impact rules.
 The only builders are `direct` and `debian`.
 Direct flows run project-specific tools on the native host; the current flows
 are `kernel-worktree`, `kernel-stable-tarball`, `sof-firmware`,
-`sky1-firmware`, `sky1-pm-validation`, `sky1-opp-validation`,
-`sky1-pm-tuning`, and `pmtool`.
+`sky1-firmware`, `sky1-firmware-engineering`, and `pmtool`.
 Debian source flows are `quilt`,
 `debian-git`, `native`, and `payload`, independently of the selected
 sbuild/local backend. `cix-build`

@@ -66,7 +66,7 @@ entry-point drift at this snapshot.
   manifest-managed repositories. Changes are selected by repository/path rules
   in the same build map consumed by local builds and CI planning.
 
-The current build map contains 59 unique targets. The main build sets overlap
+The current build map contains 56 unique targets. The main build sets overlap
 by design:
 
 | Build set | Targets | Current coverage |
@@ -77,13 +77,12 @@ by design:
 | `uefi-development` | 11 | Canonical native RELEASE UEFI volumes for available Sky1, Sky1P, and Star1 Emu/FPGA/EVB/CRB/Merak platforms. |
 | `secure-firmware` | 5 | Standalone MM, OP-TEE, PBL, TF-A, and Sky1 SE firmware. |
 | `sky1-trusted-firmware` | 2 | PBL and TF-A convenience set. |
-| `pm-validation` | 4 | Recovery-gated O6/O6N PM configuration validation and the PM inspection tool. |
-| `pm-tuning` | 2 | Recovery-gated O6 BIOS-selectable CPU and experimental memory tuning plus the PM inspection tool. |
+| `firmware-engineering` | 2 | Recovery-gated O6 engineering firmware plus the PM inspection tool. |
 
 The secure-firmware set has completed on the ARM64 host and its TF-A, PBL,
 OP-TEE, SE firmware, and Standalone MM artifacts are present under `output/`.
 Product and package targets were built and corrected during migration, but this
-status report does not claim that all 59 targets were rerun from a fresh host
+status report does not claim that all 56 targets were rerun from a fresh host
 after every later firmware commit.
 
 ## Remaining Firmware-Critical Work

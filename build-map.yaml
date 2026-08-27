@@ -40,19 +40,11 @@ build_sets:
       - sky1-merak-firmware
       - sky1-edge-firmware
 
-  pm-validation:
-    description: Experimental O6/O6N v3 PM configuration and inspection tools
+  firmware-engineering:
+    description: O6 engineering firmware and PM inspection tool
     targets:
       - pmtool
-      - radxa-o6-pm-validation
-      - radxa-o6-opp-validation
-      - radxa-o6n-pm-validation
-
-  pm-tuning:
-    description: O6 firmware with BIOS-selectable PM and experimental memory tuning
-    targets:
-      - pmtool
-      - radxa-o6-pm-tuning
+      - radxa-o6-firmware-engineering
 
   all-6.6:
     description: Complete CIX Linux 6.6 product build
@@ -260,33 +252,12 @@ targets:
     flow: sky1-se-firmware
     source: sources/radxa-o6
 
-  radxa-o6-pm-validation:
-    description: Radxa Orion O6 stock-equivalent custom PM config validation image
+  radxa-o6-firmware-engineering:
+    description: Radxa Orion O6 engineering firmware with BIOS-selectable CPU and memory tuning
     builder: direct
-    flow: sky1-pm-validation
+    flow: sky1-firmware-engineering
     source: sources/radxa-o6
     board: O6
-
-  radxa-o6-opp-validation:
-    description: Radxa Orion O6 stock external OPP table validation image
-    builder: direct
-    flow: sky1-opp-validation
-    source: sources/radxa-o6
-    board: O6
-
-  radxa-o6-pm-tuning:
-    description: Radxa Orion O6 firmware with BIOS-selectable PM and experimental memory tuning
-    builder: direct
-    flow: sky1-pm-tuning
-    source: sources/radxa-o6
-    board: O6
-
-  radxa-o6n-pm-validation:
-    description: Radxa Orion O6N stock-equivalent custom PM config validation image
-    builder: direct
-    flow: sky1-pm-validation
-    source: sources/radxa-o6
-    board: O6N
 
   pmtool:
     description: CIX CSU PM firmware inspection tool
@@ -658,7 +629,7 @@ projects:
       - paths: ["device/misc/**"]
         targets: [pmtool]
       - paths: ["host/security/sky1/**"]
-        targets: [radxa-o6-pm-tuning]
+        targets: [radxa-o6-firmware-engineering]
     ignore:
       - "debug-tools/**"
       - "device/fct_test/**"
@@ -723,7 +694,7 @@ projects:
     path: sources/radxa-o6/uefi_release/edk2
     rules:
       - paths: ["**"]
-        targets: &sky1_firmware_targets [radxa-o6-firmware, radxa-o6n-firmware, sky1-merak-firmware, sky1-edge-firmware, radxa-o6-pm-validation, radxa-o6-opp-validation, radxa-o6-pm-tuning, radxa-o6n-pm-validation]
+        targets: &sky1_firmware_targets [radxa-o6-firmware, radxa-o6n-firmware, sky1-merak-firmware, sky1-edge-firmware, radxa-o6-firmware-engineering]
 
   cix_opensource/release/edk2-non-osi:
     path: sources/radxa-o6/uefi_release/edk2-non-osi
@@ -741,7 +712,7 @@ projects:
     path: sources/radxa-o6/uefi_release/tools/acpica
     rules:
       - paths: ["**"]
-        targets: &all_uefi_targets [radxa-o6-firmware, radxa-o6n-firmware, sky1-merak-firmware, sky1-edge-firmware, radxa-o6-pm-validation, radxa-o6-opp-validation, radxa-o6-pm-tuning, radxa-o6n-pm-validation, sky1-emu-uefi, sky1-fpga-uefi, sky1-merak-uefi, sky1p-emu-uefi, sky1p-fpga-uefi, sky1p-evb-uefi, sky1p-crb1-uefi, sky1p-crb2-uefi, star1-emu-uefi, star1-fpga-uefi, star1-merak-uefi]
+        targets: &all_uefi_targets [radxa-o6-firmware, radxa-o6n-firmware, sky1-merak-firmware, sky1-edge-firmware, radxa-o6-firmware-engineering, sky1-emu-uefi, sky1-fpga-uefi, sky1-merak-uefi, sky1p-emu-uefi, sky1p-fpga-uefi, sky1p-evb-uefi, sky1p-crb1-uefi, sky1p-crb2-uefi, star1-emu-uefi, star1-fpga-uefi, star1-merak-uefi]
 
   cix_proprietary/cix_bsp_release:
     path: sources/radxa-o6/cix_bsp_release
@@ -753,31 +724,31 @@ projects:
     path: sources/radxa-o6/bootloader/ddr
     rules:
       - paths: ["**"]
-        targets: [radxa-o6-pm-tuning, sky1-se-firmware]
+        targets: [radxa-o6-firmware-engineering, sky1-se-firmware]
 
   cix_security/firmware:
     path: sources/radxa-o6/bootloader/firmware
     rules:
       - paths: ["**"]
-        targets: [radxa-o6-pm-tuning, sky1-se-firmware]
+        targets: [radxa-o6-firmware-engineering, sky1-se-firmware]
 
   cix_security/library:
     path: sources/radxa-o6/bootloader/library
     rules:
       - paths: ["**"]
-        targets: [radxa-o6-pm-tuning, sky1-se-firmware, sky1-pbl, sky1-tf-a]
+        targets: [radxa-o6-firmware-engineering, sky1-se-firmware, sky1-pbl, sky1-tf-a]
 
   cix_private/sw_tools_private:
     path: sources/radxa-o6/bootloader/sw-tools-private
     rules:
       - paths: ["**"]
-        targets: [radxa-o6-pm-tuning]
+        targets: [radxa-o6-firmware-engineering]
 
   cix_proprietary/cix_firmware:
     path: sources/radxa-o6/bootloader/firmware-binaries
     rules:
       - paths: ["**"]
-        targets: [radxa-o6-pm-tuning]
+        targets: [radxa-o6-firmware-engineering]
 
   github_mirror/ucb-bar/berkeley-softfloat-3:
     path: sources/uefi-stmm/edk2/ArmPkg/Library/ArmSoftFloatLib/berkeley-softfloat-3
@@ -1007,7 +978,7 @@ projects:
       - paths: ["build-map.yaml", "cix-build", "builders/common.sh"]
         targets: ["*"]
       - paths: ["builders/direct.sh"]
-        targets: [kernel, stable-kernel, audio-sof, pmtool, radxa-o6-firmware, radxa-o6n-firmware, sky1-merak-firmware, sky1-edge-firmware, radxa-o6-pm-validation, radxa-o6-opp-validation, radxa-o6-pm-tuning, radxa-o6n-pm-validation, sky1-tf-a, sky1-pbl, sky1-optee, sky1-se-firmware]
+        targets: [kernel, stable-kernel, audio-sof, pmtool, radxa-o6-firmware, radxa-o6n-firmware, sky1-merak-firmware, sky1-edge-firmware, radxa-o6-firmware-engineering, sky1-tf-a, sky1-pbl, sky1-optee, sky1-se-firmware]
       - paths: ["builders/direct.sh", "builders/direct/uefi-development.sh"]
         targets: *uefi_development_targets
       - paths: ["patches/uefi-development/**"]
@@ -1023,21 +994,21 @@ projects:
       - paths: ["builders/direct/audio-sof.sh"]
         targets: [audio-sof]
       - paths: ["builders/direct/firmware-sky1.sh"]
-        targets: [radxa-o6-firmware, radxa-o6n-firmware, sky1-merak-firmware, sky1-edge-firmware, radxa-o6-pm-validation, radxa-o6-opp-validation, radxa-o6-pm-tuning, radxa-o6n-pm-validation]
+        targets: [radxa-o6-firmware, radxa-o6n-firmware, sky1-merak-firmware, sky1-edge-firmware, radxa-o6-firmware-engineering]
       - paths: ["builders/direct/bootloader1.sh", "patches/radxa-bootloader/**"]
-        targets: [radxa-o6-pm-tuning, sky1-se-firmware]
+        targets: [radxa-o6-firmware-engineering, sky1-se-firmware]
       - paths: ["builders/direct/pmtool.sh"]
         targets: [pmtool]
       - paths: ["patches/radxa-o6n/**"]
-        targets: [radxa-o6n-firmware, radxa-o6n-pm-validation]
+        targets: [radxa-o6n-firmware]
       - paths: ["patches/radxa-pm-validation/**", "ci/verify_pm_config.py", "ci/test_pm_config.py", "ci/verify_pm_firmware.py", "ci/test_pm_firmware.py"]
-        targets: [radxa-o6-pm-validation, radxa-o6-opp-validation, radxa-o6-pm-tuning, radxa-o6n-pm-validation]
+        targets: [radxa-o6-firmware-engineering]
       - paths: ["patches/radxa-opp-validation/**"]
-        targets: [radxa-o6-opp-validation, radxa-o6-pm-tuning]
+        targets: [radxa-o6-firmware-engineering]
       - paths: ["patches/radxa-pm-tuning/**", "ci/pm_tuning_model.py", "ci/test_pm_tuning_model.py"]
-        targets: [radxa-o6-pm-tuning]
+        targets: [radxa-o6-firmware-engineering]
       - paths: ["patches/radxa-memory-tuning/**", "ci/verify_memory_config.py", "ci/test_memory_config.py"]
-        targets: [radxa-o6-pm-tuning]
+        targets: [radxa-o6-firmware-engineering]
       - paths: ["builders/debian.sh"]
         targets: [gpu-dkms, bt-dkms, vpu-dkms, vpu-firmware, npu-dkms, grub-config, alsa-conf, cix-env, cix-firmware, audio-dsp, dpu-ddk, gpu-umd, isp-umd, isp-v4l2-dkms, isp-dkms, libdrm, libglvnd, libva, ffmpeg, mesa, libcme, cix-vaapi, noe-umd, npu-umd, ai-engine, mnn, gstreamer-6.6, gstreamer-base-7.0, gstreamer-good-7.0, nnstreamer, wlan-dkms]
       - paths: ["builders/debian/payload.sh"]
@@ -1049,7 +1020,7 @@ projects:
       - paths: ["tests/dkms.sh"]
         targets: [kernel, gpu-dkms, bt-dkms, vpu-dkms, npu-dkms, isp-v4l2-dkms, isp-dkms, wlan-dkms]
       - paths: ["tests/collect-o6-pm-state.sh"]
-        targets: [pmtool, radxa-o6-pm-tuning]
+        targets: [pmtool, radxa-o6-firmware-engineering]
     ignore:
       - ".gitignore"
       - "README.md"
