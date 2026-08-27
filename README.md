@@ -174,9 +174,11 @@ separate output rather than making the OP-TEE target depend on previous output
 state.
 
 PM firmware is not claimed as native: its available flow requires the licensed
-Cadence Xtensa RI-2022.10 toolchain. BootROM is also not claimed because the
-source tree referenced by the legacy script is absent. These blockers remain
-recorded in the migration ledger.
+Cadence Xtensa RI-2022.10 toolchain. BootROM is also not claimed: the legacy
+manifest declares `cix_security/bootrom` and `cix_security/tool` in the `brom`
+group, but the current checkout does not include that group and the current SSH
+account cannot read either repository. These blockers remain recorded in the
+migration ledger.
 
 The remaining legacy firmware platforms and their native-build blockers are
 tracked in [`docs/legacy-build-coverage.md`](docs/legacy-build-coverage.md).
@@ -189,6 +191,11 @@ checkout, with:
 python3 ./build-scripts/ci/check_legacy_coverage.py \
     --legacy-root /home/claystan/cix-repo/build-scripts
 ```
+
+The dated, exhaustive progress report is
+[`docs/migration-status.md`](docs/migration-status.md). It lists every legacy
+entry point under its effective status and explains the current product,
+firmware, and infrastructure coverage.
 
 `radxa-o6-pm-validation`, `radxa-o6-opp-validation`, and
 `radxa-o6n-pm-validation` are deliberately kept

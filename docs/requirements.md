@@ -350,7 +350,9 @@ is confirmed.
   never changes according to artifacts left by an earlier build.
 - Do not claim PM firmware support until a licensed Cadence Xtensa toolchain
   runs natively on the Debian 13 ARM64 host. Do not claim BootROM support until
-  the source repository referenced by the legacy build is available.
+  the `cix_security/bootrom` and `cix_security/tool` repositories are readable,
+  synced from the legacy manifest's `brom` group, and proven buildable on the
+  native ARM64 host.
 - Keep VPU DKMS, VPU firmware, and `cix-grub-config` in both product build
   sets. Keep the CIX Linux 6.6 kernel and legacy CIX GStreamer target in
   `all-6.6`. Keep the stable 7.0 kernel and the Debian Salsa-based GStreamer

@@ -28,6 +28,9 @@ replacement, blocker, or retirement has been confirmed. Run
 pass `--legacy-root` to detect entry points added to or removed from a local
 legacy checkout.
 
+The exhaustive dated status, including every entry point in every category, is
+published in [`migration-status.md`](migration-status.md).
+
 ## Current Product Coverage
 
 | Legacy area | New target or set | Status |
@@ -82,7 +85,7 @@ must not be reported as supported merely because a similarly named package is
 available:
 
 - PM firmware, BootROM, secure product packaging/signing, and firmware QA
-  targets that still require unavailable source, licensed tools, or RKMS;
+  targets that still require restricted source access, licensed tools, or RKMS;
 - Android platform, Android bootloader, and Android XPU targets;
 - Buildroot, Yocto, Debian installer/rootfs, and full-disk image targets;
 - Sky1P and Star1 kernel, firmware, NPU, and platform variants;
@@ -103,3 +106,11 @@ release repository still publishes an x86-64 `cix_cbff` only. Internal change
 72680 identifies its build source as `repo_brom/tool/cix_cbff`. The
 source-available Sky1 `cix_mkimage` implements the older configuration and CBFF
 format, so substituting it would create unvalidated boot containers.
+
+BootROM was rechecked separately. The legacy manifest declares
+`cix_security/bootrom` at `security/bootrom` and `cix_security/tool` at `tool`,
+both in the `brom` group. The active legacy checkout was initialized with
+`cix,notdefault,platform-linux`, so neither project is present. The Gitolite
+mirror rejects the current account with HTTP-equivalent permission code 403,
+and Gerrit exposes the project metadata but no readable refs. This is a source
+access blocker, not evidence that the source repository does not exist.

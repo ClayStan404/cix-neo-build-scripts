@@ -313,7 +313,7 @@ overrides:
 
   build-bootrom.sh:
     status: blocked
-    reason: The security/bootrom source tree referenced by the legacy script is absent from the accessible legacy checkout.
+    reason: The legacy manifest declares cix_security/bootrom and cix_security/tool in the brom group, but they are not synced in the current checkout and the current SSH account cannot read their refs.
   build-ffmpeg-ubuntu24.sh:
     status: blocked
     reason: Ubuntu package builds are outside the Debian 13 host and package baseline.
@@ -322,10 +322,10 @@ overrides:
     reason: Ubuntu package builds are outside the Debian 13 host and package baseline.
   build-mkimage-sky1p.sh:
     status: blocked
-    reason: The manifest-pinned Sky1P cix_cbff packaging tool is x86-64 only and no buildable source is available.
+    reason: The available Sky1P cix_cbff release binary is x86-64; its CBFF 1.4 source is declared in the restricted cix_security/tool repository, which the current SSH account cannot read.
   build-mkimage-star1.sh:
     status: blocked
-    reason: The manifest-pinned Star1 cix_cbff packaging tool is x86-64 only and no buildable source is available.
+    reason: The available Star1 cix_cbff release binary is x86-64; its CBFF 1.4 source is declared in the restricted cix_security/tool repository, which the current SSH account cannot read.
   build-pm_fw.sh:
     status: blocked
     reason: The PM firmware requires the licensed Cadence Xtensa RI-2022.10 toolchain, which has no supported Debian 13 ARM64 installation in the current environment.
