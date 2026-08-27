@@ -1,0 +1,25 @@
+diff --git a/cix_fch_tools/uart_test.c b/cix_fch_tools/uart_test.c
+--- a/cix_fch_tools/uart_test.c
++++ b/cix_fch_tools/uart_test.c
+@@ -56,5 +56,7 @@ static int set_speed(int fd, int speed)
+-			if  (status != 0)
++			if  (status != 0) {
+ 				perror("tcsetattr fd1");
+-				return (TRUE);
++				return (FALSE);
++			}
++			return (TRUE);
+ 			}
+ 		}
+@@ -198,9 +200,9 @@ int main(int argc, char **argv)
+ 		printf("para num not enough, use default para!!\n");
+ 		len = 32;
+ 		baud = 115200;
+-		memcpy(dev,"/dev/ttyAMA1",sizeof(dev));
++		snprintf(dev, sizeof(dev), "%s", "/dev/ttyAMA1");
+ 	} else {
+-	memcpy(dev,argv[1],sizeof(dev));
++	snprintf(dev, sizeof(dev), "%s", argv[1]);
+ 	sscanf(argv[2], "%d", &len);
+ 	sscanf(argv[3], "%d", &baud);
+ 	if(len > TEST_DATA_SIZE)

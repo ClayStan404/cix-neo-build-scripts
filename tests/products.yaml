@@ -1,0 +1,26 @@
+version: 1
+
+profiles:
+  "6.6":
+    build_set: all-6.6
+    kernel_target: kernel
+    kernel_glob: "6.6.*-cix-build*"
+    dkms_targets: [gpu-dkms, vpu-dkms, npu-dkms, bt-dkms, isp-v4l2-dkms, isp-dkms, wlan-dkms]
+    live_packages:
+      - cix-gpu-dkms
+      - cix-vpu-driver-dkms
+      - cix-vpu-firmware
+      - cix-npu-driver-dkms
+      - cix-grub-config
+    live_dkms: [cix-gpu-kmd, cix-vpu-driver, aipu]
+
+  "7.0":
+    build_set: all-7.0
+    kernel_target: stable-kernel
+    kernel_glob: "7.0.*-cix*"
+    dkms_targets: [vpu-dkms]
+    live_packages:
+      - cix-vpu-driver-dkms
+      - cix-vpu-firmware
+      - cix-grub-config
+    live_dkms: [cix-vpu-driver]

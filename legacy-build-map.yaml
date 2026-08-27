@@ -271,6 +271,14 @@ overrides:
   build-libva.sh:
     status: implemented
     replacement: libva
+  build-ltp-opensource.sh:
+    status: partial
+    replacement: ltp
+    reason: The complete CIX-pinned LTP suite builds and installs natively under output/ltp, but the legacy cix-ltp Debian wrapper package is intentionally not reproduced yet.
+  build-ltp.sh:
+    status: partial
+    replacement: ltp
+    reason: The complete CIX-pinned LTP suite builds and installs natively under output/ltp, but the alternate private-tree cix-ltp Debian wrapper package is not reproduced.
   build-mesa.sh:
     status: implemented
     replacement: mesa
@@ -289,12 +297,19 @@ overrides:
   build-pbl.sh:
     status: implemented
     replacement: sky1-pbl
+  build-ramparser.sh:
+    status: implemented
+    replacement: ramparser
   build-tee.sh:
     status: implemented
     replacement: sky1-optee
   build-tf-a.sh:
     status: implemented
     replacement: sky1-trusted-firmware
+  build-unit_test.sh:
+    status: partial
+    replacement: cix-test-tools
+    reason: Native LT7911, FCH, and Ethernet diagnostic tools are published, while the legacy combined Debian package and its DSP, CSI-DMA, UVC, VA-API, libcme, test-data, and proprietary payloads remain outside this target.
   build-wlan.sh:
     status: implemented
     replacement: wlan-dkms

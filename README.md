@@ -13,6 +13,8 @@ Build one complete CIX kernel stack at a time:
 ./build-scripts/cix-build uefi-development
 ./build-scripts/cix-build secure-firmware
 ./build-scripts/cix-build firmware-engineering
+./build-scripts/cix-build validation-tools
+./build-scripts/cix-build diagnostics
 ```
 
 Build an individual target with the same command:
@@ -60,6 +62,9 @@ Build an individual target with the same command:
 ./build-scripts/cix-build gstreamer-good-7.0
 ./build-scripts/cix-build nnstreamer
 ./build-scripts/cix-build wlan-dkms
+./build-scripts/cix-build cix-test-tools
+./build-scripts/cix-build ltp
+./build-scripts/cix-build ramparser
 ```
 
 `all-6.6` builds the CIX Linux 6.6 kernel and the complete driver, firmware,
@@ -121,6 +126,28 @@ than a duplicated shell list.
 Every target reports its elapsed time as `HH:MM:SS`, and a successful set
 reports the total elapsed time. On failure, the command reports the failed
 target's elapsed time and the total time before stopping.
+
+Every requested target is preflighted before the first target in a build set
+starts. This catches missing source projects or LFS payloads, incompatible
+sbuild environments, invalid Debian metadata, and patch-series drift before a
+long build changes any output. Run the same checks without building with:
+
+```bash
+./build-scripts/cix-build all-6.6 --preflight-only
+```
+
+Successful builds record an input fingerprint and SHA-256 inventory under
+`output/.cix-state`. `--resume` skips a target only when its target definition,
+Git inputs, internal dependency states, and every published artifact still
+match. A missing or changed input safely rebuilds the target:
+
+```bash
+./build-scripts/cix-build all-6.6 --resume
+```
+
+Each build or preflight invocation writes a machine-readable result and one
+log per built target under `output/build-reports/RUN_ID`. These reports are
+suitable for Jenkins archival and do not replace the target artifacts.
 
 The supported build host baseline is native ARM64 Debian 13. Other Debian and
 Ubuntu host releases are intentionally outside the current scope.
@@ -328,8 +355,8 @@ set's target membership and each target's builder, source preparation flow,
 source checkout, Debian metadata directory, and repository/path impact rules.
 The only builders are `direct` and `debian`.
 Direct flows run project-specific tools on the native host; the current flows
-are `kernel-worktree`, `kernel-stable-tarball`, `sof-firmware`,
-`sky1-firmware`, `sky1-firmware-engineering`, and `pmtool`.
+include kernels, SOF and platform firmware, secure firmware, `pmtool`, native
+ramparser diagnostics, and validation tools.
 Debian source flows are `quilt`,
 `debian-git`, `native`, and `payload`, independently of the selected
 sbuild/local backend. `cix-build`
@@ -514,14 +541,60 @@ Generate a plan from a changed project or path:
   cix_opensource/gpu_kernel:drivers/gpu/arm/midgard/mali_kbase_core_linux.c
 ```
 
-For Jenkins execution, print the topologically ordered commands:
+For inspection, print the topologically ordered commands:
 
 ```bash
 changed_projects | ./build-scripts/ci/plan.py --format text --mode commands
 ```
 
+For execution on a clean Jenkins worker, use the plan executor. It adds both
+transitive reverse-impact consumers and the selected targets' forward build
+prerequisites, runs dependency-ready batches, and delegates every target to
+`cix-build`:
+
+```bash
+changed_projects | ./build-scripts/ci/execute.py \
+  --backend sbuild --resume --jobs 1 \
+  --apt-repo output/apt-repositories/build-42
+```
+
+The optional repository is a new, unsigned, build-scoped APT repository for
+trusted internal CI transport. It contains only top-level `.deb` artifacts from
+the successful plan, plus a package manifest; it is not a permanent archive.
+The executor preflights the complete expanded plan before starting its first
+build, then each normal `cix-build` invocation retains its own defensive check.
+The checked-in `Jenkinsfile` performs host/map checks, executes this workflow,
+and archives build, executor, and APT repository reports.
+
 Unmapped non-ignored paths, a missing executor or controls, duplicate package
 providers, and dependency cycles are fatal validation errors.
 
-The eventual CI deployment is company-internal Jenkins. This repository does
-not define a GitHub-hosted build workflow.
+The CI deployment is company-internal Jenkins. This repository does not define
+a GitHub-hosted build workflow.
+
+## Product and diagnostic validation
+
+Build the CIX-pinned LTP suite and selected standalone hardware diagnostics on
+the native host with `cix-build validation-tools`. The current hardware bundle
+contains LT7911 download, FCH I3C/SPI/UART, and Ethernet PHY utilities. Run the
+safe LTP smoke subset as part of product validation with `--ltp-smoke`.
+
+The product validator checks every artifact in the selected 6.6 or 7.0 build
+set, package architecture, checksum manifests, optional DKMS builds against the
+matching packaged CIX headers, and an optional installed local or SSH host:
+
+```bash
+./build-scripts/tests/product.py 6.6 --dkms --ltp-smoke
+./build-scripts/tests/product.py 7.0 --host debian
+```
+
+Add `--require-state` to require current input fingerprints and artifact
+inventories. JSON results are stored under `output/validation-reports`.
+
+`cix-build diagnostics` builds the CIX ramparser suite natively and publishes
+`crash`, `ramlog`, `rdr`, and AArch64 crash extensions under
+`output/ramparser/ramparser`. `crash` and `ramlog` use the current source. The
+legacy `rdr` wire structures were removed when the kernel blackbox ABI moved to
+v3.01, so that binary deterministically generates its compatibility headers
+from the pinned pre-v3.01 kernel revision recorded in `BUILD-INFO`; this is an
+explicit ABI boundary rather than an untracked checkout or network fetch.

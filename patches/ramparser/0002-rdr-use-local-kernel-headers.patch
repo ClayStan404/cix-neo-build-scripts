@@ -1,0 +1,76 @@
+From: CIX Neo Build System <noreply@cixtech.com>
+Subject: [PATCH] rdr: build deterministically from pinned kernel headers
+
+Do not fetch an unrelated branch over SSH or create a venv with unpinned pip
+packages during a native build. The RDR generator is tied to the pre-v3.01
+blackbox ABI, so consume a build-system-pinned compatible commit from the
+manifest kernel repository when CIX_LINUX_SOURCE is provided. Strip kernel
+alignment annotations which the bundled Python parser cannot understand.
+
+The original parallel Makefile also starts compilation before the generated
+headers exist. Make every object order-only dependent on header generation.
+Keep the historical fetch path for other users.
+
+diff --git a/cix_crash/cix/cmds/rdr/Makefile b/cix_crash/cix/cmds/rdr/Makefile
+index 3a08764..4d42c56 100644
+--- a/cix_crash/cix/cmds/rdr/Makefile
++++ b/cix_crash/cix/cmds/rdr/Makefile
+@@ -34,13 +34,15 @@ RDR_SRC = main.c ../cmdparser.c rdr_parser.c \
+ CIX_SRC = $(RDR_SRC)
+ CIX_OBJECT = $(patsubst %.c,%.o, $(addprefix $(BUILDDIR)/,$(CIX_SRC)))
+ 
+-all: mkinc $(CIX_OBJECT)
++all: $(CIX_OBJECT)
+ 	cd $(BUILDDIR) && $(CC) -static ./*.o -o rdr
+ 
++.PHONY: mkinc
+ mkinc:
+ 	tools/mkinclude/make_include.sh
+ 
++$(CIX_OBJECT): | mkinc
+ $(CIX_OBJECT): $(BUILDDIR)/%.o : %.c
+ 	mkdir -p $(BUILDDIR)
+ 	$(CC) $(CRASH_CFLAGS) $(CRASH_INCLUDE) -c -o $(BUILDDIR)/$(notdir $@) $<
+
+diff --git a/cix_crash/cix/cmds/rdr/tools/mkinclude/make_include.sh b/cix_crash/cix/cmds/rdr/tools/mkinclude/make_include.sh
+index 36fa25c..29dd7ea 100755
+--- a/cix_crash/cix/cmds/rdr/tools/mkinclude/make_include.sh
++++ b/cix_crash/cix/cmds/rdr/tools/mkinclude/make_include.sh
+@@ -1,5 +1,35 @@
+ #!/bin/bash
+ 
++if [[ -n "${CIX_LINUX_SOURCE:-}" ]]; then
++    set -euo pipefail
++    SCRIPT_PATH=$(dirname "$(realpath "$0")")
++    SRC_DIR=tmp_inc
++    : "${CIX_LINUX_REVISION:?CIX_LINUX_REVISION is required}"
++    DOWNLOADS=(
++        "include/linux/soc/cix"
++        "drivers/soc/cix"
++    )
++    git -C "${CIX_LINUX_SOURCE}" cat-file -e \
++        "${CIX_LINUX_REVISION}^{commit}"
++
++    rm -rf -- "${SCRIPT_PATH:?}/${SRC_DIR}"
++    mkdir -p -- "${SCRIPT_PATH}/${SRC_DIR}"
++    for relative in "${DOWNLOADS[@]}"; do
++        git -C "${CIX_LINUX_SOURCE}" archive \
++            "${CIX_LINUX_REVISION}" "${relative}" |
++            tar -x -C "${SCRIPT_PATH}/${SRC_DIR}"
++    done
++    find "${SCRIPT_PATH}/${SRC_DIR}" -type f -name '*.h' -exec \
++        sed -Ei 's/__aligned[[:space:]]*\([^)]*\)//g' {} +
++
++    mkdir -p -- "${SCRIPT_PATH}/../../autoinclude"
++    python3 "${SCRIPT_PATH}/c_include.py" \
++        "${SCRIPT_PATH}/${SRC_DIR}" "${SCRIPT_PATH}/config" \
++        "${SCRIPT_PATH}/../../autoinclude"
++    rm -rf -- "${SCRIPT_PATH:?}/${SRC_DIR}"
++    exit 0
++fi
++
+ # Get the script path
+ SCRIPT_PATH=$(realpath "$0")
+ SCRIPT_PATH=$(dirname "$SCRIPT_PATH")
+-- 
+2.47.2

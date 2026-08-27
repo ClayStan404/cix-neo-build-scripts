@@ -51,6 +51,7 @@ class Target:
     flow: str
     board: str | None
     version: str | None
+    header_revision: str | None
     source: str | None
     source_git: str | None
     debian: str | None
@@ -207,6 +208,7 @@ def _target_from_mapping(name: str, entry: dict) -> Target:
         "description",
         "files",
         "flow",
+        "header_revision",
         "lfs",
         "patch_source",
         "payload_dir",
@@ -231,6 +233,9 @@ def _target_from_mapping(name: str, entry: dict) -> Target:
     flow = _string(entry.get("flow"), f"{context} flow")
     board = _optional_string(entry.get("board"), f"{context} board")
     version = _optional_string(entry.get("version"), f"{context} version")
+    header_revision = _optional_string(
+        entry.get("header_revision"), f"{context} header_revision"
+    )
     source = _optional_relative_path(entry.get("source"), f"{context} source")
     source_git = _optional_relative_path(
         entry.get("source_git"), f"{context} source_git"
@@ -355,6 +360,18 @@ def _target_from_mapping(name: str, entry: dict) -> Target:
             {"source"},
             {"source"},
         ),
+        ("direct", "ramparser"): (
+            {"source", "source_overlays", "header_revision"},
+            {"source", "source_overlays", "header_revision"},
+        ),
+        ("direct", "cix-test-tools"): (
+            {"source"},
+            {"source"},
+        ),
+        ("direct", "ltp-testsuite"): (
+            {"source"},
+            {"source"},
+        ),
         ("debian", "quilt"): (
             {"source", "source_git", "debian"},
             {
@@ -402,6 +419,7 @@ def _target_from_mapping(name: str, entry: dict) -> Target:
         "source_git": source_git,
         "debian": debian,
         "version": version,
+        "header_revision": header_revision,
         "patch_source": patch_source,
         "validate": validate,
         "payload_dir": payload_dir,
@@ -446,6 +464,12 @@ def _target_from_mapping(name: str, entry: dict) -> Target:
         r"[0-9]+\.[0-9]+\.[0-9]+", version
     ):
         raise PlanError(f"{context} version must use X.Y.Z: {version}")
+    if header_revision is not None and not re.fullmatch(
+        r"[0-9a-f]{40}", header_revision
+    ):
+        raise PlanError(
+            f"{context} header_revision must be a full Git commit: {header_revision}"
+        )
     if board is not None and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", board):
         raise PlanError(f"{context} has invalid board name: {board}")
 
@@ -456,6 +480,7 @@ def _target_from_mapping(name: str, entry: dict) -> Target:
         flow=flow,
         board=board,
         version=version,
+        header_revision=header_revision,
         source=source,
         source_git=source_git,
         debian=debian,
@@ -669,6 +694,7 @@ def target_dict(target: Target) -> dict:
         "flow": target.flow,
         "board": target.board,
         "version": target.version,
+        "header_revision": target.header_revision,
         "source": target.source,
         "source_git": target.source_git,
         "debian": target.debian,
@@ -695,6 +721,7 @@ def target_shell(
         "flow": target.flow,
         "board": target.board or "",
         "version": target.version or "",
+        "header_revision": target.header_revision or "",
         "description": target.description,
         "source": target.source or "",
         "source_git": target.source_git or "",

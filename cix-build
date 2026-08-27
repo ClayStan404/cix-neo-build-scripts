@@ -15,7 +15,7 @@ list_build_sets() {
 
 usage() {
     cat <<'EOF'
-Usage: cix-build TARGET|BUILD_SET [build|clean] [--backend sbuild|local]
+Usage: cix-build TARGET|BUILD_SET [build|clean] [--backend sbuild|local] [OPTIONS]
        cix-build clean-all
        cix-build distclean
        cix-build --list
@@ -26,6 +26,8 @@ Global cleanup commands:
 
 Options:
   --backend BACKEND      Debian package backend (default: sbuild)
+  --resume               Reuse targets whose inputs and artifacts still match
+  --preflight-only       Validate the complete plan without building it
   --list                 List build sets and targets
   -h, --help             Show this help
 
@@ -75,6 +77,8 @@ esac
 
 debian_backend=sbuild
 backend_selected=0
+resume_build=0
+preflight_only=0
 if [[ -n "${global_clean_mode}" ]]; then
     action=clean
 else
@@ -97,6 +101,14 @@ else
                 backend_selected=1
                 shift
                 ;;
+            --resume)
+                resume_build=1
+                shift
+                ;;
+            --preflight-only)
+                preflight_only=1
+                shift
+                ;;
             --*)
                 cix_die "unknown option: $1"
                 ;;
@@ -110,6 +122,9 @@ case "${debian_backend}" in
     sbuild|local) ;;
     *) cix_die "Debian backend must be sbuild or local: ${debian_backend}" ;;
 esac
+if [[ "${action}" != build && ("${resume_build}" == 1 || "${preflight_only}" == 1) ]]; then
+    cix_die "--resume and --preflight-only apply only to builds"
+fi
 
 build_set_name=""
 if [[ -z "${global_clean_mode}" ]]; then
@@ -146,12 +161,16 @@ format_duration() {
 report_exit() {
     local exit_status="$1"
     local elapsed
+    local phase_label
+    local -a report_arguments=()
 
     trap - EXIT
     if ((exit_status != 0)); then
         if [[ -n "${current_target}" ]]; then
             elapsed="$((SECONDS - current_target_started_at))"
-            cix_log "${current_target} ${action} failed after $(format_duration "${elapsed}")" >&2
+            phase_label="${current_phase}"
+            [[ "${action}" == clean ]] && phase_label=clean
+            cix_log "${current_target} ${phase_label} failed after $(format_duration "${elapsed}")" >&2
         fi
         if [[ -n "${global_clean_mode}" ]]; then
             elapsed="$((SECONDS - command_started_at))"
@@ -164,6 +183,27 @@ report_exit() {
                 "${build_set_name} ${action} stopped after" \
                 "$(format_duration "${elapsed}")" >&2
         fi
+        if [[ -n "${run_report}" ]]; then
+            if [[ -n "${current_target}" ]]; then
+                report_arguments=(
+                    --target "${current_target}"
+                    --status failed
+                    --phase "${current_phase}"
+                    --duration "$((SECONDS - current_target_started_at))"
+                )
+                if [[ -n "${current_fingerprint}" ]]; then
+                    report_arguments+=(--fingerprint "${current_fingerprint}")
+                fi
+                if [[ -n "${current_target_log}" ]]; then
+                    report_arguments+=(--log "${current_target_log}")
+                fi
+                "${state_tool}" run-update "${run_report}" \
+                    "${report_arguments[@]}" || true
+            fi
+            "${state_tool}" run-finish "${run_report}" --status failed \
+                --duration "$((SECONDS - command_started_at))" || true
+            cix_log "Build result: ${CIX_ROOT}/${run_report}" >&2
+        fi
     fi
     exit "${exit_status}"
 }
@@ -172,6 +212,8 @@ report_exit() {
 source "${CIX_ROOT}/build-scripts/builders/direct.sh"
 # shellcheck source=builders/debian.sh
 source "${CIX_ROOT}/build-scripts/builders/debian.sh"
+# shellcheck source=builders/preflight.sh
+source "${CIX_ROOT}/build-scripts/builders/preflight.sh"
 # shellcheck source=commands/cleanup.sh
 source "${CIX_ROOT}/build-scripts/commands/cleanup.sh"
 
@@ -195,15 +237,26 @@ load_target() {
     eval "${target_definition}"
 }
 
-run_target() {
+preflight_target() {
     local name="$1"
-    local output_dir="${CIX_ROOT}/output/${name}"
-    local target_elapsed
 
     current_target="${name}"
+    current_phase=preflight
     current_target_started_at="${SECONDS}"
-    cix_log "Start ${action}: ${name}"
+    cix_log "Preflight: ${name}"
     load_target "${name}"
+    cix_preflight_target "${debian_backend}"
+    if ((preflight_only == 1)); then
+        "${state_tool}" run-update "${run_report}" \
+            --target "${name}" --status preflight --phase preflight \
+            --duration "$((SECONDS - current_target_started_at))"
+    fi
+    current_target=""
+}
+
+execute_loaded_target() {
+    local output_dir="$1"
+
     case "${TARGET[builder]}" in
         direct)
             if ((backend_selected == 1)) && [[ -z "${build_set_name}" ]]; then
@@ -215,19 +268,78 @@ run_target() {
             cix_debian_build \
                 "${action}" "${output_dir}" "${parallel_jobs}" "${debian_backend}"
             ;;
-        *)
-            cix_die "unsupported build engine: ${TARGET[builder]}"
-            ;;
+        *) cix_die "unsupported build engine: ${TARGET[builder]}" ;;
     esac
+}
+
+run_target() {
+    local name="$1"
+    local output_dir="${CIX_ROOT}/output/${name}"
+    local target_elapsed
+    local state_reason
+
+    current_target="${name}"
+    current_phase=build
+    current_target_started_at="${SECONDS}"
+    cix_log "Start ${action}: ${name}"
+    load_target "${name}"
+
+    if [[ "${action}" == clean ]]; then
+        execute_loaded_target "${output_dir}"
+        "${state_tool}" remove "${name}"
+        target_elapsed="$((SECONDS - current_target_started_at))"
+        cix_log "${name} clean complete in $(format_duration "${target_elapsed}")"
+        current_target=""
+        return 0
+    fi
+
+    current_fingerprint="$(
+        "${state_tool}" fingerprint "${name}" --backend "${debian_backend}"
+    )"
+    current_target_log="${CIX_ROOT}/$(dirname "${run_report}")/logs/${name}.log"
+    if ((resume_build == 1)); then
+        if state_reason="$(
+            "${state_tool}" check "${name}" --fingerprint "${current_fingerprint}"
+        )"; then
+            cix_log "Resume ${name}: ${state_reason}" | tee "${current_target_log}"
+            target_elapsed="$((SECONDS - current_target_started_at))"
+            "${state_tool}" run-update "${run_report}" \
+                --target "${name}" --status resumed --phase build \
+                --duration "${target_elapsed}" \
+                --fingerprint "${current_fingerprint}" --log "${current_target_log}"
+            cix_log "${name} resumed in $(format_duration "${target_elapsed}")"
+            current_target=""
+            current_target_log=""
+            current_fingerprint=""
+            return 0
+        fi
+        cix_log "Rebuild ${name}: ${state_reason}"
+    fi
+
+    execute_loaded_target "${output_dir}" > >(tee "${current_target_log}") 2>&1
     target_elapsed="$((SECONDS - current_target_started_at))"
+    "${state_tool}" record "${name}" --backend "${debian_backend}" \
+        --fingerprint "${current_fingerprint}" --duration "${target_elapsed}" \
+        --log "${current_target_log}" >/dev/null
+    "${state_tool}" run-update "${run_report}" \
+        --target "${name}" --status built --phase build \
+        --duration "${target_elapsed}" --fingerprint "${current_fingerprint}" \
+        --log "${current_target_log}"
     cix_log "${name} ${action} complete in $(format_duration "${target_elapsed}")"
     current_target=""
+    current_target_log=""
+    current_fingerprint=""
 }
 
 cix_validate_host
 command_started_at="${SECONDS}"
 current_target=""
 current_target_started_at=0
+current_phase=build
+current_target_log=""
+current_fingerprint=""
+run_report=""
+state_tool="${CIX_ROOT}/build-scripts/ci/build_state.py"
 trap 'report_exit "$?"' EXIT
 
 if [[ -n "${global_clean_mode}" ]]; then
@@ -268,6 +380,24 @@ elif [[ -n "${build_set_name}" ]]; then
     [[ -n "${build_set_plan}" ]] || \
         cix_die "${build_set_name} build plan contains no targets"
     mapfile -t build_set_targets < <(printf '%s\n' "${build_set_plan}")
+    if [[ "${action}" == build ]]; then
+        run_report="$(
+            "${state_tool}" run-init --selector "${build_set_name}" \
+                --action "$([[ "${preflight_only}" == 1 ]] && printf preflight || printf build)" \
+                --backend "${debian_backend}" "${build_set_targets[@]}"
+        )"
+        cix_log "Build result: ${CIX_ROOT}/${run_report}"
+        for name in "${build_set_targets[@]}"; do
+            preflight_target "${name}"
+        done
+        if ((preflight_only == 1)); then
+            "${state_tool}" run-finish "${run_report}" --status success \
+                --duration "$((SECONDS - command_started_at))"
+            cix_log "${build_set_name} preflight complete"
+            trap - EXIT
+            exit 0
+        fi
+    fi
     cix_log \
         "Run ${action} for ${build_set_name}: ${#build_set_targets[@]} targets;" \
         "Debian backend: ${debian_backend}"
@@ -284,7 +414,30 @@ elif [[ -n "${build_set_name}" ]]; then
         "${build_set_name} ${action} complete in" \
         "$(format_duration "$((SECONDS - command_started_at))")"
 else
+    if [[ "${action}" == build ]]; then
+        build_set_targets=("${target_name}")
+        run_report="$(
+            "${state_tool}" run-init --selector "${target_name}" \
+                --action "$([[ "${preflight_only}" == 1 ]] && printf preflight || printf build)" \
+                --backend "${debian_backend}" "${target_name}"
+        )"
+        cix_log "Build result: ${CIX_ROOT}/${run_report}"
+        preflight_target "${target_name}"
+        if ((preflight_only == 1)); then
+            "${state_tool}" run-finish "${run_report}" --status success \
+                --duration "$((SECONDS - command_started_at))"
+            cix_log "${target_name} preflight complete"
+            trap - EXIT
+            exit 0
+        fi
+    fi
     run_target "${target_name}"
+fi
+
+if [[ -n "${run_report}" ]]; then
+    "${state_tool}" run-finish "${run_report}" --status success \
+        --duration "$((SECONDS - command_started_at))"
+    cix_log "Build result: ${CIX_ROOT}/${run_report}"
 fi
 
 trap - EXIT

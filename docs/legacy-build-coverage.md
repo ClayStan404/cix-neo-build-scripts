@@ -49,6 +49,8 @@ published in [`migration-status.md`](migration-status.md).
 | Sky1 SE firmware | `sky1-se-firmware` | Native RELEASE ARM Embedded build implemented |
 | All implemented secure components | `secure-firmware` | Implemented; PM and BootROM remain explicit blockers |
 | O6 engineering firmware and inspection tool | `firmware-engineering` | Implemented, recovery-gated |
+| Native crash and ramdump diagnostics | `diagnostics` | Implemented; RDR pins its legacy kernel-header ABI revision |
+| Native LTP and selected board diagnostics | `validation-tools` | Implemented tools; legacy wrapper Debian packages and the full unit-test bundle remain partial |
 
 ## Firmware Platform Backlog
 
@@ -89,7 +91,7 @@ available:
 - Buildroot, Yocto, Debian installer/rootfs, and full-disk image targets;
 - Sky1P and Star1 kernel, firmware, NPU, and platform variants;
 - Chromium, GNOME Shell, Mutter, Xwayland, BlueZ, MPV, OpenCV, TVM, ArmNN,
-  LTP, unit-test, QA, factory, flash, dump, and recovery utilities;
+  remaining unit-test, QA, factory, flash, dump, and recovery utilities;
 - private AI, media, ISP, security, and customer deliverable bundles;
 - orchestration-only wrappers such as legacy `build-all*`, `build-full*`,
   timestamp, Docker, and parallel dispatch scripts.

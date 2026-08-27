@@ -46,6 +46,17 @@ build_sets:
       - pmtool
       - radxa-o6-firmware-engineering
 
+  diagnostics:
+    description: Native ARM64 post-mortem diagnostic tools
+    targets:
+      - ramparser
+
+  validation-tools:
+    description: Native ARM64 platform and kernel validation tools
+    targets:
+      - cix-test-tools
+      - ltp
+
   all-6.6:
     description: Complete CIX Linux 6.6 product build
     targets:
@@ -264,6 +275,27 @@ targets:
     builder: direct
     flow: pmtool
     source: sources/cix-binary
+
+  ramparser:
+    description: CIX native ARM64 crash and ramdump parser
+    builder: direct
+    flow: ramparser
+    header_revision: 1e7a5a340385ee307e8711f6acdc72618fb1f042
+    source: sources/ramparser
+    source_overlays:
+      - sources/linux=kernel
+
+  cix-test-tools:
+    description: Selected CIX native hardware validation tools
+    builder: direct
+    flow: cix-test-tools
+    source: sources/cix-unit-test
+
+  ltp:
+    description: CIX-pinned Linux Test Project suite
+    builder: direct
+    flow: ltp-testsuite
+    source: sources/ltp
 
   gpu-dkms:
     description: GPU DKMS package
@@ -583,6 +615,24 @@ targets:
     lfs: true
 
 projects:
+  cix_opensource/cix_unit_test:
+    path: sources/cix-unit-test
+    rules:
+      - paths: ["**"]
+        targets: [cix-test-tools]
+
+  cix_test/ltp_opensource:
+    path: sources/ltp
+    rules:
+      - paths: ["**"]
+        targets: [ltp]
+
+  linux_repo/cix_ramparser:
+    path: sources/ramparser
+    rules:
+      - paths: ["**"]
+        targets: [ramparser]
+
   cix_opensource/arm-trusted-firmware:
     path: sources/secure-firmware/bsp/tf-a
     rules:
@@ -652,7 +702,7 @@ projects:
       - paths: ["drivers/media/platform/cix/cix_isp/**"]
         targets: [isp-dkms]
       - paths: ["**"]
-        targets: [kernel]
+        targets: [kernel, ramparser]
 
   cix-linux-main:
     path: sources/linux-main
@@ -978,7 +1028,7 @@ projects:
       - paths: ["build-map.yaml", "cix-build", "builders/common.sh"]
         targets: ["*"]
       - paths: ["builders/direct.sh"]
-        targets: [kernel, stable-kernel, audio-sof, pmtool, radxa-o6-firmware, radxa-o6n-firmware, sky1-merak-firmware, sky1-edge-firmware, radxa-o6-firmware-engineering, sky1-tf-a, sky1-pbl, sky1-optee, sky1-se-firmware]
+        targets: [kernel, stable-kernel, audio-sof, pmtool, radxa-o6-firmware, radxa-o6n-firmware, sky1-merak-firmware, sky1-edge-firmware, radxa-o6-firmware-engineering, sky1-tf-a, sky1-pbl, sky1-optee, sky1-se-firmware, ramparser, cix-test-tools, ltp]
       - paths: ["builders/direct.sh", "builders/direct/uefi-development.sh"]
         targets: *uefi_development_targets
       - paths: ["patches/uefi-development/**"]
@@ -999,7 +1049,15 @@ projects:
         targets: [radxa-o6-firmware-engineering, sky1-se-firmware]
       - paths: ["builders/direct/pmtool.sh"]
         targets: [pmtool]
-      - paths: ["patches/radxa-o6n/**"]
+      - paths: ["builders/direct/ramparser.sh", "patches/ramparser/**"]
+        targets: [ramparser]
+      - paths: ["builders/direct/validation.sh"]
+        targets: [cix-test-tools, ltp]
+      - paths: ["patches/cix-test-tools/**"]
+        targets: [cix-test-tools]
+      - paths: ["patches/ltp/**"]
+        targets: [ltp]
+      - paths: ["patches/radxa-o6n/**", "ci/verify_o6n_patch.py"]
         targets: [radxa-o6n-firmware]
       - paths: ["patches/radxa-pm-validation/**", "ci/verify_pm_config.py", "ci/test_pm_config.py", "ci/verify_pm_firmware.py", "ci/test_pm_firmware.py"]
         targets: [radxa-o6-firmware-engineering]
@@ -1015,6 +1073,8 @@ projects:
         targets: [vpu-firmware, cix-firmware, audio-dsp, dpu-ddk, gpu-umd, isp-umd, noe-umd, npu-umd]
       - paths: ["ci/plan.py"]
         targets: ["*"]
+      - paths: ["builders/preflight.sh", "ci/build_state.py"]
+        targets: ["*"]
       - paths: ["sbuild/**", "setup-host", "setup-sbuild"]
         targets: ["*"]
       - paths: ["tests/dkms.sh"]
@@ -1023,9 +1083,18 @@ projects:
         targets: [pmtool, radxa-o6-firmware-engineering]
     ignore:
       - ".gitignore"
+      - "Jenkinsfile"
       - "README.md"
+      - "ci/execute.py"
+      - "ci/publish_apt.py"
+      - "ci/test_build_state.py"
+      - "ci/test_execute.py"
       - "ci/test_plan.py"
+      - "ci/test_product.py"
       - "docs/**"
+      - "legacy-build-map.yaml"
+      - "tests/product.py"
+      - "tests/products.yaml"
 
   cix-neo-debian:
     path: debian

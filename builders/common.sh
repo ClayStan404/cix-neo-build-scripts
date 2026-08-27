@@ -114,3 +114,33 @@ cix_apply_patch() {
         cix_die "patch does not apply cleanly: ${patch_file}"
     fi
 }
+
+cix_validate_patch_series() (
+    local repository="$1"
+    shift
+    local index_file
+    local patch_file
+
+    git -C "${repository}" rev-parse --is-inside-work-tree >/dev/null 2>&1 ||
+        cix_die "patch source is not a Git worktree: ${repository}"
+    (($# > 0)) || return 0
+
+    index_file="$(mktemp)"
+    rm -- "${index_file}"
+    trap 'rm -f -- "${index_file}"' EXIT
+    GIT_INDEX_FILE="${index_file}" git -C "${repository}" read-tree HEAD
+
+    for patch_file in "$@"; do
+        [[ -s "${patch_file}" ]] || cix_die "patch is missing: ${patch_file}"
+        if GIT_INDEX_FILE="${index_file}" git -C "${repository}" apply \
+            --cached --check --whitespace=nowarn "${patch_file}"; then
+            GIT_INDEX_FILE="${index_file}" git -C "${repository}" apply \
+                --cached --whitespace=nowarn "${patch_file}"
+        elif GIT_INDEX_FILE="${index_file}" git -C "${repository}" apply \
+            --cached --reverse --check --whitespace=nowarn "${patch_file}"; then
+            cix_log "Preflight: patch is already present upstream: $(basename "${patch_file}")"
+        else
+            cix_die "patch does not apply cleanly: ${patch_file}"
+        fi
+    done
+)

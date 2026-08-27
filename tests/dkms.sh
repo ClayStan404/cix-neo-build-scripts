@@ -140,7 +140,10 @@ binary_architecture="$(dpkg-deb -f "${dkms_deb}" Architecture)"
 [[ "${header_package}" == linux-headers-* ]] ||
     cix_die "not a Linux headers package: ${header_package}"
 kernel_release="${header_package#linux-headers-}"
-[[ "${kernel_release}" == *-cix-build || "${kernel_release}" == *-cix-build-* ]] ||
+[[ "${kernel_release}" == *-cix-build ||
+    "${kernel_release}" == *-cix-build-* ||
+    "${kernel_release}" == *-cix ||
+    "${kernel_release}" == *-cix-* ]] ||
     cix_die "kernel headers are not from a CIX build: ${kernel_release}"
 [[ "${header_architecture}" == "arm64" ]] ||
     cix_die "CIX kernel headers must be arm64: ${header_architecture}"

@@ -1,6 +1,6 @@
 # CIX Neo Build System Migration Status
 
-Status date: 2026-08-27
+Status date: 2026-08-28
 
 This report records the current migration from the legacy CIX build system at
 `/home/claystan/cix-repo` to the native ARM64 Debian 13 build system. It covers
@@ -24,10 +24,10 @@ target, and several new targets have no one-to-one legacy wrapper.
 
 | Status | Count | Meaning |
 | --- | ---: | --- |
-| Implemented | 39 | The required legacy output has a native replacement target or declarative build set. |
-| Partial | 3 | A useful replacement exists, but explicitly named legacy variants or outputs remain. |
+| Implemented | 40 | The required legacy output has a native replacement target or declarative build set. |
+| Partial | 6 | A useful replacement exists, but explicitly named legacy variants or outputs remain. |
 | Blocked | 6 | Work cannot complete without repository access, a licensed toolchain, or a scope change. |
-| Pending | 118 | The entry has not yet been audited and migrated; it is not implicitly supported. |
+| Pending | 114 | The entry has not yet been audited and migrated; it is not implicitly supported. |
 | Retired | 1 | The wrapper adds no unique output and is replaced by built-in behavior. |
 | Total | 167 | Every top-level legacy `build-*.sh` entry is represented exactly once. |
 
@@ -55,6 +55,16 @@ entry-point drift at this snapshot.
 - Builds use the host CPU count by default, clean stale top-level artifacts,
   publish under `output/TARGET`, stop on the first failure, and report per-target
   and total elapsed time.
+- Complete build sets are preflighted before their first target starts. Build
+  results, target logs, input fingerprints, and artifact hash inventories are
+  persisted, and `--resume` reuses output only after all inputs and artifacts
+  are verified.
+- The internal Jenkins executor expands reverse change impact and forward build
+  prerequisites, then runs dependency-ready targets through `cix-build`. It can
+  publish successful Debian outputs into a new build-scoped temporary APT
+  repository.
+- Product validation profiles cover artifact/package integrity, CIX-header DKMS
+  compilation, installed-host inspection, and a safe LTP smoke subset.
 - `clean-all` cleans every registered target, removes empty output directory
   trees including retired-target leftovers, and retains directories containing
   reusable caches or unregistered artifacts. `distclean` additionally
@@ -67,7 +77,7 @@ entry-point drift at this snapshot.
   manifest-managed repositories. Changes are selected by repository/path rules
   in the same build map consumed by local builds and CI planning.
 
-The current build map contains 56 unique targets. The main build sets overlap
+The current build map contains 59 unique targets. The main build sets overlap
 by design:
 
 | Build set | Targets | Current coverage |
@@ -79,11 +89,13 @@ by design:
 | `secure-firmware` | 5 | Standalone MM, OP-TEE, PBL, TF-A, and Sky1 SE firmware. |
 | `sky1-trusted-firmware` | 2 | PBL and TF-A convenience set. |
 | `firmware-engineering` | 2 | Recovery-gated O6 engineering firmware plus the PM inspection tool. |
+| `validation-tools` | 2 | Complete CIX-pinned LTP plus selected native LT7911, FCH, and Ethernet diagnostics. |
+| `diagnostics` | 1 | Native AArch64 crash, ramlog, RDR, and crash-extension tools. |
 
 The secure-firmware set has completed on the ARM64 host and its TF-A, PBL,
 OP-TEE, SE firmware, and Standalone MM artifacts are present under `output/`.
 Product and package targets were built and corrected during migration, but this
-status report does not claim that all 56 targets were rerun from a fresh host
+status report does not claim that all 59 targets were rerun from a fresh host
 after every later firmware commit.
 
 ## Remaining Firmware-Critical Work
@@ -105,7 +117,7 @@ after every later firmware commit.
    capsule, alternate TEE/loader/boot profiles, and missing Star1 board DSCs
    remain explicit work rather than implied support.
 
-## Implemented Legacy Entries (39)
+## Implemented Legacy Entries (40)
 
 | Legacy entry | Native replacement |
 | --- | --- |
@@ -144,18 +156,22 @@ after every later firmware commit.
 | `build-noe-umd.sh` | `noe-umd` |
 | `build-npu-umd.sh` | `npu-umd` |
 | `build-pbl.sh` | `sky1-pbl` |
+| `build-ramparser.sh` | `ramparser` |
 | `build-tee.sh` | `sky1-optee` |
 | `build-tf-a.sh` | `sky1-trusted-firmware` |
 | `build-uefi-stmm.sh` | `uefi-stmm` |
 | `build-wlan.sh` | `wlan-dkms` |
 
-## Partially Implemented Legacy Entries (3)
+## Partially Implemented Legacy Entries (6)
 
 | Legacy entry | Current replacement | Remaining work |
 | --- | --- | --- |
 | `build-all-sec.sh` | `secure-firmware` | TF-A, PBL, OP-TEE, Standalone MM, and Sky1 SE firmware build natively. PM firmware, BootROM, and product-signing flows remain blocked. |
+| `build-ltp-opensource.sh` | `ltp` | The complete CIX-pinned suite builds natively and passes the smoke subset; the legacy `cix-ltp` Debian wrapper package is not reproduced yet. |
+| `build-ltp.sh` | `ltp` | The pinned open-source suite replaces the stale private-tree build; the alternate legacy `cix-ltp` Debian wrapper package is not reproduced. |
 | `build-uefi-star1.sh` | `uefi-development` | Emu, FPGA, and Merak canonical RELEASE profiles build natively. Megrez, CloudBook, and Batura DSC sources are absent, and full-image packaging remains separate. |
 | `build-uefi.sh` | `uefi-development` | The canonical RELEASE Debian/optee/nvme profile is implemented for every manifest-available platform. DEBUG, Android capsule, alternate TEE, loader, and boot variants remain pending. |
+| `build-unit_test.sh` | `cix-test-tools` | Selected LT7911, FCH, and Ethernet tools build natively; the legacy combined Debian bundle and its remaining test families and proprietary payloads are not included. |
 
 ## Blocked Legacy Entries (6)
 
@@ -168,12 +184,14 @@ after every later firmware commit.
 | `build-mkimage-star1.sh` | The available CBFF 1.4 executable is x86-64; its source is in the restricted `cix_security/tool` repository. | Grant repository access, build CBFF 1.4 natively, and validate signed Star1 images. |
 | `build-pm_fw.sh` | The PM firmware requires licensed Cadence Xtensa RI-2022.10 tooling not available for the current native host. | Provide a licensed, supported Debian 13 ARM64 toolchain or an approved native build service. |
 
-## Pending Legacy Entries (118)
+## Pending Legacy Entries (114)
 
 Pending means no output-equivalence decision has been completed. Some entries
 may become native targets, some may collapse into declarative build sets, and
 some may be retired after their orchestration-only behavior is confirmed. They
-are listed explicitly so none can be mistaken for implemented coverage.
+are listed explicitly so none can be mistaken for implemented coverage. The
+numbers preserve each entry's ordinal in the frozen 167-entry snapshot, so gaps
+identify entries moved to another status above.
 
 1. `build-ai-all.sh`
 2. `build-ai-test.sh`
@@ -236,8 +254,6 @@ are listed explicitly so none can be mistaken for implemented coverage.
 59. `build-lk.sh`
 60. `build-llamacpp.sh`
 61. `build-lt7911uxc.sh`
-62. `build-ltp-opensource.sh`
-63. `build-ltp.sh`
 64. `build-make.sh`
 65. `build-memory-config.sh`
 66. `build-metapackages.sh`
@@ -264,7 +280,6 @@ are listed explicitly so none can be mistaken for implemented coverage.
 87. `build-qa-pm_fw.sh`
 88. `build-qa-tfa.sh`
 89. `build-qspi-flash.sh`
-90. `build-ramparser.sh`
 91. `build-rk-kernel.sh`
 92. `build-rk3588.sh`
 93. `build-se-config.sh`
@@ -279,7 +294,6 @@ are listed explicitly so none can be mistaken for implemented coverage.
 102. `build-uefi-ci-android.sh`
 103. `build-uefi-ci-merge.sh`
 104. `build-uefi-unit-test.sh`
-105. `build-unit_test.sh`
 106. `build-viplite-acuityllm.sh`
 107. `build-viplite-dkms.sh`
 108. `build-viplite-kmd.sh`

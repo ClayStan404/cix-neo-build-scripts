@@ -1,0 +1,76 @@
+From: CIX Neo Build System <noreply@cixtech.com>
+Subject: [PATCH] build native ARM64 release without legacy ELF wrapper
+
+The historical release step replaces crash with a self-extracting wrapper
+built for the x86 host. Keep the actual crash, rdr, ramlog, and extension
+binaries when the new native ARM64 build requests CIX_NATIVE_HOST=1. The old
+gcore extension also duplicates libc's current AArch64 procfs types, so omit
+that optional extension from the native build while retaining the CIX crash,
+RDR, ramlog, trace, and lightweight extensions.
+
+GCC 14 also diagnoses the implicit char-pointer conversion in the CIX ARM64
+stack walker as an error. Cast the allocator result to its actual frame type.
+
+diff --git a/cix_crash/arm64.c b/cix_crash/arm64.c
+index 149cd79..3b24769 100644
+--- a/cix_crash/arm64.c
++++ b/cix_crash/arm64.c
+@@ -3881,7 +3881,8 @@ static bool arm64_search_stackframe_in_task(struct bt_info *bt, struct arm64_st
+ 	uint64_t *stack = (uint64_t *)bt->stackbuf;
+ 	uint64_t stack_base = bt->stackbase;
+ 	uint32_t reg_num = STACKSIZE() / 0x10;
+-	arm64_frame_reg *tmp_frame = GETBUF(reg_num * sizeof(arm64_frame_reg));
++	arm64_frame_reg *tmp_frame =
++		(arm64_frame_reg *)GETBUF(reg_num * sizeof(arm64_frame_reg));
+ 	uint32_t frame_cnt = 0;
+ 
+ 	/*Initial screening of FP and PC*/
+diff --git a/cix_crash/Makefile b/cix_crash/Makefile
+index 006bb30..119309a 100644
+--- a/cix_crash/Makefile
++++ b/cix_crash/Makefile
+@@ -312,10 +312,16 @@ force:
+ 
+ 
+ cix_release:
++ifeq ($(CIX_NATIVE_HOST),1)
++	@$(MAKE) -C cix cixrdr
++	@mkdir -p release
++	@cp -f ${PROGRAM} rdr ramlog release/
++else
+ 	@cp -rf ${PROGRAM} rdr ramlog release/
+ 	@make -C cix cix_pack
+ 	@mv release/${PROGRAM} ./
+ 	@rm -rf release
++endif
+ 
+ 
+ make_configure: force
+diff --git a/cix_crash/cix/crash-extensions/cix-ex.mk b/cix_crash/cix/crash-extensions/cix-ex.mk
+index 421da48..29f32f7 100644
+--- a/cix_crash/cix/crash-extensions/cix-ex.mk
++++ b/cix_crash/cix/crash-extensions/cix-ex.mk
+@@ -5,6 +5,12 @@ CIX_EXSO_OUTDIR := $(BUILDDIR)/$(CIX_EXTENSION_DIR)/so
+ include $(CIX_EXTENSION_DIR)/crash-gcore/cix-gcore.mk
+ include $(CIX_EXTENSION_DIR)/crash-trace/cix-trace.mk
+ 
++ifeq ($(CIX_NATIVE_HOST),1)
++CIX_PLATFORM_EXTENSION_TARGETS = trace
++else
++CIX_PLATFORM_EXTENSION_TARGETS = gcore trace
++endif
++
+ EXTENSION_TMP_SRC = cacheutils.c cgget.c dminfo.c lscgroup.c memutils.c proccgroup.c sockq.c swap_usage.c
+ EXTENSION_SRC = $(addprefix $(CIX_EXTENSION_DIR)/,$(EXTENSION_TMP_SRC))
+ EXTENSION_OBJECT = $(patsubst %.c,%.o, $(addprefix $(BUILDDIR)/,$(EXTENSION_SRC)))
+@@ -13,7 +19,7 @@ EXTENSION_SO = $(patsubst %.o,%.so, $(EXTENSION_OBJECT))
+ 
+ EXTENSION_CFLAGS = -fPIC
+ 
+-cix_extension: cix_extension_setup gcore trace all_ex_so
++cix_extension: cix_extension_setup $(CIX_PLATFORM_EXTENSION_TARGETS) all_ex_so
+ 	mkdir -p ../release/extensions/
+ 	rm -rf ../release/extensions/*
+ 	cp -rf $(CIX_EXSO_OUTDIR)/* ../release/extensions/
+-- 
+2.47.2

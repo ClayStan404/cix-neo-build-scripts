@@ -50,7 +50,21 @@ cix_direct_build() {
             source "${CIX_ROOT}/build-scripts/builders/direct/pmtool.sh"
             cix_direct_pmtool_build "${requested_action}" "${target_output}"
             ;;
+        ramparser)
+            # shellcheck source=builders/direct/ramparser.sh
+            source "${CIX_ROOT}/build-scripts/builders/direct/ramparser.sh"
+            cix_direct_ramparser_build \
+                "${requested_action}" "${target_output}" "${target_jobs}"
+            ;;
+        cix-test-tools|ltp-testsuite)
+            # shellcheck source=builders/direct/validation.sh
+            source "${CIX_ROOT}/build-scripts/builders/direct/validation.sh"
+            cix_direct_validation_build \
+                "${requested_action}" "${target_output}" "${target_jobs}"
+            ;;
         *)
+            # TARGET is a caller-owned associative array intentionally read here.
+            # shellcheck disable=SC2031
             cix_die "unsupported direct build flow: ${TARGET[flow]}"
             ;;
     esac

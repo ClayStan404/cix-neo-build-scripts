@@ -100,6 +100,18 @@ is confirmed.
 - Validate GPU, VPU, and NPU DKMS packages by compiling their modules against
   the headers package produced by the CIX kernel build. Generic upstream
   kernel headers are not a supported test target.
+- Preflight every target in a requested build set before the first build starts.
+  Validate source availability, Git and LFS inputs, Debian metadata, sbuild
+  readiness, and applicable patch series without modifying source checkouts.
+- Support safe resumable builds with fingerprints covering the target
+  definition, all contributing Git states, selected Debian backend, internal
+  dependency states, and published artifact digests. Rebuild instead of
+  resuming whenever any part cannot be verified.
+- Persist per-target logs, durations, fingerprints, artifact inventories, and a
+  machine-readable result for every build invocation.
+- Provide declarative 6.6 and 7.0 product validation profiles for artifacts,
+  checksums, matching-kernel DKMS compilation, and read-only installed-host
+  inspection. Keep test orchestration outside package build implementations.
 - Use external `3.0 (quilt)` Debian metadata for upstream DKMS source projects
   and proprietary firmware payloads. Use `3.0 (native)` for packages whose
   source is owned by the Debian metadata repository.
@@ -190,6 +202,16 @@ is confirmed.
   `cix-sof-gcc10x-dev`, Newlib for Xtensa at `xtensa`, SOF at
   `cix-stable-v2.11-dev`, tomlc99 at `master`, and the Xtensa overlay at
   `cix-sof-gcc10.2-dev`.
+- Track `cix_opensource/cix_unit_test` at branch `cix_master` under
+  `sources/cix-unit-test` for selected native board diagnostic tools.
+- Track `cix_test/ltp_opensource` at branch `cix_master` under `sources/ltp`
+  and build the complete pinned suite natively. Carry only the Debian 13 header
+  compatibility delta as an isolated patch.
+- Track `linux_repo/cix_ramparser` at branch `cix_python3_dev` under
+  `sources/ramparser`. Build its crash tools natively on ARM64. Where the RDR
+  parser still consumes the removed pre-blackbox-v3.01 kernel ABI, pin the exact
+  compatible kernel revision used to generate headers and record it in the
+  output instead of fetching an implicit branch during the build.
 - Track the shared Sky1 release firmware inputs under `sources/radxa-o6`:
   EDK2, EDK2 non-OSI, and EDK2 platforms at `cix_opensource_firmware`; ACPICA at
   `R2024_12_12`; and `cix_bsp_release` at `cix_master`. These inputs provide
@@ -476,6 +498,13 @@ is confirmed.
   `Build-Depends` edge.
 - Run CI in the company-internal Jenkins deployment. Do not add a GitHub-hosted
   build workflow.
+- Execute CI plans through one checked-in executor that expands both reverse
+  rebuild impact and forward build prerequisites, schedules only
+  dependency-ready targets, and invokes the normal `cix-build` entry point.
+- Permit a successful Jenkins plan to publish its top-level Debian artifacts as
+  a new unsigned, trusted, build-scoped APT repository. Include deterministic
+  package indexes and a package/hash manifest; do not treat it as a permanent
+  release archive.
 - Run Lintian for sbuild package builds and require a successful Lintian run.
 
 ### Current Implemented Scope
@@ -494,6 +523,7 @@ The current build system contains these build targets:
 - System integration and firmware: `grub-config`, `alsa-conf`, `audio-dsp`,
   `audio-sof`, `radxa-o6-firmware`, `radxa-o6n-firmware`,
   `sky1-merak-firmware`, `sky1-edge-firmware`, `cix-env`, `cix-firmware`
+- Validation and diagnostics: `cix-test-tools`, `ltp`, `ramparser`
 
 The VPU DKMS package must retain its runtime dependency on
 `cix-vpu-firmware`. Its 16 proprietary `.fwb` files come from the

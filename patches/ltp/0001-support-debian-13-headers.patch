@@ -1,0 +1,61 @@
+From: CIX Neo Build System <noreply@cixtech.com>
+Subject: [PATCH] ltp: support Debian 13 libc and kernel headers
+
+glibc 2.41 provides sched_attr, sched_setattr(), and sched_getattr(), so the
+old LTP compatibility definitions conflict with libc. Use libc's definitions
+when they are available.
+
+Recent kernel UAPI headers removed the retired tcindex classifier constants.
+Build the CVE test as unsupported in that environment instead of failing the
+whole validation suite.
+
+diff --git a/include/lapi/sched.h b/include/lapi/sched.h
+index 26fdb628d..490132d8c 100644
+--- a/include/lapi/sched.h
++++ b/include/lapi/sched.h
+@@ -15,6 +15,13 @@
+ #include "lapi/syscalls.h"
+ #include "lapi/sched.h"
+ 
++#if defined(__GLIBC__) && defined(__GLIBC_PREREQ)
++# if __GLIBC_PREREQ(2, 41)
++#  define LTP_HAVE_LIBC_SCHED_ATTR 1
++# endif
++#endif
++
++#ifndef LTP_HAVE_LIBC_SCHED_ATTR
+ struct sched_attr {
+ 	uint32_t size;
+ 
+@@ -44,6 +51,7 @@ static inline int sched_getattr(pid_t pid, struct sched_attr *attr,
+ {
+ 	return syscall(__NR_sched_getattr, pid, attr, size, flags);
+ }
++#endif
+ 
+ #ifndef HAVE_CLONE3
+ struct clone_args {
+diff --git a/testcases/cve/tcindex01.c b/testcases/cve/tcindex01.c
+index 91bfafb53..ddb05652c 100644
+--- a/testcases/cve/tcindex01.c
++++ b/testcases/cve/tcindex01.c
+@@ -30,6 +30,11 @@
+ #include "lapi/if_ether.h"
+ #include "lapi/rtnetlink.h"
+ 
++#if !defined(TCA_TCINDEX_MASK) || !defined(TCA_TCINDEX_SHIFT) || \
++	!defined(TCA_TCINDEX_CLASSID)
++TST_TEST_TCONF("kernel UAPI no longer provides the retired tcindex classifier");
++#else
++
+ #define DEVNAME "ltp_dummy1"
+ 
+ static const uint32_t qd_handle = TC_H_MAKE(1 << 16, 0);
+@@ -134,3 +139,5 @@ static struct tst_test test = {
+ 		{}
+ 	}
+ };
++
++#endif
+-- 
+2.47.2
