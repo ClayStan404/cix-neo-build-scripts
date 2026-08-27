@@ -29,7 +29,9 @@ cix_remove_empty_registered_outputs() {
     for name in "$@"; do
         output_dir="${output_root}/${name}"
         [[ -d "${output_dir}" ]] || continue
-        find "${output_dir}" -xdev -depth -type d -empty -delete
+        # Generated toolchains can intentionally contain read-only directory
+        # trees. They are reusable caches, so clean-all must leave them intact.
+        find "${output_dir}" -xdev -depth -type d -empty -writable -delete
         if [[ ! -e "${output_dir}" ]]; then
             cix_log "Remove empty target directory ${output_dir}"
         fi
@@ -42,11 +44,15 @@ cix_remove_registered_outputs() {
     local output_entry
     local output_root="${CIX_ROOT}/output"
 
-    cix_require_command find rmdir
+    cix_require_command chmod find rmdir
     for name in "$@"; do
         output_dir="${output_root}/${name}"
         [[ -d "${output_dir}" ]] || continue
         cix_log "Remove registered target directory ${output_dir}"
+        # distclean removes target-owned caches as well. Build tools such as
+        # crosstool-NG install final toolchain directories without owner-write
+        # permission, so make owned directory entries removable first.
+        find "${output_dir}" -xdev -type d -exec chmod u+w -- {} +
         find "${output_dir}" -xdev -mindepth 1 -delete
         rmdir -- "${output_dir}"
     done
