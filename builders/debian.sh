@@ -45,6 +45,41 @@ cix_create_orig_tar() {
         "$(basename "${source_tree}")"
 }
 
+cix_remove_debian_work_root() {
+    local work_root="$1"
+
+    [[ "${work_root}" == "${CIX_ROOT}/output/"* ]] ||
+        cix_die "refusing unsafe Debian work directory cleanup: ${work_root}"
+    [[ ! -e "${work_root}" ]] && return 0
+    [[ -d "${work_root}" && ! -L "${work_root}" ]] ||
+        cix_die "refusing non-directory Debian work cleanup: ${work_root}"
+    find "${work_root}" -depth -delete
+}
+
+cix_trap_debian_work_root() {
+    local work_root="$1"
+    local cleanup_command
+
+    printf -v cleanup_command 'cix_remove_debian_work_root %q' "${work_root}"
+    # The path must expand now: the EXIT trap can run after local variables
+    # leave scope when cix-build redirects the builder through tee.
+    # shellcheck disable=SC2064
+    trap "${cleanup_command}" EXIT
+}
+
+cix_clean_debian_work_roots() {
+    local build_output="$1"
+    local work_root
+
+    while IFS= read -r -d '' work_root; do
+        cix_log "Remove stale Debian work directory: ${work_root}"
+        cix_remove_debian_work_root "${work_root}"
+    done < <(
+        find "${build_output}" -mindepth 1 -maxdepth 1 -type d \
+            -name ".${TARGET[name]}.*" -print0
+    )
+}
+
 cix_add_debian_metadata() {
     local packaging_dir="$1"
     local source_tree="$2"
@@ -346,7 +381,7 @@ cix_debian_quilt_package() (
     esac
 
     work_root="$(mktemp -d "${build_output}/.${TARGET[name]}.XXXXXXXXXX")"
-    trap 'rm -rf -- "${work_root}"' EXIT
+    cix_trap_debian_work_root "${work_root}"
     source_tree="${work_root}/${source_package}-${upstream_version}"
     cix_log "Assemble ${TARGET[description]} source package"
     mkdir -p -- "${source_tree}"
@@ -510,7 +545,7 @@ cix_debian_git_package() (
         cix_debian_metadata "${overlay_dir}"
     )
     work_root="$(mktemp -d "${build_output}/.${TARGET[name]}.XXXXXXXXXX")"
-    trap 'rm -rf -- "${work_root}"' EXIT
+    cix_trap_debian_work_root "${work_root}"
     source_tree="${work_root}/${source_package}-${upstream_version}"
     cix_log "Assemble ${TARGET[description]} from Debian Git"
     mkdir -p -- "${source_tree}"
@@ -551,7 +586,7 @@ cix_debian_native_package() (
     tree_version="${debian_version#*:}"
 
     work_root="$(mktemp -d "${build_output}/.${TARGET[name]}.XXXXXXXXXX")"
-    trap 'rm -rf -- "${work_root}"' EXIT
+    cix_trap_debian_work_root "${work_root}"
     source_tree="${work_root}/${source_package}-${tree_version}"
     cix_log "Assemble ${TARGET[description]} native source package"
     cix_add_debian_metadata "${packaging_dir}" "${source_tree}"
@@ -580,6 +615,7 @@ cix_debian_build() {
         *) cix_die "unsupported Debian build backend: ${build_backend}" ;;
     esac
     mkdir -p -- "${build_output}"
+    cix_clean_debian_work_roots "${build_output}"
     cix_clean_artifacts "${build_output}"
     case "${TARGET[flow]}" in
         debian-git)

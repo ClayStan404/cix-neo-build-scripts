@@ -135,6 +135,74 @@ class BuildStateTests(unittest.TestCase):
         self.assertEqual(value["status"], "success")
         self.assertEqual(value["targets"][0]["target"], "one")
 
+    def test_debian_cleanup_trap_survives_process_substitution(self) -> None:
+        builder = Path(__file__).resolve().parents[1] / "builders/debian.sh"
+        work_root = self.output / ".demo.failed-build"
+        script = r'''
+set -Eeuo pipefail
+CIX_ROOT="$1"
+builder="$2"
+source "${builder}"
+run_failure() (
+    local work_root="$1"
+    mkdir -p -- "${work_root}/source"
+    cix_trap_debian_work_root "${work_root}"
+    false
+)
+run_failure "$3" > >(tee /dev/null)
+'''
+
+        result = subprocess.run(
+            (
+                "bash",
+                "-c",
+                script,
+                "cleanup-test",
+                str(self.workspace),
+                str(builder),
+                str(work_root),
+            ),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("unbound variable", result.stderr)
+        self.assertFalse(work_root.exists())
+
+    def test_stale_debian_work_roots_are_removed(self) -> None:
+        builder = Path(__file__).resolve().parents[1] / "builders/debian.sh"
+        stale = self.output / ".demo.stale-build"
+        retained = self.output / "retained"
+        (stale / "source").mkdir(parents=True)
+        retained.mkdir()
+        script = r'''
+set -Eeuo pipefail
+CIX_ROOT="$1"
+builder="$2"
+declare -A TARGET=([name]=demo)
+cix_log() { :; }
+source "${builder}"
+cix_clean_debian_work_roots "$3"
+'''
+
+        subprocess.run(
+            (
+                "bash",
+                "-c",
+                script,
+                "cleanup-test",
+                str(self.workspace),
+                str(builder),
+                str(self.output),
+            ),
+            check=True,
+        )
+
+        self.assertFalse(stale.exists())
+        self.assertTrue(retained.is_dir())
+
     def test_repository_signature_is_scoped_to_input_paths(self) -> None:
         repository = self.workspace / "source"
         (repository / "used").mkdir(parents=True)

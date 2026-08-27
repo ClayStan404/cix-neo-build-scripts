@@ -136,7 +136,7 @@ cix_debian_payload_package() (
         cix_debian_metadata "${packaging_dir}"
     )
     work_root="$(mktemp -d "${payload_output}/.${TARGET[name]}.XXXXXXXXXX")"
-    trap 'rm -rf -- "${work_root}"' EXIT
+    cix_trap_debian_work_root "${work_root}"
     source_tree="${work_root}/${source_package}-${upstream_version}"
     cix_log "Assemble ${TARGET[description]} source package"
     mkdir -p -- "${source_tree}"
