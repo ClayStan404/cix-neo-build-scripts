@@ -3806,20 +3806,20 @@ index 00000000..6638282a
 +  DEBUG ((DEBUG_INFO, "%a\n",__func__));
 +
 +  /*usb3 typec ports*/
-+  WakeupCfg(USB_C_SSP_0_HOST_IRQ,FALSE);
-+  WakeupCfg(USB_C_SSP_1_HOST_IRQ,FALSE);
-+  WakeupCfg(USB_C_SSP_2_HOST_IRQ,FALSE);
-+  WakeupCfg(USB_C_SSP_3_HOST_IRQ,FALSE);
++  WakeupCfg(USB_C_SSP_0_HOST_IRQ,FALSE,0);
++  WakeupCfg(USB_C_SSP_1_HOST_IRQ,FALSE,0);
++  WakeupCfg(USB_C_SSP_2_HOST_IRQ,FALSE,0);
++  WakeupCfg(USB_C_SSP_3_HOST_IRQ,FALSE,0);
 +
 +  /*usb3 typea ports*/
-+  WakeupCfg(USB_SSP_0_HOST_IRQ,FALSE);
-+  WakeupCfg(USB_SSP_1_HOST_IRQ,FALSE);
++  WakeupCfg(USB_SSP_0_HOST_IRQ,FALSE,0);
++  WakeupCfg(USB_SSP_1_HOST_IRQ,FALSE,0);
 +
 +  /*usb2 ports*/
-+  WakeupCfg(USB2_0_HOST_IRQ,FALSE);
-+  WakeupCfg(USB2_1_HOST_IRQ,FALSE);
-+  WakeupCfg(USB2_2_HOST_IRQ,FALSE);
-+  WakeupCfg(USB2_3_HOST_IRQ,FALSE);
++  WakeupCfg(USB2_0_HOST_IRQ,FALSE,0);
++  WakeupCfg(USB2_1_HOST_IRQ,FALSE,0);
++  WakeupCfg(USB2_2_HOST_IRQ,FALSE,0);
++  WakeupCfg(USB2_3_HOST_IRQ,FALSE,0);
 +  return Status;
 +}
 +
@@ -4575,10 +4575,10 @@ index 00000000..6c1ec76b
 +  gCixTokenSpaceGuid.PcdUsbCControl2Enable|TRUE
 +
 +  # USB3_A
-+  gCixTokenSpaceGuid.PcdUsb3Control0Enable|TRUE
-+  gCixTokenSpaceGuid.PcdUsb3Control0DataRole|FALSE
-+  gCixTokenSpaceGuid.PcdUsb3Control1Enable|TRUE
-+  gCixTokenSpaceGuid.PcdUsb3Control1DataRole|FALSE
++  gCixTokenSpaceGuid.PcdUsbTypeA4DrdControl0Enable|TRUE
++  gCixTokenSpaceGuid.PcdUsbTypeA4DrdControl0DataRole|FALSE
++  gCixTokenSpaceGuid.PcdUsbTypeA5DrdControl0Enable|TRUE
++  gCixTokenSpaceGuid.PcdUsbTypeA5DrdControl0DataRole|FALSE
 +
 +  # USB2
 +  gCixTokenSpaceGuid.PcdUsb2Control0Enable|TRUE
