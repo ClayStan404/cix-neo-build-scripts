@@ -100,11 +100,12 @@ the two product sets, with:
 ./build-scripts/cix-build clean-all
 ```
 
-`clean-all` removes empty registered target directories after their target-owned
-cleaners finish. Directories that still contain reusable source downloads,
-generated toolchains, or other target caches remain. The shared compiler cache
-and sbuild APT archive cache are also retained. Use the stronger cleanup only
-when those caches must be discarded:
+`clean-all` removes empty output directory trees after the target-owned
+cleaners finish, including empty directories left by retired targets.
+Directories that still contain reusable source downloads, generated
+toolchains, other target caches, or unregistered artifacts remain. The shared
+compiler cache and sbuild APT archive cache are also retained. Use the stronger
+cleanup only when those caches must be discarded:
 
 ```bash
 ./build-scripts/cix-build distclean
@@ -112,10 +113,10 @@ when those caches must be discarded:
 
 `distclean` first runs every target-owned cleaner, then removes all registered
 target directories and empties the persistent ccache and sbuild APT archive
-cache. It preserves the provisioned sbuild chroot and any unregistered entries
-under `output/`; each preserved entry is reported explicitly. Both global
-operations derive the complete target list from `build-map.yaml` rather than a
-duplicated shell list.
+cache. It preserves the provisioned sbuild chroot and any nonempty unregistered
+entries under `output/`; each preserved entry is reported explicitly. Both
+global operations derive the complete target list from `build-map.yaml` rather
+than a duplicated shell list.
 
 Every target reports its elapsed time as `HH:MM:SS`, and a successful set
 reports the total elapsed time. On failure, the command reports the failed

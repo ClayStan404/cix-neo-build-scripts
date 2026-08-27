@@ -46,8 +46,13 @@ cix_log() { :; }
             check=True,
         )
 
-    def test_clean_all_removes_empty_outputs_but_preserves_read_only_cache(self) -> None:
+    def test_clean_all_removes_empty_outputs_but_preserves_caches(self) -> None:
         (self.output / "empty" / "nested").mkdir(parents=True)
+        (self.output / "retired" / "images").mkdir(parents=True)
+        (self.output / "manual" / "artifact.bin").parent.mkdir(parents=True)
+        (self.output / "manual" / "artifact.bin").write_text(
+            "artifact\n", encoding="utf-8"
+        )
         cache_leaf = self.output / "cached" / "toolchain" / "include" / "bits"
         cache_leaf.mkdir(parents=True)
         (self.output / "cached" / "toolchain" / ".cache-id").write_text(
@@ -57,10 +62,12 @@ cix_log() { :; }
         cache_leaf.parent.chmod(0o555)
 
         self.run_cleanup(
-            "cix_remove_empty_registered_outputs", "empty", "cached"
+            "cix_remove_empty_outputs", "empty", "cached"
         )
 
         self.assertFalse((self.output / "empty").exists())
+        self.assertFalse((self.output / "retired").exists())
+        self.assertTrue((self.output / "manual" / "artifact.bin").is_file())
         self.assertTrue(cache_leaf.is_dir())
 
     def test_distclean_removes_read_only_target_cache(self) -> None:

@@ -55,11 +55,12 @@ entry-point drift at this snapshot.
 - Builds use the host CPU count by default, clean stale top-level artifacts,
   publish under `output/TARGET`, stop on the first failure, and report per-target
   and total elapsed time.
-- `clean-all` cleans every registered target, removes empty target directories,
-  and retains directories containing reusable caches. `distclean` additionally
+- `clean-all` cleans every registered target, removes empty output directory
+  trees including retired-target leftovers, and retains directories containing
+  reusable caches or unregistered artifacts. `distclean` additionally
   removes all registered target directories and empties the shared ccache and
   sbuild APT archive cache while preserving the sbuild chroot and explicitly
-  reporting unregistered output entries.
+  reporting nonempty unregistered output entries.
 - Setup scripts install the recorded Debian 13 host and sbuild prerequisites
   needed to reproduce a new build machine.
 - The manifest, Debian metadata, and build scripts are maintained as separate

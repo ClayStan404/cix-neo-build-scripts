@@ -20,10 +20,13 @@ cix_global_cleanup_preflight() {
     done
 }
 
-cix_remove_empty_registered_outputs() {
+cix_remove_empty_outputs() {
     local name
     local output_dir
+    local output_entry
     local output_root="${CIX_ROOT}/output"
+    local registered_name
+    local is_registered
 
     cix_require_command find
     for name in "$@"; do
@@ -36,6 +39,25 @@ cix_remove_empty_registered_outputs() {
             cix_log "Remove empty target directory ${output_dir}"
         fi
     done
+
+    [[ -d "${output_root}" ]] || return 0
+    while IFS= read -r -d '' output_entry; do
+        [[ -d "${output_entry}" && ! -L "${output_entry}" ]] || continue
+        name="${output_entry##*/}"
+        is_registered=false
+        for registered_name in "$@"; do
+            if [[ "${name}" == "${registered_name}" ]]; then
+                is_registered=true
+                break
+            fi
+        done
+        [[ "${is_registered}" == false ]] || continue
+
+        find "${output_entry}" -xdev -depth -type d -empty -writable -delete
+        if [[ ! -e "${output_entry}" ]]; then
+            cix_log "Remove empty unregistered output directory ${output_entry}"
+        fi
+    done < <(find "${output_root}" -mindepth 1 -maxdepth 1 -print0)
 }
 
 cix_remove_registered_outputs() {
