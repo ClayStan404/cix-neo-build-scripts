@@ -154,8 +154,29 @@ Sky1 tool implements a different format and is not a safe substitute.
 `cix_master_stmm` EDK2 branches and publishes `BL32_AP_EFI_STMM.fd` with its
 build report. It does not reuse the normal UEFI source branch, and it does not
 require the old x86-hosted ARM64 cross-toolchain.
-The `secure-firmware` set currently contains this target and will grow as the
-remaining TF-A, TEE, and secure-image components are migrated.
+
+The native secure-firmware targets are:
+
+- `sky1-tf-a`, which publishes `tf-a.bin` and `bl31.elf`;
+- `sky1-pbl`, which publishes `pbl_fw.bin` and `bl2.elf`;
+- `sky1-optee`, which publishes `tee.bin` and `tee.elf`;
+- `sky1-se-firmware`, which publishes the RELEASE `se_fw` binary, ELF, HEX,
+  and disassembly;
+- `uefi-stmm`, which remains an independent Standalone MM artifact.
+
+Run `cix-build sky1-trusted-firmware` for PBL and TF-A, or
+`cix-build secure-firmware` for all implemented components. Each target builds
+in an isolated Git worktree, uses Debian 13 ARM64 host tools, publishes a
+`SHA256SUMS` file, and leaves every manifest source checkout clean. OP-TEE is
+built as the standalone secure-world firmware used by the legacy flow when no
+prebuilt Standalone MM path is supplied; `uefi-stmm` is deliberately kept as a
+separate output rather than making the OP-TEE target depend on previous output
+state.
+
+PM firmware is not claimed as native: its available flow requires the licensed
+Cadence Xtensa RI-2022.10 toolchain. BootROM is also not claimed because the
+source tree referenced by the legacy script is absent. These blockers remain
+recorded in the migration ledger.
 
 The remaining legacy firmware platforms and their native-build blockers are
 tracked in [`docs/legacy-build-coverage.md`](docs/legacy-build-coverage.md).

@@ -1,3 +1,4 @@
 patches/radxa-o6n/*.patch -whitespace
 patches/radxa-pm-tuning/*.patch -whitespace
 patches/radxa-memory-tuning/*.patch -whitespace
+patches/secure-firmware/*.patch -whitespace

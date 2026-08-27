@@ -338,8 +338,19 @@ is confirmed.
 - Build Standalone MM as a separate `uefi-stmm` direct target from the
   dedicated `cix_master_stmm` EDK2 branches. Publish
   `BL32_AP_EFI_STMM.fd` independently from BL33 UEFI and product images. Keep
-  it in a `secure-firmware` build set that can grow as the other secure
-  firmware components are migrated.
+  it in the `secure-firmware` build set.
+- Build Sky1 TF-A, PBL, OP-TEE, and RELEASE SE firmware as isolated direct
+  targets from manifest-managed source branches. Use Debian 13 ARM64 host
+  compilers and the Debian ARM Embedded compiler, apply compatibility changes
+  only in disposable worktrees, publish the legacy component filenames plus
+  ELF/debugging artifacts, and generate checksums for every target.
+- Provide `sky1-trusted-firmware` for the PBL and TF-A pair and
+  `secure-firmware` for every implemented trusted/security firmware component.
+  Keep Standalone MM independent from the OP-TEE output so a standalone target
+  never changes according to artifacts left by an earlier build.
+- Do not claim PM firmware support until a licensed Cadence Xtensa toolchain
+  runs natively on the Debian 13 ARM64 host. Do not claim BootROM support until
+  the source repository referenced by the legacy build is available.
 - Keep VPU DKMS, VPU firmware, and `cix-grub-config` in both product build
   sets. Keep the CIX Linux 6.6 kernel and legacy CIX GStreamer target in
   `all-6.6`. Keep the stable 7.0 kernel and the Debian Salsa-based GStreamer

@@ -340,6 +340,22 @@ def _target_from_mapping(name: str, entry: dict) -> Target:
             {"source"},
             {"source"},
         ),
+        ("direct", "sky1-tf-a"): (
+            {"source"},
+            {"source"},
+        ),
+        ("direct", "sky1-pbl"): (
+            {"source"},
+            {"source"},
+        ),
+        ("direct", "sky1-optee"): (
+            {"source"},
+            {"source"},
+        ),
+        ("direct", "sky1-se-firmware"): (
+            {"source"},
+            {"source"},
+        ),
         ("direct", "pmtool"): (
             {"source"},
             {"source"},

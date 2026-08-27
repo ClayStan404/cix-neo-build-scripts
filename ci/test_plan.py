@@ -627,6 +627,31 @@ Description: CIX VPU development files
         self.assertIsNone(target.board)
         self.assertIsNone(target.control)
 
+    def test_secure_firmware_components_use_direct_source_flows(self) -> None:
+        components = (
+            ("sky1-tf-a", "sources/secure-firmware"),
+            ("sky1-pbl", "sources/secure-firmware"),
+            ("sky1-optee", "sources/secure-firmware"),
+            ("sky1-se-firmware", "sources/radxa-o6"),
+        )
+
+        for target_name, source in components:
+            with self.subTest(target=target_name):
+                target = plan._target_from_mapping(
+                    target_name,
+                    {
+                        "description": f"Sky1 {target_name}",
+                        "builder": "direct",
+                        "flow": target_name,
+                        "source": source,
+                    },
+                )
+
+                self.assertEqual(target.flow, target_name)
+                self.assertEqual(target.source, source)
+                self.assertIsNone(target.board)
+                self.assertIsNone(target.control)
+
     def test_radxa_pm_tuning_is_a_direct_firmware_flow(self) -> None:
         target = plan._target_from_mapping(
             "radxa-o6-pm-tuning",

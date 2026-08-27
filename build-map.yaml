@@ -6,6 +6,16 @@ build_sets:
     description: Native ARM64 secure-firmware components
     targets:
       - uefi-stmm
+      - sky1-optee
+      - sky1-pbl
+      - sky1-tf-a
+      - sky1-se-firmware
+
+  sky1-trusted-firmware:
+    description: Native Sky1 PBL and TF-A firmware
+    targets:
+      - sky1-pbl
+      - sky1-tf-a
 
   uefi-development:
     description: Native ARM64 development UEFI matrix for CIX validation platforms
@@ -225,6 +235,30 @@ targets:
     builder: direct
     flow: uefi-stmm
     source: sources/uefi-stmm
+
+  sky1-tf-a:
+    description: CIX Sky1 EL3 runtime firmware
+    builder: direct
+    flow: sky1-tf-a
+    source: sources/secure-firmware
+
+  sky1-pbl:
+    description: CIX Sky1 primary bootloader firmware
+    builder: direct
+    flow: sky1-pbl
+    source: sources/secure-firmware
+
+  sky1-optee:
+    description: CIX Sky1 OP-TEE secure-world firmware
+    builder: direct
+    flow: sky1-optee
+    source: sources/secure-firmware
+
+  sky1-se-firmware:
+    description: CIX Sky1 security-engine firmware
+    builder: direct
+    flow: sky1-se-firmware
+    source: sources/radxa-o6
 
   radxa-o6-pm-validation:
     description: Radxa Orion O6 stock-equivalent custom PM config validation image
@@ -578,6 +612,30 @@ targets:
     lfs: true
 
 projects:
+  cix_opensource/arm-trusted-firmware:
+    path: sources/secure-firmware/bsp/tf-a
+    rules:
+      - paths: ["**"]
+        targets: [sky1-tf-a]
+
+  cix_opensource/cix_tfa:
+    path: sources/secure-firmware/bsp/cix_tfa
+    rules:
+      - paths: ["**"]
+        targets: [sky1-pbl]
+
+  cix_opensource/mbedtls:
+    path: sources/secure-firmware/bsp/mbedtls
+    rules:
+      - paths: ["**"]
+        targets: [sky1-pbl, sky1-tf-a]
+
+  cix_opensource/tee/op-tee:
+    path: sources/secure-firmware/bsp/tee
+    rules:
+      - paths: ["**"]
+        targets: [sky1-optee]
+
   cix_private/edk2:
     path: sources/uefi-development/edk2
     rules:
@@ -695,19 +753,19 @@ projects:
     path: sources/radxa-o6/bootloader/ddr
     rules:
       - paths: ["**"]
-        targets: [radxa-o6-pm-tuning]
+        targets: [radxa-o6-pm-tuning, sky1-se-firmware]
 
   cix_security/firmware:
     path: sources/radxa-o6/bootloader/firmware
     rules:
       - paths: ["**"]
-        targets: [radxa-o6-pm-tuning]
+        targets: [radxa-o6-pm-tuning, sky1-se-firmware]
 
   cix_security/library:
     path: sources/radxa-o6/bootloader/library
     rules:
       - paths: ["**"]
-        targets: [radxa-o6-pm-tuning]
+        targets: [radxa-o6-pm-tuning, sky1-se-firmware, sky1-pbl, sky1-tf-a]
 
   cix_private/sw_tools_private:
     path: sources/radxa-o6/bootloader/sw-tools-private
@@ -949,7 +1007,7 @@ projects:
       - paths: ["build-map.yaml", "cix-build", "builders/common.sh"]
         targets: ["*"]
       - paths: ["builders/direct.sh"]
-        targets: [kernel, stable-kernel, audio-sof, pmtool, radxa-o6-firmware, radxa-o6n-firmware, sky1-merak-firmware, sky1-edge-firmware, radxa-o6-pm-validation, radxa-o6-opp-validation, radxa-o6-pm-tuning, radxa-o6n-pm-validation]
+        targets: [kernel, stable-kernel, audio-sof, pmtool, radxa-o6-firmware, radxa-o6n-firmware, sky1-merak-firmware, sky1-edge-firmware, radxa-o6-pm-validation, radxa-o6-opp-validation, radxa-o6-pm-tuning, radxa-o6n-pm-validation, sky1-tf-a, sky1-pbl, sky1-optee, sky1-se-firmware]
       - paths: ["builders/direct.sh", "builders/direct/uefi-development.sh"]
         targets: *uefi_development_targets
       - paths: ["patches/uefi-development/**"]
@@ -958,6 +1016,8 @@ projects:
         targets: *all_uefi_targets
       - paths: ["builders/direct.sh", "builders/direct/edk2.sh", "builders/direct/uefi-stmm.sh"]
         targets: [uefi-stmm]
+      - paths: ["builders/direct/secure-firmware.sh", "patches/secure-firmware/**"]
+        targets: [sky1-tf-a, sky1-pbl, sky1-optee, sky1-se-firmware]
       - paths: ["builders/direct/kernel.sh"]
         targets: [kernel, stable-kernel]
       - paths: ["builders/direct/audio-sof.sh"]
@@ -965,7 +1025,7 @@ projects:
       - paths: ["builders/direct/firmware-sky1.sh"]
         targets: [radxa-o6-firmware, radxa-o6n-firmware, sky1-merak-firmware, sky1-edge-firmware, radxa-o6-pm-validation, radxa-o6-opp-validation, radxa-o6-pm-tuning, radxa-o6n-pm-validation]
       - paths: ["builders/direct/bootloader1.sh", "patches/radxa-bootloader/**"]
-        targets: [radxa-o6-pm-tuning]
+        targets: [radxa-o6-pm-tuning, sky1-se-firmware]
       - paths: ["builders/direct/pmtool.sh"]
         targets: [pmtool]
       - paths: ["patches/radxa-o6n/**"]

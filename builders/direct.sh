@@ -39,6 +39,12 @@ cix_direct_build() {
             cix_direct_uefi_stmm_build \
                 "${requested_action}" "${target_output}" "${target_jobs}"
             ;;
+        sky1-tf-a|sky1-pbl|sky1-optee|sky1-se-firmware)
+            # shellcheck source=builders/direct/secure-firmware.sh
+            source "${CIX_ROOT}/build-scripts/builders/direct/secure-firmware.sh"
+            cix_direct_secure_firmware_build \
+                "${requested_action}" "${target_output}" "${target_jobs}"
+            ;;
         pmtool)
             # shellcheck source=builders/direct/pmtool.sh
             source "${CIX_ROOT}/build-scripts/builders/direct/pmtool.sh"

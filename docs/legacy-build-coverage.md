@@ -41,6 +41,10 @@ legacy checkout.
 | All implemented Sky1 product boards | `firmware-sky1` | Implemented |
 | Private development UEFI platforms | `uefi-development` | Canonical native RELEASE profile implemented |
 | Sky1 Standalone MM | `uefi-stmm` | Native RELEASE firmware implemented |
+| Sky1 TF-A and PBL | `sky1-trusted-firmware` | Native Debian GCC build implemented |
+| Sky1 OP-TEE | `sky1-optee` | Native Debian GCC build implemented |
+| Sky1 SE firmware | `sky1-se-firmware` | Native RELEASE ARM Embedded build implemented |
+| All implemented secure components | `secure-firmware` | Implemented; PM and BootROM remain explicit blockers |
 | O6/O6N PM validation | `pm-validation` | Implemented, recovery-gated |
 | O6 PM and memory tuning | `pm-tuning` | Implemented, recovery-gated |
 
@@ -77,7 +81,8 @@ all part of the current Debian 13 product sets. They remain migration work and
 must not be reported as supported merely because a similarly named package is
 available:
 
-- source-built TF-A, TEE, PM, PBL, security, and firmware QA targets;
+- PM firmware, BootROM, secure product packaging/signing, and firmware QA
+  targets that still require unavailable source, licensed tools, or RKMS;
 - Android platform, Android bootloader, and Android XPU targets;
 - Buildroot, Yocto, Debian installer/rootfs, and full-disk image targets;
 - Sky1P and Star1 kernel, firmware, NPU, and platform variants;

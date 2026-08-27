@@ -180,6 +180,10 @@ default_status: pending
 # its required output, rather than merely a similarly named component, is
 # available through the new build map.
 overrides:
+  build-all-sec.sh:
+    status: partial
+    replacement: secure-firmware
+    reason: TF-A, PBL, OP-TEE, Standalone MM, and Sky1 SE firmware build natively; PM firmware, BootROM, and product-signing flows remain explicitly blocked.
   build-ai-engine.sh:
     status: implemented
     replacement: ai-engine
@@ -246,6 +250,9 @@ overrides:
   build-firmware-release-Edge.sh:
     status: implemented
     replacement: sky1-edge-firmware
+  build-firmware.sh:
+    status: implemented
+    replacement: sky1-se-firmware
   build-gstreamer.sh:
     status: implemented
     replacement: gstreamer-6.6
@@ -279,6 +286,15 @@ overrides:
   build-npu-umd.sh:
     status: implemented
     replacement: npu-umd
+  build-pbl.sh:
+    status: implemented
+    replacement: sky1-pbl
+  build-tee.sh:
+    status: implemented
+    replacement: sky1-optee
+  build-tf-a.sh:
+    status: implemented
+    replacement: sky1-trusted-firmware
   build-wlan.sh:
     status: implemented
     replacement: wlan-dkms
@@ -295,6 +311,9 @@ overrides:
     status: implemented
     replacement: uefi-stmm
 
+  build-bootrom.sh:
+    status: blocked
+    reason: The security/bootrom source tree referenced by the legacy script is absent from the accessible legacy checkout.
   build-ffmpeg-ubuntu24.sh:
     status: blocked
     reason: Ubuntu package builds are outside the Debian 13 host and package baseline.
@@ -307,6 +326,9 @@ overrides:
   build-mkimage-star1.sh:
     status: blocked
     reason: The manifest-pinned Star1 cix_cbff packaging tool is x86-64 only and no buildable source is available.
+  build-pm_fw.sh:
+    status: blocked
+    reason: The PM firmware requires the licensed Cadence Xtensa RI-2022.10 toolchain, which has no supported Debian 13 ARM64 installation in the current environment.
   build-with-timestamp.sh:
     status: retired
     replacement: Built-in elapsed-time reporting in cix-build

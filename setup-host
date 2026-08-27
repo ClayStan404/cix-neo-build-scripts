@@ -280,6 +280,7 @@ readonly host_packages=(
     python-is-python3
     python3
     python3-build
+    python3-cryptography
     python3-debian
     python3-dev
     python3-installer
@@ -287,6 +288,7 @@ readonly host_packages=(
     python3-numpy
     python3-numpy-dev
     python3-ply
+    python3-pyelftools
     python3-setuptools
     python3-wheel
     python3-yaml

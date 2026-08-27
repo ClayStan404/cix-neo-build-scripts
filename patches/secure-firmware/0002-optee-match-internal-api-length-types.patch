@@ -1,0 +1,126 @@
+diff --git a/ta/avb/entry.c b/ta/avb/entry.c
+--- a/ta/avb/entry.c
++++ b/ta/avb/entry.c
+@@ -419,7 +419,7 @@ static TEE_Result read_vbmeta_public_key_digest(uint8_t digest[SHA256_DIGEST_LEN
+         TEE_Result res = TEE_SUCCESS;
+         uint8_t *value = NULL;
+         uint32_t count = 0;
+-        size_t digest_len = SHA256_DIGEST_LENGTH;
++        uint32_t digest_len = SHA256_DIGEST_LENGTH;
+         const uint32_t flags = TEE_DATA_FLAG_ACCESS_READ;
+ 
+         res = TEE_OpenPersistentObject(storageid, vbmeta_pk_obj_name,
+@@ -482,7 +482,7 @@ static TEE_Result get_rot_data(uint32_t pt, TEE_Param params[TEE_NUM_PARAMS])
+         uint32_t count;
+         TEE_ObjectHandle h;
+         uint8_t digest_buf[SHA256_DIGEST_LENGTH] = {0};
+-        size_t digest_len = 0;
++        uint32_t digest_len = 0;
+         uint32_t vbmeta_digest_available = 0;
+ 
+         if (pt != exp_pt)
+@@ -569,7 +569,8 @@ static TEE_Result get_rot_data(uint32_t pt, TEE_Param params[TEE_NUM_PARAMS])
+                                 TEE_MemMove(rot_data.vbmetaDigest, digest_buf, copy_len);
+                                 if (copy_len >= SHA256_DIGEST_LENGTH)
+                                         vbmeta_digest_available = 1;
+-                                EMSG("Using real vbmeta digest from persistent storage, length: %zu", digest_len);
++                                EMSG("Using real vbmeta digest from persistent storage, length: %zu",
++                                     (size_t)digest_len);
+                         } else {
+                                 /* Failed to read valid digest, use zeros */
+                                 TEE_MemFill(rot_data.vbmetaDigest, 0, sizeof(rot_data.vbmetaDigest));
+@@ -608,7 +609,7 @@ static TEE_Result get_rot_data(uint32_t pt, TEE_Param params[TEE_NUM_PARAMS])
+              (unsigned int)rot_data.version, 
+              (unsigned int)rot_data.deviceLocked, 
+              (unsigned int)rot_data.verifiedBootState,
+-             digest_len);
++             (size_t)digest_len);
+ 
+         return res;
+ }
+@@ -626,7 +627,7 @@ static TEE_Result read_vbmeta_public_key(uint32_t pt,
+ 	TEE_ObjectHandle h = TEE_HANDLE_NULL;
+ 	uint32_t value_sz = 0;
+ 	char *value = NULL;
+-	size_t count = 0;
++	uint32_t count = 0;
+ 
+ 	if (pt != exp_pt)
+ 		return TEE_ERROR_BAD_PARAMETERS;
+diff --git a/lib/libutee/tee_api_operations.c b/lib/libutee/tee_api_operations.c
+--- a/lib/libutee/tee_api_operations.c
++++ b/lib/libutee/tee_api_operations.c
+@@ -1060,10 +1060,10 @@ TEE_Result TEE_CipherUpdate(TEE_OperationHandle operation,
+ void TEE_GetOperationBufferOffs(TEE_OperationHandle operation,size_t* buffer_offs)
+ {
+-	if (operation == TEE_HANDLE_NULL)
++	if (operation == TEE_HANDLE_NULL || !buffer_offs)
+                 TEE_Panic(0);
+ 
+-        __utee_check_out_annotation(operation, sizeof(*operation));
+-	buffer_offs = operation->buffer_offs;
++        __utee_check_out_annotation(buffer_offs, sizeof(*buffer_offs));
++	*buffer_offs = operation->buffer_offs;
+ }
+ 
+ 
+diff --git a/core/arch/arm/plat-cix/main.c b/core/arch/arm/plat-cix/main.c
+--- a/core/arch/arm/plat-cix/main.c
++++ b/core/arch/arm/plat-cix/main.c
+@@ -253,12 +253,16 @@ void platform_get_te_configs(void **base, int *irq, int *host)
+ TEE_Result tee_otp_get_ta_enc_key(uint32_t key_type __maybe_unused,
+ 					 uint8_t *buffer, size_t len)
+ {
+-	size_t key_len = 32;
++	const uint32_t key_len = 32;
++	uint32_t response_len = 0;
+ 	TEE_Result ret;
+ 
+-	ret = cix_get_key_info(KEY_ID_MODEL_KEY, key_len, buffer, &len);
+-	EMSG_RAW("Cix_en_key: %d\n", key_len);
+-	DHEXDUMP(buffer, 32);
++	if (!buffer || len < key_len)
++		return TEE_ERROR_SHORT_BUFFER;
++
++	ret = cix_get_key_info(KEY_ID_MODEL_KEY, key_len, buffer, &response_len);
++	EMSG_RAW("Cix_en_key: %u\n", (unsigned int)response_len);
++	DHEXDUMP(buffer, key_len);
+ 
+ 	return ret;
+ }
+diff --git a/core/kernel/tee_ta_manager.c b/core/kernel/tee_ta_manager.c
+--- a/core/kernel/tee_ta_manager.c
++++ b/core/kernel/tee_ta_manager.c
+@@ -985,7 +985,8 @@ static uint32_t se_ta_enc_flag = 0U;
+ TEE_Result boot_ta_type_init(void)
+ {
+ 	uint32_t rsp_len = 0U;
+-	cix_get_key_info(KEY_ID_TA_CONFIG_ENABLE, 4U, &se_ta_enc_flag, &rsp_len);
++	cix_get_key_info(KEY_ID_TA_CONFIG_ENABLE, 4U,
++			 (uint8_t *)&se_ta_enc_flag, &rsp_len);
+ 
+ 	return TEE_SUCCESS;
+ }
+diff --git a/lib/libmbedtls/mbedtls/library/cipher_wrap.c b/lib/libmbedtls/mbedtls/library/cipher_wrap.c
+--- a/lib/libmbedtls/mbedtls/library/cipher_wrap.c
++++ b/lib/libmbedtls/mbedtls/library/cipher_wrap.c
+@@ -519,6 +519,11 @@ static void *xts_aes_ctx_alloc(void)
+     return xts_ctx;
+ }
+ 
++static void xts_aes_ctx_clone(void *dst, const void *src)
++{
++    memcpy(dst, src, sizeof(mbedtls_aes_xts_context));
++}
++
+ static void xts_aes_ctx_free(void *ctx)
+ {
+     mbedtls_aes_xts_context *xts_ctx = ctx;
+@@ -555,6 +560,7 @@ static const mbedtls_cipher_base_t xts_aes_info = {
+     xts_aes_setkey_enc_wrap,
+     xts_aes_setkey_dec_wrap,
+     xts_aes_ctx_alloc,
++    xts_aes_ctx_clone,
+     xts_aes_ctx_free
+ };
+ 

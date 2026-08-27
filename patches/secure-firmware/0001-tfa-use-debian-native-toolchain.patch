@@ -1,0 +1,45 @@
+diff --git a/Makefile b/Makefile
+index 6d0baf7..9adf8ec 100644
+--- a/Makefile
++++ b/Makefile
+@@ -8,7 +8,7 @@
+ # Trusted Firmware Version
+ #
+ $(info CROSS_COMPILE_ELF: $(CROSS_COMPILE_ELF))
+-GCC_MAJOR_VER := $(shell echo "$(CROSS_COMPILE_ELF)" | sed 's/.*\(gcc-arm-\|arm-gnu-toolchain-\)//' | cut -d. -f1)
++GCC_MAJOR_VER := $(shell ${CROSS_COMPILE}gcc -dumpversion | cut -d. -f1)
+ $(info GCC major version: $(GCC_MAJOR_VER))
+ 
+ # >12 检查：TOOLCHAIN_LT_13 为空表示 >12
+@@ -408,8 +408,6 @@ CPPFLAGS		=	${DEFINES} ${INCLUDES} ${MBEDTLS_INC} -nostdinc	\
+ 				$(ERRORS) $(WARNINGS)
+ 
+-CPPFLAGS += -I${PATH_ROOT}/tools/gcc/${ARM_TOOLCHAIN_ELF}/aarch64-none-elf/include
+-CPPFLAGS += -I${PATH_ROOT}/tools/gcc/${ARM_TOOLCHAIN_ELF}/lib/gcc/aarch64-none-elf/13.3.1/include
+-CPPFLAGS += -I${PATH_ROOT}/tools/gcc/${ARM_TOOLCHAIN_ELF}/lib/gcc/aarch64-none-elf/13.3.1/include-fixed
++CPPFLAGS += -I$(shell ${CROSS_COMPILE}gcc -print-file-name=include)
+ CPPFLAGS += -march=armv8-a+simd
+ CPPFLAGS += -Wno-shadow -Wno-unused-function -Wno-unused-variable
+ 
+diff --git a/plat/cix/common/cix_common.mk b/plat/cix/common/cix_common.mk
+index 4caa59c..9188638 100644
+--- a/plat/cix/common/cix_common.mk
++++ b/plat/cix/common/cix_common.mk
+@@ -111,15 +111,11 @@ ifeq (${OVERRIDE_LIBC},1)
+     include lib/libc/libc_asm.mk
+ endif
+ 
+-TOOLCHAIN_ROOT := $(shell dirname $(shell dirname $(CROSS_COMPILE_ELF)))
+-GCC_VERSION := 13.3.1
+-LIBGCC_DIR := $(TOOLCHAIN_ROOT)/lib/gcc/aarch64-none-elf/$(GCC_VERSION)
+-LIBGCC_PATH := $(LIBGCC_DIR)/libgcc.a
++LIBGCC_PATH := $(shell ${CROSS_COMPILE}gcc -print-libgcc-file-name)
+ 
+-$(info TOOLCHAIN_ROOT: $(TOOLCHAIN_ROOT))
+ $(info LIBGCC_PATH: $(LIBGCC_PATH))
+ ifeq ($(wildcard $(LIBGCC_PATH)),)
+-    $(error libgcc.a missing! Verify tool chain at $(TOOLCHAIN_ROOT))
++    $(error libgcc.a missing! Verify the configured compiler)
+ endif
+ 
+ ifeq (${CIX_SEC_LIB},1)

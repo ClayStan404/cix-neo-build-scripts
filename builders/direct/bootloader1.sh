@@ -37,18 +37,19 @@ cix_bootloader1_build_se() {
     local build_mode="$2"
     local destination="$3"
     local build_jobs="$4"
+    local tfa_load_type="${5:-qspi}"
 
     make -C "${firmware_worktree}" \
         FW_RUN_PLATFORM=evb \
         FW_BUILD_MODE="${build_mode}" \
         SOC_TYPE=sky1 \
-        TFA_LOAD_TYPE=qspi \
+        TFA_LOAD_TYPE="${tfa_load_type}" \
         clean
     make -C "${firmware_worktree}" -j"${build_jobs}" \
         FW_RUN_PLATFORM=evb \
         FW_BUILD_MODE="${build_mode}" \
         SOC_TYPE=sky1 \
-        TFA_LOAD_TYPE=qspi
+        TFA_LOAD_TYPE="${tfa_load_type}"
     [[ -s "${firmware_worktree}/se_fw.bin" ]] ||
         cix_die "Sky1 ${build_mode} SE firmware was not generated"
     install -m 0644 "${firmware_worktree}/se_fw.bin" "${destination}"
