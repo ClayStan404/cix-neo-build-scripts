@@ -252,6 +252,8 @@ if [[ -n "${global_clean_mode}" ]]; then
     if [[ "${global_clean_mode}" == distclean ]]; then
         cix_remove_registered_outputs "${build_set_targets[@]}"
         cix_clear_persistent_build_caches
+    else
+        cix_remove_empty_registered_outputs "${build_set_targets[@]}"
     fi
     cix_log \
         "${global_clean_mode} complete in" \

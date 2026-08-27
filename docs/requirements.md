@@ -324,11 +324,12 @@ is confirmed.
   the failed target's elapsed time before exiting; a failed set build must also
   report its total elapsed time.
 - Provide `clean-all` for target-owned cleanup of every target registered in
-  `build-map.yaml` while retaining reusable caches. Provide `distclean` to
-  additionally remove every registered target directory and empty the shared
-  ccache and sbuild APT archive cache. Preserve the provisioned sbuild chroot
-  and unregistered output entries; report every preserved output entry instead
-  of deleting data outside the registry.
+  `build-map.yaml`; remove empty registered output directories after cleanup
+  while retaining directories that contain reusable caches. Provide
+  `distclean` to additionally remove every registered target directory and
+  empty the shared ccache and sbuild APT archive cache. Preserve the provisioned
+  sbuild chroot and unregistered output entries; report every preserved output
+  entry instead of deleting data outside the registry.
 - Provide `firmware-sky1` as the board-matrix build set for all currently
   supported Sky1 product firmware targets. Product OS build sets may select
   only the board images needed by that product; they do not imply coverage of

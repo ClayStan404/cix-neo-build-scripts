@@ -20,6 +20,22 @@ cix_global_cleanup_preflight() {
     done
 }
 
+cix_remove_empty_registered_outputs() {
+    local name
+    local output_dir
+    local output_root="${CIX_ROOT}/output"
+
+    cix_require_command find
+    for name in "$@"; do
+        output_dir="${output_root}/${name}"
+        [[ -d "${output_dir}" ]] || continue
+        find "${output_dir}" -xdev -depth -type d -empty -delete
+        if [[ ! -e "${output_dir}" ]]; then
+            cix_log "Remove empty target directory ${output_dir}"
+        fi
+    done
+}
+
 cix_remove_registered_outputs() {
     local name
     local output_dir

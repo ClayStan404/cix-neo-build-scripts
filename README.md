@@ -104,9 +104,11 @@ the two product sets, with:
 ./build-scripts/cix-build clean-all
 ```
 
-`clean-all` keeps reusable source downloads, generated toolchains, the shared
-compiler cache, and the sbuild APT archive cache. Use the stronger cleanup only
-when those caches must also be discarded:
+`clean-all` removes empty registered target directories after their target-owned
+cleaners finish. Directories that still contain reusable source downloads,
+generated toolchains, or other target caches remain. The shared compiler cache
+and sbuild APT archive cache are also retained. Use the stronger cleanup only
+when those caches must be discarded:
 
 ```bash
 ./build-scripts/cix-build distclean
