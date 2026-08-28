@@ -510,11 +510,12 @@ against the headers produced by the CIX kernel build:
 ./build-scripts/tests/dkms.sh wlan-dkms
 ```
 
-The test command derives the binary package name from the target's Debian
-control file. It extracts both debs into a disposable directory and gives DKMS
-isolated source, state, and module trees. It does not install packages or write
-to the host `/usr/src`, `/var/lib/dkms`, or `/lib/modules` trees. Jenkins may
-pass exact artifacts with `--kernel-headers` and `--package`.
+The test command derives the DKMS binary package name from the target's
+debhelper `PACKAGE.dkms` sequence, so unrelated binary packages from the same
+source are ignored. It extracts both debs into a disposable directory and gives
+DKMS isolated source, state, and module trees. It does not install packages or
+write to the host `/usr/src`, `/var/lib/dkms`, or `/lib/modules` trees. Jenkins
+may pass exact artifacts with `--kernel-headers` and `--package`.
 
 ## CI build planning
 

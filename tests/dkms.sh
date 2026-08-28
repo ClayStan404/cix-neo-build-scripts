@@ -96,13 +96,19 @@ eval "$(
 [[ "${TARGET[builder]}" == "debian" && "${TARGET[validate]}" == "dkms" ]] ||
     cix_die "target is not a mapped DKMS package: ${target_name}"
 
-control_file="${CIX_ROOT}/${TARGET[debian]}/control"
-mapfile -t target_binaries < <(
-    awk '/^Package:[[:space:]]+/ { print $2 }' "${control_file}"
+debian_dir="${CIX_ROOT}/${TARGET[debian]}"
+control_file="${debian_dir}/control"
+mapfile -d '' -t dkms_sequences < <(
+    find "${debian_dir}" -maxdepth 1 -type f -name '*.dkms' -print0
 )
-((${#target_binaries[@]} == 1)) ||
-    cix_die "DKMS test requires one binary package in ${control_file}; found ${#target_binaries[@]}"
-test_binary="${target_binaries[0]}"
+((${#dkms_sequences[@]} == 1)) ||
+    cix_die "DKMS test requires one debhelper .dkms sequence in ${debian_dir}; found ${#dkms_sequences[@]}"
+test_binary="$(basename "${dkms_sequences[0]}" .dkms)"
+awk -v package="${test_binary}" '
+    $1 == "Package:" && $2 == package { found = 1 }
+    END { exit !found }
+' "${control_file}" ||
+    cix_die "DKMS package ${test_binary} is not declared in ${control_file}"
 output_dir="${CIX_ROOT}/output/${target_name}/tests"
 
 if command -v dkms >/dev/null; then
@@ -189,7 +195,10 @@ cix_log "Extract ${target_name} DKMS package: ${dkms_deb}"
 dpkg-deb -x "${dkms_deb}" "${package_root}"
 
 header_dir="${source_tree}/${header_package}"
-[[ -f "${header_dir}/.config" && -f "${header_dir}/Module.symvers" ]] ||
+[[ -f "${header_dir}/Module.symvers" &&
+    (-f "${header_dir}/.config" ||
+        (-f "${header_dir}/include/config/auto.conf" &&
+            -f "${header_dir}/include/generated/autoconf.h")) ]] ||
     cix_die "CIX kernel headers are incomplete: ${header_dir}"
 
 mapfile -d '' -t module_configs < <(
