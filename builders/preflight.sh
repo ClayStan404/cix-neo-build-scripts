@@ -203,8 +203,10 @@ cix_preflight_direct() {
                 cix_validate_patch_series \
                     "${source_root}/cix_bsp_release" \
                     "${patch_root}/radxa-pm-tuning/0002-PackageTool-select-internal-flash-variant.patch"
-                cix_validate_patch_series \
+                cix_validate_patch_series_with_mode \
                     "${source_root}/uefi_release/edk2-platforms" \
+                    ignore-space-change \
+                    "${patch_root}/radxa-opp-validation/0001-Platform-Radxa-enable-stock-O6-OPP-table.patch" \
                     "${patch_root}/radxa-pm-tuning/0001-Platform-add-selectable-O6-PM-profiles.patch" \
                     "${patch_root}/radxa-memory-tuning/0001-Make-O6-memory-rate-updates-reliable.patch"
             fi
@@ -213,8 +215,9 @@ cix_preflight_direct() {
             cix_preflight_git "${source_root}/edk2"
             cix_preflight_git "${source_root}/edk2-platforms"
             cix_validate_edk2_inputs "${source_root}/edk2"
-            cix_validate_patch_series \
+            cix_validate_patch_series_with_mode \
                 "${source_root}/edk2-platforms" \
+                ignore-space-change \
                 "${patch_root}/uefi-development/0001-Platform-CIX-Sky1-use-CIX-PrePi.patch" \
                 "${patch_root}/uefi-development/0002-CixFastbootPkg-fix-LibUfdt-native-build.patch"
             ;;

@@ -205,7 +205,8 @@ cix_sky1_prepare_workspace() {
 
     if [[ "${enable_engineering}" == true ]]; then
         cix_apply_patch "${work_uefi}/edk2-platforms" \
-            "${pm_tuning_patch_root}/0001-Platform-add-selectable-O6-PM-profiles.patch"
+            "${pm_tuning_patch_root}/0001-Platform-add-selectable-O6-PM-profiles.patch" \
+            ignore-space-change
         cix_apply_patch "${work_uefi}/edk2-platforms" \
             "${memory_tuning_patch_root}/0001-Make-O6-memory-rate-updates-reliable.patch"
 

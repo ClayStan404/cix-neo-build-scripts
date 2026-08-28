@@ -134,11 +134,19 @@ cix_apply_patch() {
     fi
 }
 
-cix_validate_patch_series() (
+cix_validate_patch_series_with_mode() (
     local repository="$1"
-    shift
+    local whitespace_mode="$2"
+    shift 2
     local index_file
     local patch_file
+    local -a apply_options=(--cached --whitespace=nowarn)
+
+    if [[ "${whitespace_mode}" == "ignore-space-change" ]]; then
+        apply_options+=(--ignore-space-change)
+    elif [[ "${whitespace_mode}" != "exact" ]]; then
+        cix_die "unsupported patch whitespace mode: ${whitespace_mode}"
+    fi
 
     git -C "${repository}" rev-parse --is-inside-work-tree >/dev/null 2>&1 ||
         cix_die "patch source is not a Git worktree: ${repository}"
@@ -152,14 +160,21 @@ cix_validate_patch_series() (
     for patch_file in "$@"; do
         [[ -s "${patch_file}" ]] || cix_die "patch is missing: ${patch_file}"
         if GIT_INDEX_FILE="${index_file}" git -C "${repository}" apply \
-            --cached --check --whitespace=nowarn "${patch_file}"; then
+            --check "${apply_options[@]}" "${patch_file}"; then
             GIT_INDEX_FILE="${index_file}" git -C "${repository}" apply \
-                --cached --whitespace=nowarn "${patch_file}"
+                "${apply_options[@]}" "${patch_file}"
         elif GIT_INDEX_FILE="${index_file}" git -C "${repository}" apply \
-            --cached --reverse --check --whitespace=nowarn "${patch_file}"; then
+            --reverse --check "${apply_options[@]}" "${patch_file}"; then
             cix_log "Preflight: patch is already present upstream: $(basename "${patch_file}")"
         else
             cix_die "patch does not apply cleanly: ${patch_file}"
         fi
     done
 )
+
+cix_validate_patch_series() {
+    local repository="$1"
+    shift
+
+    cix_validate_patch_series_with_mode "${repository}" exact "$@"
+}
