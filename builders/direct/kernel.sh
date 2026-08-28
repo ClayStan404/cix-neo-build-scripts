@@ -123,6 +123,65 @@ cix_kernel_patched_worktree() (
     cix_log "Kernel package build complete"
 )
 
+cix_stable_kernel_identity() {
+    local stable_version="$1"
+    local patch_commit="$2"
+    local stable_defconfig="$3"
+    shift 3
+
+    {
+        printf 'version=%s\npatch_commit=%s\n' "${stable_version}" "${patch_commit}"
+        sha256sum -- "${stable_defconfig}" "$@"
+    } | sha256sum | awk '{ print $1 }'
+}
+
+cix_stable_kernel_worktree_matches() {
+    local kernel_dir="$1"
+    local stable_version="$2"
+    local stable_defconfig="$3"
+    shift 3
+    local actual_patch_id
+    local config_line
+    local expected_patch_id
+    local kernel_version
+    local index
+    local -a commits=()
+    local -a patches=("$@")
+
+    [[ -f "${kernel_dir}/Makefile" && -s "${kernel_dir}/.config" ]] || return 1
+    git -C "${kernel_dir}" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 1
+    git -C "${kernel_dir}" diff --quiet -- || return 1
+    git -C "${kernel_dir}" diff --cached --quiet -- || return 1
+    mapfile -t commits < <(git -C "${kernel_dir}" rev-list --reverse HEAD)
+    ((${#commits[@]} == ${#patches[@]} + 1)) || return 1
+
+    kernel_version="$(
+        awk -F ' *= *' '
+            $1 == "VERSION" { version = $2 }
+            $1 == "PATCHLEVEL" { patchlevel = $2 }
+            $1 == "SUBLEVEL" { sublevel = $2 }
+            END { printf "%s.%s.%s", version, patchlevel, sublevel }
+        ' "${kernel_dir}/Makefile"
+    )"
+    [[ "${kernel_version}" == "${stable_version}" ]] || return 1
+
+    while IFS= read -r config_line || [[ -n "${config_line}" ]]; do
+        [[ "${config_line}" == CONFIG_*=* ||
+           "${config_line}" == '# CONFIG_'*' is not set' ]] || continue
+        grep -Fqx -- "${config_line}" "${kernel_dir}/.config" || return 1
+    done <"${stable_defconfig}"
+
+    for ((index = 0; index < ${#patches[@]}; index++)); do
+        expected_patch_id="$(git patch-id --stable <"${patches[index]}" | awk 'NR == 1 { print $1 }')"
+        actual_patch_id="$(
+            git -C "${kernel_dir}" show --pretty=email --binary "${commits[index + 1]}" |
+                git patch-id --stable | awk 'NR == 1 { print $1 }'
+        )"
+        [[ -n "${expected_patch_id}" &&
+           "${actual_patch_id}" == "${expected_patch_id}" ]] || return 1
+    done
+}
+
 cix_kernel_stable_tarball() (
     local build_action="$1"
     local build_output="$2"
@@ -135,6 +194,9 @@ cix_kernel_stable_tarball() (
     local patch_commit
     local patch_source="${CIX_ROOT}/${TARGET[patch_source]}"
     local patchset_dir
+    local prepared_identity
+    local prepared_marker
+    local reuse_worktree=0
     local stable_defconfig
     local stable_version="${TARGET[version]}"
     local tarball_tmp
@@ -152,6 +214,7 @@ cix_kernel_stable_tarball() (
     kernel_url="https://cdn.kernel.org/pub/linux/kernel/v${major_version}.x/linux-${stable_version}.tar.xz"
     patchset_dir="${patch_source}/patches-${kernel_series}"
     stable_defconfig="${patch_source}/config/config-${kernel_series}.defconfig"
+    prepared_marker="${work_dir}/linux-${stable_version}.prepared"
 
     if [[ "${build_action}" == "clean" ]]; then
         cix_clean_artifacts "${build_output}"
@@ -165,7 +228,7 @@ cix_kernel_stable_tarball() (
 
     cix_require_command \
         bc bison curl dpkg-buildpackage fakeroot find flex gcc git make openssl \
-        pahole sort sync tar xz
+        pahole sha256sum sort sync tar xz
     git -C "${patch_source}" rev-parse --is-inside-work-tree >/dev/null 2>&1 ||
         cix_die "CIX stable kernel patch source is missing: ${patch_source}"
     [[ -z "$(git -C "${patch_source}" status --porcelain)" ]] ||
@@ -184,6 +247,11 @@ cix_kernel_stable_tarball() (
     mkdir -p -- "${work_dir}" "${build_output}"
     cix_clean_artifacts "${build_output}"
     patch_commit="$(git -C "${patch_source}" rev-parse HEAD)"
+    prepared_identity="$(
+        cix_stable_kernel_identity \
+            "${stable_version}" "${patch_commit}" "${stable_defconfig}" \
+            "${patches[@]}"
+    )"
 
     if [[ -f "${kernel_tarball}" ]]; then
         cix_log "Use cached Linux tarball: ${kernel_tarball}"
@@ -198,36 +266,61 @@ cix_kernel_stable_tarball() (
     fi
     xz -t "${kernel_tarball}"
 
-    if [[ -d "${kernel_dir}" ]]; then
-        cix_log "Replace previous stable kernel source: ${kernel_dir}"
-        rm -rf -- "${kernel_dir}"
+    if [[ "${resume_build:-0}" == 1 && -d "${kernel_dir}" ]]; then
+        if cix_stable_kernel_worktree_matches \
+            "${kernel_dir}" "${stable_version}" "${stable_defconfig}" \
+            "${patches[@]}"; then
+            if [[ ! -f "${prepared_marker}" ||
+                  "$(<"${prepared_marker}")" != "${prepared_identity}" ]]; then
+                cix_log "Adopt verified interrupted Linux ${stable_version} worktree"
+                printf '%s\n' "${prepared_identity}" >"${prepared_marker}"
+            fi
+            reuse_worktree=1
+        fi
     fi
-    cix_log "Extract Linux ${stable_version}"
-    tar -xf "${kernel_tarball}" -C "${work_dir}"
-    [[ -f "${kernel_dir}/Makefile" ]] ||
-        cix_die "extracted Linux source is missing: ${kernel_dir}"
 
-    cix_log "Apply ${#patches[@]} CIX patches from ${patch_commit}"
-    git -C "${kernel_dir}" init --quiet
-    git -C "${kernel_dir}" \
-        -c user.name=build \
-        -c user.email=build@localhost \
-        -c commit.gpgsign=false \
-        add -A
-    git -C "${kernel_dir}" \
-        -c user.name=build \
-        -c user.email=build@localhost \
-        -c commit.gpgsign=false \
-        commit --quiet -m "import linux-${stable_version}"
-    git -C "${kernel_dir}" \
-        -c user.name=build \
-        -c user.email=build@localhost \
-        -c commit.gpgsign=false \
-        am --whitespace=nowarn "${patches[@]}"
+    if ((reuse_worktree)); then
+        cix_require_free_gib "${work_dir}" 8 "resuming the stable kernel package build"
+        cix_log "Resume verified Linux ${stable_version} worktree"
+    else
+        if [[ -d "${kernel_dir}" ]]; then
+            cix_log "Replace previous stable kernel source: ${kernel_dir}"
+            rm -rf -- "${kernel_dir}"
+        fi
+        rm -f -- "${prepared_marker}"
+        cix_require_free_gib "${work_dir}" 40 "building the stable kernel from scratch"
+        cix_log "Extract Linux ${stable_version}"
+        tar -xf "${kernel_tarball}" -C "${work_dir}"
+        [[ -f "${kernel_dir}/Makefile" ]] ||
+            cix_die "extracted Linux source is missing: ${kernel_dir}"
 
-    cp -- "${stable_defconfig}" "${kernel_dir}/.config"
-    cix_log "Configure Linux ${stable_version} with CIX ${kernel_series} defconfig"
-    make -C "${kernel_dir}" ARCH=arm64 olddefconfig
+        cix_log "Apply ${#patches[@]} CIX patches from ${patch_commit}"
+        git -C "${kernel_dir}" init --quiet
+        git -C "${kernel_dir}" \
+            -c user.name=build \
+            -c user.email=build@localhost \
+            -c commit.gpgsign=false \
+            add -A
+        git -C "${kernel_dir}" \
+            -c user.name=build \
+            -c user.email=build@localhost \
+            -c commit.gpgsign=false \
+            commit --quiet -m "import linux-${stable_version}"
+        git -C "${kernel_dir}" \
+            -c user.name=build \
+            -c user.email=build@localhost \
+            -c commit.gpgsign=false \
+            am --whitespace=nowarn "${patches[@]}"
+
+        cp -- "${stable_defconfig}" "${kernel_dir}/.config"
+        cix_log "Configure Linux ${stable_version} with CIX ${kernel_series} defconfig"
+        make -C "${kernel_dir}" ARCH=arm64 olddefconfig
+        printf '%s\n' "${prepared_identity}" >"${prepared_marker}"
+    fi
+
+    find "${work_dir}" -mindepth 1 -maxdepth 1 -type f \
+        \( -name 'linux-*.deb' -o -name 'linux-*.buildinfo' -o -name 'linux-*.changes' \) \
+        -delete
 
     cix_log "Build stable kernel Debian packages with ${build_jobs} jobs"
     make -C "${kernel_dir}" \
@@ -249,6 +342,9 @@ cix_kernel_stable_tarball() (
     done
     ((deb_count > 0)) || cix_die "stable kernel build produced no Debian packages"
     mv -f -- "${artifacts[@]}" "${build_output}/"
+    cix_log "Remove completed stable kernel worktree"
+    rm -rf -- "${kernel_dir}"
+    rm -f -- "${prepared_marker}"
     cix_log "Stable kernel package build complete"
 )
 

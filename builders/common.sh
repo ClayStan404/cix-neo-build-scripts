@@ -52,7 +52,26 @@ cix_prepare_host_ccache() {
     PATH="/usr/lib/ccache:${PATH}"
     export CCACHE_DIR CCACHE_UMASK PATH
     mkdir -p -- "${CCACHE_DIR}"
+    ccache --set-config 'max_size=20G'
     cix_log "Use ccache at ${CCACHE_DIR}"
+}
+
+cix_require_free_gib() {
+    local path="$1"
+    local required_gib="$2"
+    local purpose="$3"
+    local available_kib
+    local mount_point
+    local required_kib="$((required_gib * 1024 * 1024))"
+
+    cix_require_command awk df
+    read -r available_kib mount_point < <(
+        df -Pk -- "${path}" | awk 'END { print $4, $6 }'
+    )
+    [[ "${available_kib}" =~ ^[0-9]+$ ]] ||
+        cix_die "cannot determine free disk space for ${path}"
+    ((available_kib >= required_kib)) ||
+        cix_die "${purpose} requires at least ${required_gib} GiB free on ${mount_point}; available: $((available_kib / 1024 / 1024)) GiB"
 }
 
 cix_clean_artifacts() {

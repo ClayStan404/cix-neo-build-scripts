@@ -203,6 +203,64 @@ cix_clean_debian_work_roots "$3"
         self.assertFalse(stale.exists())
         self.assertTrue(retained.is_dir())
 
+    def test_stable_kernel_interrupted_worktree_is_verified(self) -> None:
+        builder = Path(__file__).resolve().parents[1] / "builders/direct/kernel.sh"
+        kernel = self.workspace / "linux"
+        patch = self.workspace / "0001-change.patch"
+        config = self.workspace / "defconfig"
+        kernel.mkdir()
+        (kernel / "Makefile").write_text(
+            "VERSION = 7\nPATCHLEVEL = 0\nSUBLEVEL = 13\n", encoding="utf-8"
+        )
+        (kernel / "value").write_text("before\n", encoding="utf-8")
+        subprocess.run(("git", "init", "-q", str(kernel)), check=True)
+        subprocess.run(("git", "-C", str(kernel), "add", "."), check=True)
+        commit = (
+            "git",
+            "-C",
+            str(kernel),
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.invalid",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+        )
+        subprocess.run((*commit, "-qm", "base"), check=True)
+        (kernel / "value").write_text("after\n", encoding="utf-8")
+        subprocess.run(("git", "-C", str(kernel), "add", "value"), check=True)
+        subprocess.run((*commit, "-qm", "change"), check=True)
+        patch.write_bytes(
+            subprocess.run(
+                ("git", "-C", str(kernel), "format-patch", "-1", "--stdout"),
+                check=True,
+                stdout=subprocess.PIPE,
+            ).stdout
+        )
+        (kernel / ".config").write_text("CONFIG_DEMO=y\n", encoding="utf-8")
+        config.write_text("CONFIG_DEMO=y\n", encoding="utf-8")
+
+        script = r'''
+set -Eeuo pipefail
+source "$1"
+cix_stable_kernel_worktree_matches "$2" 7.0.13 "$3" "$4"
+'''
+        command = (
+            "bash",
+            "-c",
+            script,
+            "kernel-resume-test",
+            str(builder),
+            str(kernel),
+            str(config),
+            str(patch),
+        )
+
+        subprocess.run(command, check=True)
+        config.write_text("CONFIG_DEMO=n\n", encoding="utf-8")
+        self.assertNotEqual(subprocess.run(command).returncode, 0)
+
     def test_repository_signature_is_scoped_to_input_paths(self) -> None:
         repository = self.workspace / "source"
         (repository / "used").mkdir(parents=True)
