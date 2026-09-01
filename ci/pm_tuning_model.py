@@ -10,7 +10,14 @@ PROFILE_VENDOR = 0
 PROFILE_CUSTOM = 2
 
 VOLTAGE_FIXED = 0
+VOLTAGE_VMIN1 = 1
+VOLTAGE_VMIN2 = 2
+VOLTAGE_VMIN3 = 3
 VOLTAGE_MODE_MAX = 3
+VOLTAGE_FIXED_ONLY = 1 << VOLTAGE_FIXED
+VOLTAGE_FIXED_OR_VMIN1 = VOLTAGE_FIXED_ONLY | (1 << VOLTAGE_VMIN1)
+VOLTAGE_FIXED_OR_VMIN2 = VOLTAGE_FIXED_ONLY | (1 << VOLTAGE_VMIN2)
+VOLTAGE_FIXED_OR_VMIN3 = VOLTAGE_FIXED_ONLY | (1 << VOLTAGE_VMIN3)
 SETTINGS_REVISION = 2
 SETTINGS_SIGNATURE = 0x54504D52
 SETTINGS_LEGACY_SIZE = 209
@@ -24,6 +31,7 @@ class CpuDomain:
     size: int
     sustained_index: int
     protected_index: int
+    voltage_mode_masks: tuple[int, ...]
     frequencies: tuple[int, ...]
     voltages: tuple[int, ...]
 
@@ -34,6 +42,15 @@ CPU_DOMAINS = (
         7,
         3,
         2,
+        (
+            VOLTAGE_FIXED_ONLY,
+            VOLTAGE_FIXED_ONLY,
+            VOLTAGE_FIXED_ONLY,
+            VOLTAGE_FIXED_ONLY,
+            VOLTAGE_FIXED_OR_VMIN3,
+            VOLTAGE_FIXED_OR_VMIN2,
+            VOLTAGE_FIXED_OR_VMIN1,
+        ),
         (800, 1200, 1500, 1800, 2200, 2400, 2500),
         (750, 750, 790, 790, 790, 850, 920),
     ),
@@ -42,6 +59,15 @@ CPU_DOMAINS = (
         7,
         3,
         2,
+        (
+            VOLTAGE_FIXED_ONLY,
+            VOLTAGE_FIXED_ONLY,
+            VOLTAGE_FIXED_ONLY,
+            VOLTAGE_FIXED_ONLY,
+            VOLTAGE_FIXED_OR_VMIN3,
+            VOLTAGE_FIXED_OR_VMIN2,
+            VOLTAGE_FIXED_OR_VMIN1,
+        ),
         (800, 1200, 1500, 1800, 2200, 2500, 2600),
         (750, 750, 790, 790, 790, 850, 920),
     ),
@@ -50,6 +76,15 @@ CPU_DOMAINS = (
         7,
         3,
         2,
+        (
+            VOLTAGE_FIXED_ONLY,
+            VOLTAGE_FIXED_ONLY,
+            VOLTAGE_FIXED_ONLY,
+            VOLTAGE_FIXED_OR_VMIN3,
+            VOLTAGE_FIXED_OR_VMIN3,
+            VOLTAGE_FIXED_OR_VMIN2,
+            VOLTAGE_FIXED_OR_VMIN1,
+        ),
         (800, 1200, 1500, 1800, 2100, 2200, 2300),
         (750, 750, 790, 790, 790, 850, 890),
     ),
@@ -58,6 +93,14 @@ CPU_DOMAINS = (
         6,
         3,
         2,
+        (
+            VOLTAGE_FIXED_ONLY,
+            VOLTAGE_FIXED_ONLY,
+            VOLTAGE_FIXED_ONLY,
+            VOLTAGE_FIXED_ONLY,
+            VOLTAGE_FIXED_OR_VMIN1,
+            VOLTAGE_FIXED_OR_VMIN1,
+        ),
         (800, 1200, 1500, 1800, 2100, 2200),
         (750, 750, 790, 790, 850, 890),
     ),
@@ -109,6 +152,11 @@ def validate_settings(settings: Settings) -> None:
             raise ValueError("voltage outside custom limits")
         if any(value < VOLTAGE_FIXED or value > VOLTAGE_MODE_MAX for value in modes):
             raise ValueError("invalid voltage mode")
+        if any(
+            not (domain.voltage_mode_masks[index] & (1 << mode))
+            for index, mode in enumerate(modes)
+        ):
+            raise ValueError("voltage mode is unsupported for OPP")
         if any(
             current <= previous
             for previous, current in zip(frequencies, frequencies[1:])

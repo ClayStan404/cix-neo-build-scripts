@@ -1,0 +1,333 @@
+diff --git a/Platform/CIX/Sky1/Drivers/PmConfigUpdateDxe/PmConfigUpdateDxe.c b/Platform/CIX/Sky1/Drivers/PmConfigUpdateDxe/PmConfigUpdateDxe.c
+index 04c8987b..2e7b0524 100644
+--- a/Platform/CIX/Sky1/Drivers/PmConfigUpdateDxe/PmConfigUpdateDxe.c
++++ b/Platform/CIX/Sky1/Drivers/PmConfigUpdateDxe/PmConfigUpdateDxe.c
+@@ -17,12 +17,18 @@
+ #include <Library/UefiBootServicesTableLib.h>
+ #include <Library/UefiRuntimeServicesTableLib.h>
+ 
++#define PM_VOLTAGE_FIXED_ONLY       (1U << RADXA_PM_VOLTAGE_FIXED)
++#define PM_VOLTAGE_FIXED_OR_VMIN1   (PM_VOLTAGE_FIXED_ONLY | (1U << RADXA_PM_VOLTAGE_VMIN1))
++#define PM_VOLTAGE_FIXED_OR_VMIN2   (PM_VOLTAGE_FIXED_ONLY | (1U << RADXA_PM_VOLTAGE_VMIN2))
++#define PM_VOLTAGE_FIXED_OR_VMIN3   (PM_VOLTAGE_FIXED_ONLY | (1U << RADXA_PM_VOLTAGE_VMIN3))
++
+ typedef struct {
+   CONST CHAR8    *Name;
+   UINT8          Domain;
+   UINT8          Size;
+   UINT8          SustainedIndex;
+   UINT8          ProtectedIndex;
++  UINT8          VoltageModeMask[PM_CONFIG_OPP_ENTRY_COUNT];
+   UINT16         Frequency[PM_CONFIG_OPP_ENTRY_COUNT];
+   UINT16         Voltage[PM_CONFIG_OPP_ENTRY_COUNT];
+   UINT16         MeasuredFrequency[PM_CONFIG_MEASURED_POINT_COUNT];
+@@ -32,6 +38,12 @@ typedef struct {
+ STATIC CONST PM_CPU_DOMAIN_DATA  mCpuDomains[PM_CONFIG_CPU_DOMAIN_COUNT] = {
+   {
+     "GB0", 3, 7, 3, PM_CONFIG_CPU_PROTECTED_INDEX,
++    {
++      PM_VOLTAGE_FIXED_ONLY, PM_VOLTAGE_FIXED_ONLY,
++      PM_VOLTAGE_FIXED_ONLY, PM_VOLTAGE_FIXED_ONLY,
++      PM_VOLTAGE_FIXED_OR_VMIN3, PM_VOLTAGE_FIXED_OR_VMIN2,
++      PM_VOLTAGE_FIXED_OR_VMIN1
++    },
+     { 800, 1200, 1500, 1800, 2200, 2400, 2500 },
+     { 750, 750, 790, 790, 790, 850, 920 },
+     { 2500, 2400, 2200, 1500, 1200, 800, 100 },
+@@ -39,6 +51,12 @@ STATIC CONST PM_CPU_DOMAIN_DATA  mCpuDomains[PM_CONFIG_CPU_DOMAIN_COUNT] = {
+   },
+   {
+     "GB1", 4, 7, 3, PM_CONFIG_CPU_PROTECTED_INDEX,
++    {
++      PM_VOLTAGE_FIXED_ONLY, PM_VOLTAGE_FIXED_ONLY,
++      PM_VOLTAGE_FIXED_ONLY, PM_VOLTAGE_FIXED_ONLY,
++      PM_VOLTAGE_FIXED_OR_VMIN3, PM_VOLTAGE_FIXED_OR_VMIN2,
++      PM_VOLTAGE_FIXED_OR_VMIN1
++    },
+     { 800, 1200, 1500, 1800, 2200, 2500, 2600 },
+     { 750, 750, 790, 790, 790, 850, 920 },
+     { 2600, 2500, 2200, 1500, 1200, 800, 100 },
+@@ -46,6 +64,12 @@ STATIC CONST PM_CPU_DOMAIN_DATA  mCpuDomains[PM_CONFIG_CPU_DOMAIN_COUNT] = {
+   },
+   {
+     "GM0", 5, 7, 3, PM_CONFIG_CPU_PROTECTED_INDEX,
++    {
++      PM_VOLTAGE_FIXED_ONLY, PM_VOLTAGE_FIXED_ONLY,
++      PM_VOLTAGE_FIXED_ONLY, PM_VOLTAGE_FIXED_OR_VMIN3,
++      PM_VOLTAGE_FIXED_OR_VMIN3, PM_VOLTAGE_FIXED_OR_VMIN2,
++      PM_VOLTAGE_FIXED_OR_VMIN1
++    },
+     { 800, 1200, 1500, 1800, 2100, 2200, 2300 },
+     { 750, 750, 790, 790, 790, 850, 890 },
+     { 2300, 2200, 2100, 1500, 1200, 800, 100 },
+@@ -53,6 +77,11 @@ STATIC CONST PM_CPU_DOMAIN_DATA  mCpuDomains[PM_CONFIG_CPU_DOMAIN_COUNT] = {
+   },
+   {
+     "GM1", 6, 6, 3, PM_CONFIG_CPU_PROTECTED_INDEX,
++    {
++      PM_VOLTAGE_FIXED_ONLY, PM_VOLTAGE_FIXED_ONLY,
++      PM_VOLTAGE_FIXED_ONLY, PM_VOLTAGE_FIXED_ONLY,
++      PM_VOLTAGE_FIXED_OR_VMIN1, PM_VOLTAGE_FIXED_OR_VMIN1
++    },
+     { 800, 1200, 1500, 1800, 2100, 2200 },
+     { 750, 750, 790, 790, 850, 890 },
+     { 2200, 2100, 1800, 1500, 1200, 800, 100 },
+@@ -350,7 +379,8 @@ PmCustomSettingsAreValid (
+           (Voltage < PM_CONFIG_CPU_VOLTAGE_MIN) ||
+           (Voltage > PM_CONFIG_CPU_VOLTAGE_MAX) ||
+           ((Voltage % 10U) != 0) ||
+-          (VoltageMode > RADXA_PM_VOLTAGE_MODE_MAX))
++          (VoltageMode > RADXA_PM_VOLTAGE_MODE_MAX) ||
++          ((Domain->VoltageModeMask[Opp] & (1U << VoltageMode)) == 0))
+       {
+         DEBUG ((
+           DEBUG_ERROR,
+@@ -533,6 +563,7 @@ PmCpuTablesAreValid (
+           (VoltageBase > PM_CONFIG_CPU_VOLTAGE_MAX) ||
+           ((VoltageBase % 10U) != 0) ||
+           (VoltageMode > RADXA_PM_VOLTAGE_MODE_MAX) ||
++          ((Domain->VoltageModeMask[Opp] & (1U << VoltageMode)) == 0) ||
+           (PmRead32 (Buffer, EntryOffset + PM_CONFIG_OPP_FREQUENCY_OFFSET) != 0) ||
+           (Power == 0) ||
+           (Power > PM_CONFIG_CPU_POWER_MAX))
+@@ -577,7 +608,7 @@ PmValidateConfig (
+   }
+ 
+   Length = PmRead32 (Buffer, PM_CONFIG_LENGTH_OFFSET);
+-  if ((Length < PM_CONFIG_DSU_END) ||
++  if ((Length < PM_CONFIG_VMIN_END) ||
+       (Length > PM_CONFIG_BIN_SIZE) ||
+       ((Length & (sizeof (UINT32) - 1)) != 0))
+   {
+@@ -593,6 +624,15 @@ PmValidateConfig (
+     return FALSE;
+   }
+ 
++  if ((PmRead32 (Buffer, PM_CONFIG_VMIN_DISABLE_OFFSET) !=
++       PM_CONFIG_VMIN_ENABLE_VALUE) ||
++      (PmRead32 (Buffer, PM_CONFIG_VMIN_PROFILE_OFFSET) !=
++       PM_CONFIG_FIELD_INVALID_VALUE))
++  {
++    DEBUG ((DEBUG_ERROR, "[PmConfigUpdate] Fused Vmin is not enabled\n"));
++    return FALSE;
++  }
++
+   switch (Buffer[PM_CONFIG_OPP_VALID_OFFSET]) {
+     case PM_CONFIG_OPP_EXTERNAL_INVALID:
+       break;
+diff --git a/Platform/CIX/Sky1/Drivers/PmConfigUpdateDxe/PmConfigUpdateDxe.h b/Platform/CIX/Sky1/Drivers/PmConfigUpdateDxe/PmConfigUpdateDxe.h
+index fd3530c6..98345e47 100644
+--- a/Platform/CIX/Sky1/Drivers/PmConfigUpdateDxe/PmConfigUpdateDxe.h
++++ b/Platform/CIX/Sky1/Drivers/PmConfigUpdateDxe/PmConfigUpdateDxe.h
+@@ -60,6 +60,12 @@
+ #define PM_CONFIG_DSU_END                  \
+   PM_CONFIG_OPP_DOMAIN_OFFSET (PM_CONFIG_DSU_DOMAIN_INDEX + 1U)
+ 
++#define PM_CONFIG_VMIN_DISABLE_OFFSET      3331U
++#define PM_CONFIG_VMIN_PROFILE_OFFSET      3335U
++#define PM_CONFIG_VMIN_END                 3339U
++#define PM_CONFIG_VMIN_ENABLE_VALUE        0x67997CDAU
++#define PM_CONFIG_FIELD_INVALID_VALUE      0x00000001U
++
+ #define PM_CONFIG_CPU_FREQUENCY_MIN        800U
+ #define PM_CONFIG_CPU_FREQUENCY_MAX        3200U
+ #define PM_CONFIG_CPU_VOLTAGE_MIN          550U
+diff --git a/Platform/Radxa/Orion/O6/pm_config/user_config.h b/Platform/Radxa/Orion/O6/pm_config/user_config.h
+index 924603ef..fabb8470 100644
+--- a/Platform/Radxa/Orion/O6/pm_config/user_config.h
++++ b/Platform/Radxa/Orion/O6/pm_config/user_config.h
+@@ -214,13 +214,15 @@ static pm_config_log_t log_config = {
+ #endif
+ 
+ #ifndef PM_VMIN_CONFIG
+-#define PM_VMIN_CONFIG 0
++#define PM_VMIN_CONFIG 1
+ #endif
+ #if PM_VMIN_CONFIG
++#define VMIN_ENABLE_MAGIC 0x33CCBE6D
+ static pm_config_vmin_t vmin_config = {
+     .vmin_disable = {
+         .fields = {
+-            .valid    = PM_CONFIG_INVALID,
++            .valid    = PM_CONFIG_VALID,
++            .raw_data = VMIN_ENABLE_MAGIC,
+         }
+     },
+     .vmin_profile = {
+diff --git a/Platform/Radxa/Platforms/CIX/Sky1/Drivers/PlatformConfigDxe/PmMenu/PmConfig.hfr b/Platform/Radxa/Platforms/CIX/Sky1/Drivers/PlatformConfigDxe/PmMenu/PmConfig.hfr
+index d54b996b..4b5e9816 100644
+--- a/Platform/Radxa/Platforms/CIX/Sky1/Drivers/PlatformConfigDxe/PmMenu/PmConfig.hfr
++++ b/Platform/Radxa/Platforms/CIX/Sky1/Drivers/PlatformConfigDxe/PmMenu/PmConfig.hfr
+@@ -126,7 +126,7 @@
+     endif;                                                                        \
+   endnumeric;
+ 
+-#define PM_VOLT_MODE(Index)                                                       \
++#define PM_VOLT_MODE_VMIN1(Index)                                                \
+   oneof varid = RadxaPmTuningVar.CpuVoltageMode[Index],                          \
+     prompt = STRING_TOKEN(STR_PM_VMIN_MODE_PROMPT),                              \
+     help = STRING_TOKEN(STR_PM_VMIN_MODE_HELP),                                  \
+@@ -134,7 +134,25 @@
+     default = RADXA_PM_VOLTAGE_FIXED,                                            \
+     option text = STRING_TOKEN(STR_PM_VMIN_FIXED), value = RADXA_PM_VOLTAGE_FIXED, flags = RESET_REQUIRED; \
+     option text = STRING_TOKEN(STR_PM_VMIN_1), value = RADXA_PM_VOLTAGE_VMIN1, flags = RESET_REQUIRED; \
++  endoneof;
++
++#define PM_VOLT_MODE_VMIN2(Index)                                                \
++  oneof varid = RadxaPmTuningVar.CpuVoltageMode[Index],                          \
++    prompt = STRING_TOKEN(STR_PM_VMIN_MODE_PROMPT),                              \
++    help = STRING_TOKEN(STR_PM_VMIN_MODE_HELP),                                  \
++    flags = NUMERIC_SIZE_1 | RESET_REQUIRED,                                     \
++    default = RADXA_PM_VOLTAGE_FIXED,                                            \
++    option text = STRING_TOKEN(STR_PM_VMIN_FIXED), value = RADXA_PM_VOLTAGE_FIXED, flags = RESET_REQUIRED; \
+     option text = STRING_TOKEN(STR_PM_VMIN_2), value = RADXA_PM_VOLTAGE_VMIN2, flags = RESET_REQUIRED; \
++  endoneof;
++
++#define PM_VOLT_MODE_VMIN3(Index)                                                \
++  oneof varid = RadxaPmTuningVar.CpuVoltageMode[Index],                          \
++    prompt = STRING_TOKEN(STR_PM_VMIN_MODE_PROMPT),                              \
++    help = STRING_TOKEN(STR_PM_VMIN_MODE_HELP),                                  \
++    flags = NUMERIC_SIZE_1 | RESET_REQUIRED,                                     \
++    default = RADXA_PM_VOLTAGE_FIXED,                                            \
++    option text = STRING_TOKEN(STR_PM_VMIN_FIXED), value = RADXA_PM_VOLTAGE_FIXED, flags = RESET_REQUIRED; \
+     option text = STRING_TOKEN(STR_PM_VMIN_3), value = RADXA_PM_VOLTAGE_VMIN3, flags = RESET_REQUIRED; \
+   endoneof;
+ 
+@@ -177,104 +195,93 @@
+     subtitle text = STRING_TOKEN(STR_PM_OPP0);
+     PM_FREQ_FIRST(0, 1, 800)
+     PM_VOLT_FIRST(0, 1, 750)
+-    PM_VOLT_MODE(0)
+     subtitle text = STRING_TOKEN(STR_PM_OPP1);
+     PM_FREQ_BEFORE_BOOT(1, 0, 1200)
+     PM_VOLT_BEFORE_BOOT(1, 0, 750)
+-    PM_VOLT_MODE(1)
+     subtitle text = STRING_TOKEN(STR_PM_OPP3);
+     PM_FREQ_AFTER_BOOT(3, 4, 1800)
+     PM_VOLT_AFTER_BOOT(3, 4, 790)
+-    PM_VOLT_MODE(3)
+     subtitle text = STRING_TOKEN(STR_PM_OPP4);
+     PM_FREQ_MIDDLE(4, 3, 5, 2200)
+     PM_VOLT_MIDDLE(4, 3, 5, 790)
+-    PM_VOLT_MODE(4)
++    PM_VOLT_MODE_VMIN3(4)
+     subtitle text = STRING_TOKEN(STR_PM_OPP5);
+     PM_FREQ_MIDDLE(5, 4, 6, 2400)
+     PM_VOLT_MIDDLE(5, 4, 6, 850)
+-    PM_VOLT_MODE(5)
++    PM_VOLT_MODE_VMIN2(5)
+     subtitle text = STRING_TOKEN(STR_PM_OPP6);
+     PM_FREQ_LAST(6, 5, 2500)
+     PM_VOLT_LAST(6, 5, 920)
+-    PM_VOLT_MODE(6)
++    PM_VOLT_MODE_VMIN1(6)
+     subtitle text = STRING_TOKEN(STR_EMPTY_STRING);
+ 
+     subtitle text = STRING_TOKEN(STR_PM_DOMAIN_GB1);
+     subtitle text = STRING_TOKEN(STR_PM_OPP0);
+     PM_FREQ_FIRST(13, 14, 800)
+     PM_VOLT_FIRST(13, 14, 750)
+-    PM_VOLT_MODE(13)
+     subtitle text = STRING_TOKEN(STR_PM_OPP1);
+     PM_FREQ_BEFORE_BOOT(14, 13, 1200)
+     PM_VOLT_BEFORE_BOOT(14, 13, 750)
+-    PM_VOLT_MODE(14)
+     subtitle text = STRING_TOKEN(STR_PM_OPP3);
+     PM_FREQ_AFTER_BOOT(16, 17, 1800)
+     PM_VOLT_AFTER_BOOT(16, 17, 790)
+-    PM_VOLT_MODE(16)
+     subtitle text = STRING_TOKEN(STR_PM_OPP4);
+     PM_FREQ_MIDDLE(17, 16, 18, 2200)
+     PM_VOLT_MIDDLE(17, 16, 18, 790)
+-    PM_VOLT_MODE(17)
++    PM_VOLT_MODE_VMIN3(17)
+     subtitle text = STRING_TOKEN(STR_PM_OPP5);
+     PM_FREQ_MIDDLE(18, 17, 19, 2500)
+     PM_VOLT_MIDDLE(18, 17, 19, 850)
+-    PM_VOLT_MODE(18)
++    PM_VOLT_MODE_VMIN2(18)
+     subtitle text = STRING_TOKEN(STR_PM_OPP6);
+     PM_FREQ_LAST(19, 18, 2600)
+     PM_VOLT_LAST(19, 18, 920)
+-    PM_VOLT_MODE(19)
++    PM_VOLT_MODE_VMIN1(19)
+     subtitle text = STRING_TOKEN(STR_EMPTY_STRING);
+ 
+     subtitle text = STRING_TOKEN(STR_PM_DOMAIN_GM0);
+     subtitle text = STRING_TOKEN(STR_PM_OPP0);
+     PM_FREQ_FIRST(26, 27, 800)
+     PM_VOLT_FIRST(26, 27, 750)
+-    PM_VOLT_MODE(26)
+     subtitle text = STRING_TOKEN(STR_PM_OPP1);
+     PM_FREQ_BEFORE_BOOT(27, 26, 1200)
+     PM_VOLT_BEFORE_BOOT(27, 26, 750)
+-    PM_VOLT_MODE(27)
+     subtitle text = STRING_TOKEN(STR_PM_OPP3);
+     PM_FREQ_AFTER_BOOT(29, 30, 1800)
+     PM_VOLT_AFTER_BOOT(29, 30, 790)
+-    PM_VOLT_MODE(29)
++    PM_VOLT_MODE_VMIN3(29)
+     subtitle text = STRING_TOKEN(STR_PM_OPP4);
+     PM_FREQ_MIDDLE(30, 29, 31, 2100)
+     PM_VOLT_MIDDLE(30, 29, 31, 790)
+-    PM_VOLT_MODE(30)
++    PM_VOLT_MODE_VMIN3(30)
+     subtitle text = STRING_TOKEN(STR_PM_OPP5);
+     PM_FREQ_MIDDLE(31, 30, 32, 2200)
+     PM_VOLT_MIDDLE(31, 30, 32, 850)
+-    PM_VOLT_MODE(31)
++    PM_VOLT_MODE_VMIN2(31)
+     subtitle text = STRING_TOKEN(STR_PM_OPP6);
+     PM_FREQ_LAST(32, 31, 2300)
+     PM_VOLT_LAST(32, 31, 890)
+-    PM_VOLT_MODE(32)
++    PM_VOLT_MODE_VMIN1(32)
+     subtitle text = STRING_TOKEN(STR_EMPTY_STRING);
+ 
+     subtitle text = STRING_TOKEN(STR_PM_DOMAIN_GM1);
+     subtitle text = STRING_TOKEN(STR_PM_OPP0);
+     PM_FREQ_FIRST(39, 40, 800)
+     PM_VOLT_FIRST(39, 40, 750)
+-    PM_VOLT_MODE(39)
+     subtitle text = STRING_TOKEN(STR_PM_OPP1);
+     PM_FREQ_BEFORE_BOOT(40, 39, 1200)
+     PM_VOLT_BEFORE_BOOT(40, 39, 750)
+-    PM_VOLT_MODE(40)
+     subtitle text = STRING_TOKEN(STR_PM_OPP3);
+     PM_FREQ_AFTER_BOOT(42, 43, 1800)
+     PM_VOLT_AFTER_BOOT(42, 43, 790)
+-    PM_VOLT_MODE(42)
+     subtitle text = STRING_TOKEN(STR_PM_OPP4);
+     PM_FREQ_MIDDLE(43, 42, 44, 2100)
+     PM_VOLT_MIDDLE(43, 42, 44, 850)
+-    PM_VOLT_MODE(43)
++    PM_VOLT_MODE_VMIN1(43)
+     subtitle text = STRING_TOKEN(STR_PM_OPP5);
+     PM_FREQ_LAST(44, 43, 2200)
+     PM_VOLT_LAST(44, 43, 890)
+-    PM_VOLT_MODE(44)
++    PM_VOLT_MODE_VMIN1(44)
+ 
+     subtitle text = STRING_TOKEN(STR_EMPTY_STRING);
+     subtitle text = STRING_TOKEN(STR_EXIT_STRING);
+@@ -291,4 +298,6 @@
+ #undef PM_VOLT_BEFORE_BOOT
+ #undef PM_VOLT_AFTER_BOOT
+ #undef PM_VOLT_LAST
+-#undef PM_VOLT_MODE
++#undef PM_VOLT_MODE_VMIN1
++#undef PM_VOLT_MODE_VMIN2
++#undef PM_VOLT_MODE_VMIN3
+diff --git a/Platform/Radxa/Platforms/CIX/Sky1/Drivers/PlatformConfigDxe/PmMenu/PmConfig.uni b/Platform/Radxa/Platforms/CIX/Sky1/Drivers/PlatformConfigDxe/PmMenu/PmConfig.uni
+index 0b97a430..5554a537 100644
+--- a/Platform/Radxa/Platforms/CIX/Sky1/Drivers/PlatformConfigDxe/PmMenu/PmConfig.uni
++++ b/Platform/Radxa/Platforms/CIX/Sky1/Drivers/PlatformConfigDxe/PmMenu/PmConfig.uni
+@@ -19,7 +19,7 @@
+ #string STR_PM_FREQUENCY_HELP          #language en-US "CPU frequency in MHz. Values must be strictly increasing around the locked 1500 MHz boot OPP."
+ #string STR_PM_VOLTAGE_HELP            #language en-US "Base CPU voltage before optional per-chip Vmin resolution and PMIC guardbands. Values must not decrease around the locked 790 mV boot OPP."
+ #string STR_PM_VMIN_MODE_PROMPT        #language en-US "Voltage policy"
+-#string STR_PM_VMIN_MODE_HELP          #language en-US "Fixed uses the base voltage directly. Vmin modes use the larger of the base voltage and the selected per-chip fused Vmin profile."
++#string STR_PM_VMIN_MODE_HELP          #language en-US "Fixed uses the base voltage directly. The shown Vmin tier is the PM firmware ATE checkpoint assigned to this domain and source OPP; it uses the larger of the base voltage and the fused per-chip floor. It is not a safe-voltage guarantee for an edited frequency."
+ #string STR_PM_VMIN_FIXED              #language en-US "Fixed base voltage"
+ #string STR_PM_VMIN_1                  #language en-US "Base floor + per-chip Vmin profile 1"
+ #string STR_PM_VMIN_2                  #language en-US "Base floor + per-chip Vmin profile 2"

@@ -41,7 +41,7 @@ build_sets:
       - sky1-edge-firmware
 
   firmware-engineering:
-    description: O6 engineering firmware and PM inspection tool
+    description: O6 CPU-tuning firmware and PM inspection tool
     targets:
       - pmtool
       - radxa-o6-firmware-engineering
@@ -285,7 +285,7 @@ targets:
     source: sources/radxa-o6
 
   radxa-o6-firmware-engineering:
-    description: Radxa Orion O6 engineering firmware with BIOS-selectable CPU and memory tuning
+    description: Radxa Orion O6 CPU-tuning firmware with the manifest PR-debug boot chain
     builder: direct
     flow: sky1-firmware-engineering
     source: sources/radxa-o6
@@ -699,8 +699,6 @@ projects:
     rules:
       - paths: ["device/misc/**"]
         targets: [pmtool]
-      - paths: ["host/security/sky1/**"]
-        targets: [radxa-o6-firmware-engineering]
     ignore:
       - "debug-tools/**"
       - "device/fct_test/**"
@@ -714,6 +712,7 @@ projects:
       - "host/packagetool/**"
       - "host/pm_env/**"
       - "host/rkms/**"
+      - "host/security/sky1/**"
       - "host/security/sky1p/**"
       - "host/security/star1/**"
 
@@ -800,31 +799,27 @@ projects:
     path: sources/radxa-o6/bootloader/ddr
     rules:
       - paths: ["**"]
-        targets: [radxa-o6-firmware-engineering, sky1-se-firmware]
+        targets: [sky1-se-firmware]
 
   cix_security/firmware:
     path: sources/radxa-o6/bootloader/firmware
     rules:
       - paths: ["**"]
-        targets: [radxa-o6-firmware-engineering, sky1-se-firmware]
+        targets: [sky1-se-firmware]
 
   cix_security/library:
     path: sources/radxa-o6/bootloader/library
     rules:
       - paths: ["**"]
-        targets: [radxa-o6-firmware-engineering, sky1-se-firmware, sky1-pbl, sky1-tf-a]
+        targets: [sky1-se-firmware, sky1-pbl, sky1-tf-a]
 
   cix_private/sw_tools_private:
     path: sources/radxa-o6/bootloader/sw-tools-private
-    rules:
-      - paths: ["**"]
-        targets: [radxa-o6-firmware-engineering]
+    ignore: ["**"]
 
   cix_proprietary/cix_firmware:
     path: sources/radxa-o6/bootloader/firmware-binaries
-    rules:
-      - paths: ["**"]
-        targets: [radxa-o6-firmware-engineering]
+    ignore: ["**"]
 
   github_mirror/ucb-bar/berkeley-softfloat-3:
     path: sources/uefi-stmm/edk2/ArmPkg/Library/ArmSoftFloatLib/berkeley-softfloat-3
@@ -1072,7 +1067,7 @@ projects:
       - paths: ["builders/direct/firmware-sky1.sh"]
         targets: [radxa-o6-firmware, radxa-o6n-firmware, sky1-merak-firmware, sky1-edge-firmware, radxa-o6-firmware-engineering]
       - paths: ["builders/direct/bootloader1.sh", "patches/radxa-bootloader/**"]
-        targets: [radxa-o6-firmware-engineering, sky1-se-firmware]
+        targets: [sky1-se-firmware]
       - paths: ["builders/direct/pmtool.sh"]
         targets: [pmtool]
       - paths: ["builders/direct/ramparser.sh", "patches/ramparser/**"]
@@ -1090,8 +1085,6 @@ projects:
       - paths: ["patches/radxa-opp-validation/**"]
         targets: [radxa-o6-firmware-engineering]
       - paths: ["patches/radxa-pm-tuning/**", "ci/pm_tuning_model.py", "ci/test_pm_tuning_model.py"]
-        targets: [radxa-o6-firmware-engineering]
-      - paths: ["patches/radxa-memory-tuning/**", "ci/verify_memory_config.py", "ci/test_memory_config.py"]
         targets: [radxa-o6-firmware-engineering]
       - paths: ["builders/debian.sh"]
         targets: [gpu-dkms, bt-dkms, vpu-dkms, vpu-firmware, npu-dkms, grub-config, alsa-conf, cix-env, cix-firmware, audio-dsp, dpu-ddk, gpu-umd, isp-umd, isp-v4l2-dkms, isp-dkms, libdrm, libglvnd, libva, ffmpeg, mesa, libcme, cix-vaapi, noe-umd, npu-umd, ai-engine, mnn, gstreamer-6.6, gstreamer-base-7.0, gstreamer-good-7.0, nnstreamer, wlan-dkms]
@@ -1114,6 +1107,9 @@ projects:
       - "ci/execute.py"
       - "ci/publish_apt.py"
       - "ci/test_build_state.py"
+      - "ci/test_memory_config.py"
+      - "ci/verify_memory_config.py"
+      - "patches/radxa-memory-tuning/**"
       - "ci/test_execute.py"
       - "ci/test_plan.py"
       - "ci/test_product.py"

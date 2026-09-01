@@ -254,17 +254,22 @@ The dated, exhaustive progress report is
 entry point under its effective status and explains the current product,
 firmware, and infrastructure coverage.
 
-`radxa-o6-firmware-engineering` produces one locally signed
-`engineering_debug` full-flash image. Its BIOS exposes only Vendor/Automatic
+`radxa-o6-firmware-engineering` produces one CPU-tuning
+`pr_debug` full-flash image. It reuses the manifest-pinned PR-debug
+bootloader1 and bootloader2 instead of rebuilding or locally signing the early
+boot chain. Its BIOS exposes only Vendor/Automatic
 and Custom. The profiles are in
 the O6 UEFI setup menu under
 `Device Manager -> Platform Configuration -> Advanced Configuration -> Power
 Management`. Vendor/Automatic disables the external OPP table so PM firmware
-can use its native OPN/Vmin/guardband path.
+can use its native OPN/Vmin/guardband path; the generated PM config explicitly
+enables the fused Vmin curve instead of inheriting the disabled default.
 Custom enables a complete external CPU table with the Debug PM firmware and
 permits edits to the non-boot OPPs of GB0, GB1, GM0, and GM1
-within 800-3200 MHz and 550-1250 mV base voltage in steps of 10. Each editable
-OPP can use a fixed voltage or Vmin profile 1-3. The effective 1500 MHz / 790 mV
+within 800-3200 MHz and 550-1250 mV base voltage in steps of 10. Voltage-policy
+controls are exposed only where the pinned PM firmware assigns a Vmin tier to
+that domain and source OPP; each control offers Fixed plus that one tier. The
+effective 1500 MHz / 790 mV
 boot OPP, DSU, and non-CPU domains remain locked. CPU power entries use the
 measured-power table and interpolation from the exact pinned PM firmware
 source, then conservatively scale upward with voltage squared above the source
@@ -278,36 +283,12 @@ complete dedicated PM entry before performing one additional cold reset.
 This target is not part of a product build set and the ordinary O6 firmware
 target remains unchanged.
 
-The same recovery-gated image repairs the existing `Advanced Configuration ->
-Memory Configuration -> Memory Data Rate` update path. `Auto` and every
-explicit menu value from 1600 through 6400 MT/s are validated and written only
-to the BSET request. The per-population CONF limits remain exactly as supplied
-by the vendor: normally 5500 MT/s, 4800 MT/s for the low-speed variants, and
-6000 MT/s for the 32 GB Hynix variant. The updater validates the current image
-and BSET checksum, writes the dedicated memory configuration entry, and
-verifies the complete entry by reading it back. Rates above a board's qualified
-limit remain experiments: the DDR implementation may reject them, the SoC
-fuse limit may cap them, and an accepted rate can still fail training before
-UEFI setup. Use such rates only with the tested USB recovery path.
-
-For this tuning image, the Sky1 SE/DDR firmware and its `bootloader1` container
-are built from the manifest-pinned sources on the ARM64 host. The build uses
-Debian 13's `gcc-arm-none-eabi`, newlib, native GCC, OpenSSL, and libxml2; it
-does not execute an x86 cross-toolchain. DDR training is limited to three
-attempts. If an explicit rate fails, firmware writes `Auto` back to the
-dedicated memory configuration entry, verifies the flash update, and resets.
-Failure while already using `Auto` stops initialization instead of entering an
-unbounded reset loop. Local signing is restricted to the documented prototype
-key, and the tuning target publishes only the explicitly named
-`engineering_debug` full-flash image. It never labels the repository's example
-release keys as production keys. It intentionally does not publish tuning OTA
-images because that payload does not carry the Debug PM firmware required by
-the complete custom table. Product `pr` and `pr2` bootloaders
-remain the manifest-pinned binaries: regenerating them requires RKMS, while the
-available `cix_kms` frontend is x86-only and its source is not present. It is
-therefore not executed by the ARM64-native build. PM and PBL target payloads
-also remain version-matched manifest binaries because their source build needs
-the licensed Xtensa toolchain, which Debian does not provide.
+The experimental memory-menu and source-built SE/DDR bootloader1 path is no
+longer part of this target. A 2026-08-31 image using that path failed before
+UEFI on the retail O6 and required SPI recovery. Those patches remain
+quarantined for analysis and cannot be emitted by a flashable target. The CPU
+image intentionally does not publish an OTA payload because Custom mode needs
+the Debug PM firmware carried by the PR-debug early boot chain.
 
 The `firmware-engineering` set also publishes the manifest-pinned ARM64 CIX
 `pmtool` binary at

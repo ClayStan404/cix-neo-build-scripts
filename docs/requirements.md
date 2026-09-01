@@ -237,25 +237,30 @@ is confirmed.
   slots, and the unconfigured thirteenth domain match exactly. Do not introduce
   higher frequencies or new voltage points until the stock-table image has
   passed a recoverable board test.
-- Provide a separate O6 firmware target that publishes one locally signed
-  Engineering Debug full-flash image. Expose only Vendor/Automatic and complete
+- Provide a separate O6 firmware target that publishes one CPU-tuning
+  PR-debug full-flash image. Reuse the manifest-pinned PR-debug bootloader1 and
+  bootloader2 rather than rebuilding or locally signing early-boot firmware.
+  Expose only Vendor/Automatic and complete
   Custom profiles. Keep source checkouts clean by carrying the implementation
   as build-time patches. Vendor/Automatic must disable the external OPP table;
   Custom must enable the complete external CPU table with Debug PM firmware.
+  The generated PM config must explicitly enable the per-part fused Vmin curve;
+  do not inherit the PackageTool default that leaves it disabled.
   Migrate removed fixed-frequency and partial profiles to Vendor/Automatic.
   Do not treat K000086 EVB evidence as qualification of a retail Radxa O6.
   Custom modes may edit only the non-boot OPPs of GB0, GB1, GM0, and GM1 within
-  800-3200 MHz and 550-1250 mV base voltage in steps of 10. Each editable OPP
-  may use fixed voltage or fused Vmin profile 1-3. Require strictly increasing
+  800-3200 MHz and 550-1250 mV base voltage in steps of 10. Expose a Vmin mode
+  only where the pinned PM firmware assigns that exact tier to the domain and
+  source OPP; offer Fixed plus only that tier and enforce the same mapping in
+  runtime validation. Require strictly increasing
   frequencies and non-decreasing base voltages. Fix the effective boot OPP at
   1500 MHz / 790 mV; do not expose it, DSU, or non-CPU domains. Populate CPU
   power from the measured-power points and interpolation in the exact PM
   firmware source. Conservatively scale the measured result upward with voltage
   squared when the selected voltage exceeds the source voltage curve, and use
   the pinned PM firmware's Vmin ceiling for Vmin-mode accounting.
-  Verify the Debug PM binary against source revision `a2327331813f`, its
-  expected SHA-256 value, PM config ABI v3.4, and the
-  deliberately pinned generated config schema v3.0 before packaging. Publish
+  Verify the PM config ABI v3.4 and the deliberately pinned generated config
+  schema v3.0 before packaging. Publish
   only the full-flash tuning image because the OTA payload does not carry the
   Debug PM firmware required by the complete custom table.
   Validate both the submitted settings and the complete existing v3 PM block
@@ -265,7 +270,12 @@ is confirmed.
   and reject unknown ones. Maintain a host-side semantic model for profile,
   migration, custom-table, and protected-OPP policy. The setup-save path must
   also prevent the legacy CPU limit from masking any selected profile.
-- In that same recovery-gated O6 tuning target, make the existing Memory Data
+- The earlier requirement to include Memory Data Rate tuning in that same
+  image is retired after the 2026-08-31 early-boot incident. The failed image
+  combined a source-built prototype bootloader1 with patched SE/DDR firmware
+  and did not reach UEFI on a retail O6. Keep the memory and bounded-training
+  patches quarantined from all flashable targets. If resumed, implement a
+  separate explicitly experimental target that makes the existing Memory Data
   Rate selector reliably update only the BSET request. Accept `Auto` and every
   source-defined explicit menu value, but never rewrite any per-board CONF
   maximum at runtime. Validate the complete current memory configuration and
@@ -276,13 +286,16 @@ is confirmed.
   may reject, the SoC fuse limit may cap, or memory may fail to train rather
   than as product-qualified rates. Bound training to three attempts. When an
   explicit request fails, persist `Auto`, verify the flash update, and reset;
-  when `Auto` itself fails, stop initialization instead of reset-looping.
+  when `Auto` itself fails, stop initialization instead of reset-looping. It
+  must not publish an image until UART2/UART5 evidence and a recoverable board
+  test validate the exact bootloader revision.
 - Track `cix_security/ddr`, `cix_security/firmware`, `cix_security/library`,
   `cix_private/sw_tools_private`, and `cix_proprietary/cix_firmware` for the
-  Sky1 bootloader source and version-matched target payloads. Build SE/DDR and
-  the signing tool natively on ARM64 with Debian 13 packages, then locally sign
-  and verify only prototype `bootloader1` images with the documented LKMS
-  prototype key. Never treat repository example release keys as product keys.
+  Sky1 bootloader source and version-matched target payloads. Build standalone
+  SE firmware natively on ARM64 with Debian 13 packages, but do not package a
+  source-built SE/DDR payload into a flashable bootloader1 after the early-boot
+  incident. Keep the prototype signing implementation as quarantined reference
+  code only. Never treat repository example release keys as product keys.
   Keep `pr` and `pr2` revision-pinned unless the corresponding RKMS projects
   and an ARM64-native packaging frontend are both available; never execute the
   existing x86-only `cix_kms` binary on the ARM64 build host. Keep PM and PBL as
@@ -546,8 +559,9 @@ the build-script repository and are applied to target-owned worktrees, leaving
 the manifest source checkouts unchanged. It emits each board's flash and OCB
 images under `output/TARGET/images` and has no Debian backend. O6N has no EC, so
 its packaging must leave the EC flash region erased rather than include the
-default platform EC firmware. Radxa PM and memory tuning patches remain scoped
-to the explicit O6 engineering firmware target.
+default platform EC firmware. Radxa PM tuning remains scoped to the explicit
+O6 engineering target; memory and source-built bootloader tuning are
+quarantined from flashable targets.
 
 Sky1P and Star1 complete flash-image targets require a source-buildable native
 CBFF 1.4 host tool. Do not execute the release tree's x86-64 `cix_cbff`, use
@@ -558,12 +572,15 @@ been validated against the reference image format.
 
 The `radxa-o6-firmware-engineering` direct target layers a BIOS profile
 selector and a v3 PM update driver over an image that contains source backup
-OPP tables.
-Vendor/Automatic leaves external OPPs disabled. Custom enables the complete
-external CPU table with Debug PM firmware. The single Engineering Debug image
+OPP tables. It reuses the manifest-pinned PR-debug bootloader1 and bootloader2
+and does not locally rebuild or sign early-boot firmware.
+Vendor/Automatic leaves external OPPs disabled while explicitly enabling the
+per-part fused Vmin curve. Custom enables the complete external CPU table with
+Debug PM firmware. The single CPU-tuning PR-debug image
 exposes only those two modes. Custom exposes only
-non-boot OPPs under bounded and monotonic input rules, with optional fused Vmin
-profiles. The 1500 MHz / 790 mV boot OPP, DSU, and non-CPU domains remain locked.
+non-boot OPPs under bounded and monotonic input rules, with only the fused Vmin
+tier assigned to each source OPP exposed as an alternative to Fixed. The
+1500 MHz / 790 mV boot OPP, DSU, and non-CPU domains remain locked.
 CPU power follows the exact pinned PM firmware measured-power interpolation and
 is conservatively voltage-adjusted upward. Versioned settings, a host semantic
 model, current/generated PM validation, and complete flash read-back protect
@@ -573,19 +590,12 @@ direct target in the same set publishes the manifest-pinned ARM64 inspection
 binary used to capture the effective firmware OPP table on the board. Neither
 target installs software, invokes `sudo`, or flashes firmware.
 
-That target also layers an isolated memory updater fix. The checked-in source
-memory configuration remains Automatic with its original per-population
-limits. Every supported setup rate changes only the BSET request; no runtime
-path may rewrite a per-board CONF maximum. All LPDDR5 bus, PHY-pad, and
-training blocks must retain their source entries, and every memory write must
-pass checksum validation and complete read-back comparison. This behavior is
-not enabled in the normal O6 firmware target. The same flow builds the Sky1
-SE/DDR firmware from source with Debian 13's native ARM embedded toolchain,
-limits training to three attempts, restores an explicit failed request to
-Automatic, and packages verified prototype `bootloader1` images with the
-ARM64-native signing tool. It publishes only explicitly named prototype tuning
-images and retains the manifest-pinned `pr`, `pr2`, PM, and PBL payloads at the
-documented signing/toolchain boundary.
+The 2026-08-31 source-built prototype bootloader1 image failed before UEFI on
+the retail O6 and required SPI recovery. Consequently, memory-menu changes,
+patched SE/DDR firmware, and locally signed bootloader1 images are excluded
+from every flashable build target. Their source patches remain only as
+quarantined analysis inputs. Any future attempt requires a separate target and
+serial-assisted early-boot validation before publication.
 
 ## Legacy Reference
 

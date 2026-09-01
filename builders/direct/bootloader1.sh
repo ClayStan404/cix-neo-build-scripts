@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Build Sky1 SE/DDR firmware and package bootloader1 images on native ARM64.
+# Retain native helpers only for the standalone, non-flashable sky1-se-firmware target.
+# No flashable target calls the source-built bootloader1 path after the 2026-08-31 incident.
 
 cix_bootloader1_remove_workspace() {
     local source_root="$1"

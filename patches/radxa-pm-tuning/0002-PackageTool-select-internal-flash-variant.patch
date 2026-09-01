@@ -15,7 +15,7 @@ index 2dd423d..5a0e2e7 100755
  
      cd -
  
-@@ -137,7 +139,18 @@ if [ ! -z "$1" ]; then
+@@ -137,7 +139,21 @@ if [ ! -z "$1" ]; then
      fi
  fi
  
@@ -29,6 +29,9 @@ index 2dd423d..5a0e2e7 100755
 +        exec_cix_mkimage pr2 debug
 +        exec_cix_mkimage proto release
 +        exec_cix_mkimage proto debug
++        ;;
++    pr-debug)
++        exec_cix_mkimage pr debug
 +        ;;
 +    proto-debug)
 +        exec_cix_mkimage proto debug

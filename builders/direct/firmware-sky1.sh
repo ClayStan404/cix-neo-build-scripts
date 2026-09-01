@@ -1,8 +1,33 @@
 #!/usr/bin/env bash
 # Build and package Sky1 platform firmware on native ARM64.
 
-# shellcheck source=builders/direct/bootloader1.sh
-source "${CIX_ROOT}/build-scripts/builders/direct/bootloader1.sh"
+cix_sky1_remove_retired_bootloader_workspace() {
+    local source_root="$1"
+    local build_output="$2"
+    local work_root="${build_output}/bootloader-work"
+    local component
+
+    for component in ddr firmware library sw-tools-private; do
+        cix_remove_git_worktree \
+            "${source_root}/bootloader/${component}" \
+            "${work_root}/${component}"
+    done
+
+    if [[ -d "${work_root}" ]]; then
+        find "${work_root}" -mindepth 1 -delete
+        rmdir "${work_root}"
+    fi
+}
+
+cix_sky1_remove_retired_bootloader_artifacts() {
+    local artifact_root="$1/bootloader1"
+
+    if [[ -d "${artifact_root}" ]]; then
+        cix_log "Remove retired source-built bootloader1 artifacts"
+        find "${artifact_root}" -mindepth 1 -delete
+        rmdir "${artifact_root}"
+    fi
+}
 
 cix_sky1_remove_workspace() {
     local source_root="$1"
@@ -12,7 +37,8 @@ cix_sky1_remove_workspace() {
     local work_uefi="${work_root}/uefi_release"
     local dependency
 
-    cix_bootloader1_remove_workspace "${source_root}" "${build_output}"
+    cix_sky1_remove_retired_bootloader_workspace \
+        "${source_root}" "${build_output}"
 
     cix_remove_git_worktree \
         "${source_root}/cix_bsp_release" \
@@ -72,6 +98,15 @@ cix_sky1_validate_pm_ifr() {
         /oneof varid = RadxaPmTuningVar.CpuVoltageMode\[[0-9]+\],/ {
             vmin_fields++
         }
+        /CpuVoltageMode\[(6|19|32|43|44)\].*value = 1,/ {
+            vmin1_fields++
+        }
+        /CpuVoltageMode\[(5|18|31)\].*value = 2,/ {
+            vmin2_fields++
+        }
+        /CpuVoltageMode\[(4|17|29|30)\].*value = 3,/ {
+            vmin3_fields++
+        }
         /CpuFrequency\[(2|15|28|41)\]/ ||
         /CpuVoltage\[(2|15|28|41)\]/ ||
         /CpuVoltageMode\[(2|15|28|41)\]/ { protected_opp = 1 }
@@ -79,7 +114,9 @@ cix_sky1_validate_pm_ifr() {
             exit !(profile_form && custom_form && selector &&
                    first_frequency && last_voltage &&
                    frequency_fields == 23 && voltage_fields == 23 &&
-                   vmin_fields == 23 && profile_options == 2 &&
+                   vmin_fields == 12 && vmin1_fields == 5 &&
+                   vmin2_fields == 3 && vmin3_fields == 4 &&
+                   profile_options == 2 &&
                    !protected_opp)
         }
     ' "${platform_config_ifr}" ||
@@ -146,7 +183,6 @@ cix_sky1_prepare_workspace() {
     local pm_patch_root="${CIX_ROOT}/build-scripts/patches/radxa-pm-validation"
     local opp_patch_root="${CIX_ROOT}/build-scripts/patches/radxa-opp-validation"
     local pm_tuning_patch_root="${CIX_ROOT}/build-scripts/patches/radxa-pm-tuning"
-    local memory_tuning_patch_root="${CIX_ROOT}/build-scripts/patches/radxa-memory-tuning"
     local dependency
     local dependency_target
 
@@ -208,14 +244,10 @@ cix_sky1_prepare_workspace() {
             "${pm_tuning_patch_root}/0001-Platform-add-selectable-O6-PM-profiles.patch" \
             ignore-space-change
         cix_apply_patch "${work_uefi}/edk2-platforms" \
-            "${memory_tuning_patch_root}/0001-Make-O6-memory-rate-updates-reliable.patch"
+            "${pm_tuning_patch_root}/0003-Platform-enable-safe-fused-Vmin-policy.patch"
 
         local pm_form="${work_uefi}/edk2-platforms/Platform/Radxa/Platforms/CIX/Sky1/Drivers/PlatformConfigDxe/PmMenu/PmConfig.hfr"
-        local memory_form="${work_uefi}/edk2-platforms/Platform/Radxa/Platforms/CIX/Sky1/Drivers/PlatformConfigDxe/MemMenu/MemoryConfig.hfr"
-        local memory_updater="${work_uefi}/edk2-platforms/Platform/CIX/Sky1/Drivers/MemConfigUpdateDxe/MemConfigUpdateDxe.c"
         [[ -s "${pm_form}" ]] || cix_die "O6 custom PM form is missing"
-        [[ -s "${memory_form}" ]] || cix_die "O6 memory configuration form is missing"
-        [[ -s "${memory_updater}" ]] || cix_die "O6 memory updater is missing"
         awk '
             /CpuFrequency\[(2|15|28|41)\]/ ||
             /CpuVoltage\[(2|15|28|41)\]/ ||
@@ -236,10 +268,13 @@ cix_sky1_prepare_workspace() {
         awk '
             /RADXA_PM_PROFILE_CUSTOM/ { custom_profile = 1 }
             /RadxaPmTuningVar.CpuVoltageMode\[Index\]/ { vmin_macro = 1 }
-            /PM_VOLT_MODE\(0\)/ { vmin_policy = 1 }
+            /PM_VOLT_MODE_VMIN1\([0-9]/ { vmin1_controls++ }
+            /PM_VOLT_MODE_VMIN2\([0-9]/ { vmin2_controls++ }
+            /PM_VOLT_MODE_VMIN3\([0-9]/ { vmin3_controls++ }
             /PM_FREQ_AFTER_BOOT\(3, 4, 1800\)/ { editable_opp3 = 1 }
             END {
-                exit !(custom_profile && vmin_macro && vmin_policy &&
+                exit !(custom_profile && vmin_macro && vmin1_controls == 5 &&
+                       vmin2_controls == 3 && vmin3_controls == 4 &&
                        editable_opp3)
             }
         ' "${pm_form}" ||
@@ -247,45 +282,16 @@ cix_sky1_prepare_workspace() {
         awk '
             /PmConservativePower \(/ { conservative_power = 1 }
             /PM_CONFIG_VMIN_VOLTAGE_CEILING/ { vmin_ceiling = 1 }
+            /VoltageModeMask/ { vmin_mode_masks = 1 }
+            /PM_CONFIG_VMIN_ENABLE_VALUE/ { fused_vmin = 1 }
             /RADXA_PM_TUNING_REVISION/ { settings_revision = 1 }
             /Settings->Profile != RADXA_PM_PROFILE_CUSTOM/ { exact_profiles = 1 }
             END {
-                exit !(conservative_power && vmin_ceiling && settings_revision &&
-                       exact_profiles)
+                exit !(conservative_power && vmin_ceiling && vmin_mode_masks &&
+                       fused_vmin && settings_revision && exact_profiles)
             }
         ' "${work_uefi}/edk2-platforms/Platform/CIX/Sky1/Drivers/PmConfigUpdateDxe/PmConfigUpdateDxe.c" ||
             cix_die "O6 PM updater is missing a safety policy"
-        awk '
-            /STR_DDR_1600.*value = 800/ { rate_1600 = 1 }
-            /STR_DDR_2133.*value = 1067/ { rate_2133 = 1 }
-            /STR_DDR_2750.*value = 1375/ { rate_2750 = 1 }
-            /STR_DDR_3200.*value = 1600/ { rate_3200 = 1 }
-            /STR_DDR_3733.*value = 1867/ { rate_3733 = 1 }
-            /STR_DDR_4266.*value = 2133/ { rate_4266 = 1 }
-            /STR_DDR_4800.*value = 2400/ { rate_4800 = 1 }
-            /STR_DDR_5500.*value = 2750/ { rate_5500 = 1 }
-            /STR_DDR_6000.*value = 3000/ { rate_6000 = 1 }
-            /STR_DDR_6400.*value = 3200/ { rate_6400 = 1 }
-            /STR_AUTO.*value = 0xFFFF/ { automatic = 1 }
-            END {
-                exit !(rate_1600 && rate_2133 && rate_2750 && rate_3200 &&
-                       rate_3733 && rate_4266 && rate_4800 && rate_5500 &&
-                       rate_6000 && rate_6400 && automatic)
-            }
-        ' "${memory_form}" ||
-            cix_die "O6 memory form is missing an expected explicit or Auto data rate"
-        awk '
-            /O6MemoryFrequencyIsValid \(/ { validates_rate = 1 }
-            /pPlatformSetupData->MemFreq != MemConfigBiosSetup->MemFreq/ {
-                updates_bset = 1
-            }
-            /Config->MaxFreq[[:space:]]*=/ { rewrites_conf = 1 }
-            /Memory configuration write verified/ { readback = 1 }
-            END {
-                exit !(validates_rate && updates_bset && readback && !rewrites_conf)
-            }
-        ' "${memory_updater}" ||
-            cix_die "O6 memory updater must update only BSET and verify the flash write"
     fi
 }
 
@@ -305,8 +311,13 @@ cix_direct_sky1_firmware_build() (
     local package_script="${uefi_source}/edk2-non-osi/Platform/CIX/Sky1/PackageTool/build_and_package.sh"
     local package_tool="${uefi_source}/edk2-non-osi/Platform/CIX/Sky1/PackageTool/AARCH64/cix_package_tool"
     local internal_package_script="${build_output}/work/cix_bsp_release/sky1/package_internal_flash_binary.sh"
+    local bootloader1_flash_offset="$((0x188000))"
+    local pm_config_flash_offset="$((0x504000))"
+    local bootloader3_flash_offset="$((0x506000))"
     local platform_config_ifr
-    local debug_bootloader3="${build_output}/bootloader3_engineering_debug.img"
+    local debug_bootloader1="${build_output}/bootloader1_pr_debug.img"
+    local debug_bootloader3="${build_output}/bootloader3_cpu_tuning_pr_debug.img"
+    local validation_config="${generated_output}/pr/Firmwares/csu_pm_config.bin"
     local platform_dsc
     local platform_name
 
@@ -338,7 +349,7 @@ cix_direct_sky1_firmware_build() (
         cix_clean_artifacts "${build_output}"
         cix_sky1_remove_workspace "${firmware_source}" "${build_output}"
         if [[ "${enable_engineering}" == true ]]; then
-            cix_bootloader1_clean_artifacts "${build_output}"
+            cix_sky1_remove_retired_bootloader_artifacts "${build_output}"
         fi
         if [[ -d "${image_output}" ]]; then
             cix_log "Remove ${platform_name} firmware artifacts"
@@ -354,6 +365,9 @@ cix_direct_sky1_firmware_build() (
 
     cix_prepare_host_ccache
     cix_clean_artifacts "${build_output}"
+    if [[ "${enable_engineering}" == true ]]; then
+        cix_sky1_remove_retired_bootloader_artifacts "${build_output}"
+    fi
     if [[ -d "${image_output}" ]]; then
         find "${image_output}" -mindepth 1 -delete
     fi
@@ -366,16 +380,12 @@ cix_direct_sky1_firmware_build() (
         "${validation_profile}" "${enable_engineering}"
 
     if [[ "${enable_engineering}" == true ]]; then
-        local pm_firmware_root="${firmware_source}/bootloader/firmware-binaries/sky1/evb"
+        local pr_debug_bootloader1="${build_output}/work/cix_bsp_release/sky1/pr_debug/Firmwares/bootloader1.img"
 
-        python3 "${CIX_ROOT}/build-scripts/ci/verify_pm_firmware.py" \
-            --build-type debug "${pm_firmware_root}/debug/pm_fw/pm_fw.bin"
-        cix_require_command \
-            arm-none-eabi-gcc arm-none-eabi-ld arm-none-eabi-objcopy \
-            cmp install openssl pkg-config sha256sum
-        cix_bootloader1_build \
-            "${firmware_source}" "${build_output}" "${build_jobs}" \
-            "${build_output}/work/cix_bsp_release"
+        cix_require_command cmp install sha256sum stat
+        [[ -s "${pr_debug_bootloader1}" ]] ||
+            cix_die "manifest PR-debug bootloader1 is missing"
+        install -m 0644 "${pr_debug_bootloader1}" "${debug_bootloader1}"
     fi
 
     [[ -x "${package_script}" ]] ||
@@ -400,7 +410,7 @@ cix_direct_sky1_firmware_build() (
     make -C "${uefi_source}/tools/acpica" -j"${build_jobs}"
 
     if [[ "${enable_engineering}" == true ]]; then
-        cix_log "Build ${platform_name} engineering UEFI with ${build_jobs} jobs"
+        cix_log "Build ${platform_name} CPU-tuning UEFI with ${build_jobs} jobs"
         (
             cd "${uefi_source}" || exit
             CIX_PM_VALIDATION=1 NETWORK=open "${package_script}" "${platform}"
@@ -431,28 +441,44 @@ cix_direct_sky1_firmware_build() (
         [[ -s "${platform_config_ifr}" ]] ||
             cix_die "compiled O6 engineering platform configuration form is missing"
         cix_sky1_validate_pm_ifr "${platform_config_ifr}"
-        python3 "${CIX_ROOT}/build-scripts/ci/verify_memory_config.py" \
-            "${generated_output}/pr/Firmwares/memory_config.bin"
-        cix_log "Verified O6 PM and experimental memory tuning firmware"
+        cix_log "Verified O6 CPU PM tuning firmware"
     fi
 
     if [[ "${enable_engineering}" == true ]]; then
-        cix_log "Generate ${platform_name} engineering full-flash image"
+        cix_log "Generate ${platform_name} CPU-tuning PR-debug full-flash image"
         (
             cd "${uefi_source}" || exit
-            CIX_INTERNAL_VARIANT=proto-debug CIX_INTERNAL_FULL_ONLY=1 \
+            CIX_INTERNAL_VARIANT=pr-debug CIX_INTERNAL_FULL_ONLY=1 \
                 SOC_TYPE=sky1 MAKEFLAGS="-j${build_jobs}" \
                 "${internal_package_script}"
         )
-        [[ -s "${generated_output}/cix_flash_all_rsa_proto_debug.bin" ]] ||
-            cix_die "${platform_name} engineering artifact is missing"
+        [[ -s "${generated_output}/cix_flash_all_rsa_pr_debug.bin" ]] ||
+            cix_die "${platform_name} CPU-tuning artifact is missing"
         cmp -- "${debug_bootloader3}" \
-            "${generated_output}/proto_debug/Firmwares/bootloader3.img" ||
-            cix_die "prototype debug image does not contain engineering UEFI"
-        cmp -- "${build_output}/bootloader1/bootloader1_proto_debug.img" \
-            "${generated_output}/proto_debug/Firmwares/bootloader1.img" ||
-            cix_die "prototype debug image does not contain the source-built bootloader1"
-        cix_log "Verified local engineering prototype signing boundary"
+            "${generated_output}/pr_debug/Firmwares/bootloader3.img" ||
+            cix_die "PR-debug image does not contain the CPU-tuning UEFI"
+        cmp -- "${debug_bootloader1}" \
+            "${generated_output}/pr_debug/Firmwares/bootloader1.img" ||
+            cix_die "PR-debug image does not contain the manifest bootloader1"
+        cmp --silent \
+            --bytes="$(stat -c %s "${debug_bootloader1}")" \
+            --ignore-initial="0:${bootloader1_flash_offset}" \
+            "${debug_bootloader1}" \
+            "${generated_output}/cix_flash_all_rsa_pr_debug.bin" ||
+            cix_die "full-flash image does not embed the manifest PR-debug bootloader1"
+        cmp --silent \
+            --bytes="$(stat -c %s "${validation_config}")" \
+            --ignore-initial="0:${pm_config_flash_offset}" \
+            "${validation_config}" \
+            "${generated_output}/cix_flash_all_rsa_pr_debug.bin" ||
+            cix_die "full-flash image does not embed the validated vendor-auto PM config"
+        cmp --silent \
+            --bytes="$(stat -c %s "${debug_bootloader3}")" \
+            --ignore-initial="0:${bootloader3_flash_offset}" \
+            "${debug_bootloader3}" \
+            "${generated_output}/cix_flash_all_rsa_pr_debug.bin" ||
+            cix_die "full-flash image does not embed the CPU-tuning UEFI"
+        cix_log "Verified manifest PR-debug boot-chain and PM-config boundary"
     else
         cix_log "Generate ${platform_name} internal signing variants"
         (
@@ -466,7 +492,6 @@ cix_direct_sky1_firmware_build() (
     fi
 
     if [[ "${validation_profile}" != "none" ]]; then
-        local validation_config="${generated_output}/pr/Firmwares/csu_pm_config.bin"
         local validation_output
 
         [[ -s "${validation_config}" ]] ||
@@ -479,8 +504,8 @@ cix_direct_sky1_firmware_build() (
     fi
 
     if [[ "${enable_engineering}" == true ]]; then
-        cp -- "${generated_output}/cix_flash_all_rsa_proto_debug.bin" \
-            "${image_output}/cix_flash_all_${platform}_engineering_debug.bin"
+        cp -- "${generated_output}/cix_flash_all_rsa_pr_debug.bin" \
+            "${image_output}/cix_flash_all_${platform}_cpu_tuning_pr_debug.bin"
     else
         cix_log "Published ${platform_name} PR, PR2, and prototype images"
     fi

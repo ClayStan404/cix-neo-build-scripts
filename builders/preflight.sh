@@ -222,7 +222,7 @@ cix_preflight_direct() {
                     ignore-space-change \
                     "${patch_root}/radxa-opp-validation/0001-Platform-Radxa-enable-stock-O6-OPP-table.patch" \
                     "${patch_root}/radxa-pm-tuning/0001-Platform-add-selectable-O6-PM-profiles.patch" \
-                    "${patch_root}/radxa-memory-tuning/0001-Make-O6-memory-rate-updates-reliable.patch"
+                    "${patch_root}/radxa-pm-tuning/0003-Platform-enable-safe-fused-Vmin-policy.patch"
             fi
             ;;
         uefi-development)

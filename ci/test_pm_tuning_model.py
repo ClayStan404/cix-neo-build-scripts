@@ -27,6 +27,25 @@ class PmTuningModelTests(unittest.TestCase):
         settings = model.default_settings(model.PROFILE_CUSTOM)
         model.validate_settings(settings)
 
+    def test_accepts_source_vmin_tier_for_matching_opp(self) -> None:
+        settings = model.default_settings(model.PROFILE_CUSTOM)
+        settings.voltage_modes[4] = model.VOLTAGE_VMIN3
+        settings.voltage_modes[5] = model.VOLTAGE_VMIN2
+        settings.voltage_modes[6] = model.VOLTAGE_VMIN1
+        model.validate_settings(settings)
+
+    def test_rejects_vmin_tier_for_wrong_opp(self) -> None:
+        settings = model.default_settings(model.PROFILE_CUSTOM)
+        settings.voltage_modes[4] = model.VOLTAGE_VMIN1
+        with self.assertRaisesRegex(ValueError, "unsupported for OPP"):
+            model.validate_settings(settings)
+
+    def test_rejects_vmin_on_fixed_only_opp(self) -> None:
+        settings = model.default_settings(model.PROFILE_CUSTOM)
+        settings.voltage_modes[0] = model.VOLTAGE_VMIN3
+        with self.assertRaisesRegex(ValueError, "unsupported for OPP"):
+            model.validate_settings(settings)
+
     def test_boot_opp_cannot_be_modified(self) -> None:
         settings = model.default_settings(model.PROFILE_CUSTOM)
         settings.frequencies[2] = 1510

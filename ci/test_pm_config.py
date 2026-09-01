@@ -23,7 +23,10 @@ def encode_rail(rail: tuple[int, ...]) -> bytes:
 
 
 def validation_block(opp_profile: str | None = None) -> bytes:
-    length = 2912 if opp_profile else 128
+    if opp_profile == "vendor-auto":
+        length = 3516
+    else:
+        length = 2912 if opp_profile else 128
     data = bytearray(b"\xff" * verify_pm_config.PM_CONFIG_FILE_SIZE)
     struct.pack_into(
         "<HHIIIII",
@@ -63,6 +66,14 @@ def validation_block(opp_profile: str | None = None) -> bytes:
                     domain_offset + 4 + index * verify_pm_config.OPP_ENTRY_SIZE,
                     *entry,
                 )
+        if opp_profile == "vendor-auto":
+            struct.pack_into(
+                "<II",
+                data,
+                verify_pm_config.PM_CONFIG_VMIN_DISABLE_OFFSET,
+                verify_pm_config.PM_CONFIG_VMIN_ENABLE_VALUE,
+                verify_pm_config.PM_CONFIG_FIELD_INVALID_VALUE,
+            )
     crc1, crc2 = verify_pm_config.checksum(data[:length])
     struct.pack_into("<II", data, 16, crc1, crc2)
     return bytes(data)
@@ -99,16 +110,35 @@ class PmConfigVerifierTests(unittest.TestCase):
     def test_accepts_vendor_automatic_with_backup_tables(self) -> None:
         result = verify_pm_config.verify(validation_block("vendor-auto"), "vendor-auto")
         self.assertIn("external OPP selection is disabled", result)
+        self.assertIn("fused Vmin is enabled", result)
         self.assertIn("source stock backup tables are valid", result)
 
     def test_rejects_enabled_table_as_vendor_automatic(self) -> None:
         data = bytearray(validation_block("vendor-auto"))
         data[verify_pm_config.PM_CONFIG_OPP_OFFSET] = 0
-        crc1, crc2 = verify_pm_config.checksum(data[:2912])
+        length = struct.unpack_from("<I", data, 8)[0]
+        crc1, crc2 = verify_pm_config.checksum(data[:length])
         struct.pack_into("<II", data, 16, crc1, crc2)
         with self.assertRaisesRegex(
             verify_pm_config.VerificationError,
             "external OPP table is not marked disabled",
+        ):
+            verify_pm_config.verify(bytes(data), "vendor-auto")
+
+    def test_rejects_disabled_vmin_as_vendor_automatic(self) -> None:
+        data = bytearray(validation_block("vendor-auto"))
+        struct.pack_into(
+            "<I",
+            data,
+            verify_pm_config.PM_CONFIG_VMIN_DISABLE_OFFSET,
+            verify_pm_config.PM_CONFIG_FIELD_INVALID_VALUE,
+        )
+        length = struct.unpack_from("<I", data, 8)[0]
+        crc1, crc2 = verify_pm_config.checksum(data[:length])
+        struct.pack_into("<II", data, 16, crc1, crc2)
+        with self.assertRaisesRegex(
+            verify_pm_config.VerificationError,
+            "fused Vmin is not explicitly enabled",
         ):
             verify_pm_config.verify(bytes(data), "vendor-auto")
 

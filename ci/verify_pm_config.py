@@ -14,6 +14,10 @@ PM_CONFIG_SIGNATURE = int.from_bytes(b"PMCF", "little")
 PM_CONFIG_VERSION = (3, 0)
 OPP_NO_LIMIT = 4000
 PM_CONFIG_OPP_OFFSET = 152
+PM_CONFIG_VMIN_DISABLE_OFFSET = 3331
+PM_CONFIG_VMIN_PROFILE_OFFSET = 3335
+PM_CONFIG_VMIN_ENABLE_VALUE = 0x67997CDA
+PM_CONFIG_FIELD_INVALID_VALUE = 0x00000001
 OPP_DOMAIN_COUNT = 13
 OPP_ENTRY_COUNT = 13
 OPP_ENTRY_SIZE = struct.calcsize("<IIII")
@@ -137,6 +141,21 @@ def verify_external_opp(data: bytes, profile: str) -> None:
         )
 
 
+def verify_fused_vmin(data: bytes) -> None:
+    vmin_disable, vmin_profile = struct.unpack_from(
+        "<II", data, PM_CONFIG_VMIN_DISABLE_OFFSET
+    )
+    if vmin_disable != PM_CONFIG_VMIN_ENABLE_VALUE:
+        raise VerificationError(
+            "fused Vmin is not explicitly enabled: "
+            f"0x{vmin_disable:08x}"
+        )
+    if vmin_profile != PM_CONFIG_FIELD_INVALID_VALUE:
+        raise VerificationError(
+            f"unexpected global Vmin profile override: 0x{vmin_profile:08x}"
+        )
+
+
 def verify(data: bytes, profile: str = "pmic") -> str:
     if len(data) != PM_CONFIG_FILE_SIZE:
         raise VerificationError(
@@ -180,9 +199,11 @@ def verify(data: bytes, profile: str = "pmic") -> str:
     if profile in OPP_PROFILES:
         verify_external_opp(data, profile)
         if profile == "vendor-auto":
+            verify_fused_vmin(data)
             return (
                 "PM config v3.0 custom PMIC is valid, external OPP selection "
-                "is disabled, and source stock backup tables are valid"
+                "is disabled, fused Vmin is enabled, and source stock backup "
+                "tables are valid"
             )
         return "PM config v3.0 custom PMIC and source stock external OPP tables are valid"
     if profile != "pmic":
