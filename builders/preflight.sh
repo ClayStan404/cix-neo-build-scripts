@@ -162,6 +162,10 @@ cix_preflight_debian() {
 }
 
 cix_preflight_direct() {
+    local kernel_series
+    local stable_defconfig
+    local stable_patch_source
+    local stable_patchset
     local source_root="${CIX_ROOT}/${TARGET[source]}"
     local patch_root="${CIX_ROOT}/build-scripts/patches"
 
@@ -177,7 +181,17 @@ cix_preflight_direct() {
             done
             ;;
         kernel-stable-tarball)
-            cix_preflight_git "${CIX_ROOT}/${TARGET[patch_source]}"
+            kernel_series="${TARGET[version]%.*}"
+            stable_patch_source="${CIX_ROOT}/${TARGET[patch_source]}"
+            stable_patchset="${stable_patch_source}/patches-${kernel_series}"
+            stable_defconfig="${stable_patch_source}/config/config-${kernel_series}.defconfig"
+            cix_preflight_git "${stable_patch_source}"
+            [[ -d "${stable_patchset}" ]] ||
+                cix_die "CIX patch set is missing for Linux ${kernel_series}: ${stable_patchset}"
+            [[ -n "$(find "${stable_patchset}" -maxdepth 1 -type f -name '*.patch' -print -quit)" ]] ||
+                cix_die "CIX patch set is empty: ${stable_patchset}"
+            [[ -f "${stable_defconfig}" ]] ||
+                cix_die "CIX defconfig is missing: ${stable_defconfig}"
             ;;
         sof-firmware)
             [[ -d "${source_root}" ]] || cix_die "SOF source root is missing: ${source_root}"

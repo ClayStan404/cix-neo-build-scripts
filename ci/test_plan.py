@@ -533,23 +533,58 @@ Description: CIX VPU development files
         self.assertEqual(target.build_packages, ("cix-linux-libc-dev",))
         self.assertEqual(target.build_provides, ())
 
-    def test_stable_kernel_is_a_kernel_flow(self) -> None:
-        target = plan._target_from_mapping(
-            "stable-kernel",
-            {
-                "description": "stable kernel",
-                "builder": "direct",
-                "flow": "kernel-stable-tarball",
-                "version": "7.0.13",
-                "patch_source": "sources/linux-main",
-            },
-        )
+    def test_stable_kernel_versions_share_the_kernel_flow(self) -> None:
+        for name, version in (
+            ("stable-kernel-6.18", "6.18.48"),
+            ("stable-kernel", "7.0.13"),
+            ("stable-kernel-7.1", "7.1.12"),
+        ):
+            with self.subTest(name=name):
+                target = plan._target_from_mapping(
+                    name,
+                    {
+                        "description": "stable kernel",
+                        "builder": "direct",
+                        "flow": "kernel-stable-tarball",
+                        "version": version,
+                        "patch_source": "sources/linux-main",
+                    },
+                )
 
-        self.assertEqual(target.builder, "direct")
-        self.assertEqual(target.flow, "kernel-stable-tarball")
-        self.assertEqual(target.version, "7.0.13")
-        self.assertIsNone(target.control)
-        self.assertIn("TARGET[version]=7.0.13", plan.target_shell(target))
+                self.assertEqual(target.builder, "direct")
+                self.assertEqual(target.flow, "kernel-stable-tarball")
+                self.assertEqual(target.version, version)
+                self.assertIsNone(target.control)
+                self.assertIn(
+                    f"TARGET[version]={version}", plan.target_shell(target)
+                )
+
+    def test_mainline_kernel_build_map_versions_and_routing(self) -> None:
+        mapping_path = Path(__file__).resolve().parents[1] / "build-map.yaml"
+        mapping = yaml.safe_load(mapping_path.read_text(encoding="utf-8"))
+        expected = {
+            "stable-kernel-6.18": ("6.18.48", "patches-6.18/**"),
+            "stable-kernel": ("7.0.13", "patches-7.0/**"),
+            "stable-kernel-7.1": ("7.1.12", "patches-7.1/**"),
+        }
+
+        self.assertEqual(
+            mapping["build_sets"]["mainline-kernels"]["targets"],
+            list(expected),
+        )
+        rules = mapping["projects"]["cix-linux-main"]["rules"]
+        for name, (version, patch_pattern) in expected.items():
+            with self.subTest(name=name):
+                target = mapping["targets"][name]
+                self.assertEqual(target["flow"], "kernel-stable-tarball")
+                self.assertEqual(target["version"], version)
+                self.assertTrue(
+                    any(
+                        patch_pattern in rule["paths"]
+                        and rule["targets"] == [name]
+                        for rule in rules
+                    )
+                )
 
     def test_audio_sof_is_a_direct_firmware_flow(self) -> None:
         target = plan._target_from_mapping(

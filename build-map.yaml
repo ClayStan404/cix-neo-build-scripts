@@ -57,6 +57,13 @@ build_sets:
       - cix-test-tools
       - ltp
 
+  mainline-kernels:
+    description: CIX-patched Linux 6.18, 7.0, and 7.1 kernels
+    targets:
+      - stable-kernel-6.18
+      - stable-kernel
+      - stable-kernel-7.1
+
   all-6.6:
     description: Complete CIX Linux 6.6 product build
     targets:
@@ -114,10 +121,24 @@ targets:
     build_packages: [cix-linux-libc-dev]
 
   stable-kernel:
-    description: Latest stable kernel with CIX patches
+    description: Linux 7.0.13 with CIX patches
     builder: direct
     flow: kernel-stable-tarball
     version: 7.0.13
+    patch_source: sources/linux-main
+
+  stable-kernel-6.18:
+    description: Linux 6.18.48 LTS with CIX patches
+    builder: direct
+    flow: kernel-stable-tarball
+    version: 6.18.48
+    patch_source: sources/linux-main
+
+  stable-kernel-7.1:
+    description: Linux 7.1.12 with CIX patches
+    builder: direct
+    flow: kernel-stable-tarball
+    version: 7.1.12
     patch_source: sources/linux-main
 
   audio-sof:
@@ -707,8 +728,13 @@ projects:
   cix-linux-main:
     path: sources/linux-main
     rules:
-      - paths: ["**"]
+      - paths: ["patches-6.18/**", "config/config-6.18.defconfig"]
+        targets: [stable-kernel-6.18]
+      - paths: ["patches-7.0/**", "config/config-7.0.defconfig"]
         targets: [stable-kernel]
+      - paths: ["patches-7.1/**", "config/config-7.1.defconfig"]
+        targets: [stable-kernel-7.1]
+    ignore: ["README.md"]
 
   github_mirror/thesofproject/crosstool-ng:
     path: sources/audio-sof/crosstool-ng
@@ -1028,7 +1054,7 @@ projects:
       - paths: ["build-map.yaml", "cix-build", "builders/common.sh"]
         targets: ["*"]
       - paths: ["builders/direct.sh"]
-        targets: [kernel, stable-kernel, audio-sof, pmtool, radxa-o6-firmware, radxa-o6n-firmware, sky1-merak-firmware, sky1-edge-firmware, radxa-o6-firmware-engineering, sky1-tf-a, sky1-pbl, sky1-optee, sky1-se-firmware, ramparser, cix-test-tools, ltp]
+        targets: [kernel, stable-kernel-6.18, stable-kernel, stable-kernel-7.1, audio-sof, pmtool, radxa-o6-firmware, radxa-o6n-firmware, sky1-merak-firmware, sky1-edge-firmware, radxa-o6-firmware-engineering, sky1-tf-a, sky1-pbl, sky1-optee, sky1-se-firmware, ramparser, cix-test-tools, ltp]
       - paths: ["builders/direct.sh", "builders/direct/uefi-development.sh"]
         targets: *uefi_development_targets
       - paths: ["patches/uefi-development/**"]
@@ -1040,7 +1066,7 @@ projects:
       - paths: ["builders/direct/secure-firmware.sh", "patches/secure-firmware/**"]
         targets: [sky1-tf-a, sky1-pbl, sky1-optee, sky1-se-firmware]
       - paths: ["builders/direct/kernel.sh"]
-        targets: [kernel, stable-kernel]
+        targets: [kernel, stable-kernel-6.18, stable-kernel, stable-kernel-7.1]
       - paths: ["builders/direct/audio-sof.sh"]
         targets: [audio-sof]
       - paths: ["builders/direct/firmware-sky1.sh"]

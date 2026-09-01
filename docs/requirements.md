@@ -51,8 +51,9 @@ is confirmed.
   default.
 - Build the Linux kernel natively with its own `bindeb-pkg` make target rather
   than running the kernel build through `sbuild`.
-- Maintain two independent kernel targets: the CIX 6.6 development kernel and
-  a pinned upstream stable kernel release.
+- Maintain independent kernel targets for the CIX 6.6 development kernel and
+  pinned upstream 6.18 LTS, 7.0, and 7.1 releases. Reuse one version-driven
+  upstream kernel flow instead of duplicating per-version build scripts.
 - Keep the stable-kernel download, patch application, configuration, and
   `bindeb-pkg` flow in `build-scripts`. Use the CIX defconfig and patch series
   from the manifest-managed `cix-linux-main` checkout; do not require a
@@ -511,7 +512,8 @@ is confirmed.
 
 The current build system contains these build targets:
 
-- Kernels: `kernel`, `stable-kernel`
+- Kernels: `kernel`, `stable-kernel-6.18`, `stable-kernel`,
+  `stable-kernel-7.1`
 - Kernel drivers and firmware: `gpu-dkms`, `bt-dkms`, `wlan-dkms`,
   `vpu-dkms`, `vpu-firmware`, `npu-dkms`, `isp-v4l2-dkms`, `isp-dkms`
 - Graphics and media: `libdrm`, `libglvnd`, `mesa`, `libva`, `ffmpeg`,

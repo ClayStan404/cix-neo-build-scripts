@@ -9,6 +9,7 @@ Build one complete CIX kernel stack at a time:
 ```bash
 ./build-scripts/cix-build all-6.6
 ./build-scripts/cix-build all-7.0
+./build-scripts/cix-build mainline-kernels
 ./build-scripts/cix-build firmware-sky1
 ./build-scripts/cix-build uefi-development
 ./build-scripts/cix-build secure-firmware
@@ -21,7 +22,9 @@ Build an individual target with the same command:
 
 ```bash
 ./build-scripts/cix-build kernel
+./build-scripts/cix-build stable-kernel-6.18
 ./build-scripts/cix-build stable-kernel
+./build-scripts/cix-build stable-kernel-7.1
 ./build-scripts/cix-build audio-sof
 ./build-scripts/cix-build radxa-o6-firmware
 ./build-scripts/cix-build radxa-o6n-firmware
@@ -67,6 +70,11 @@ Build an individual target with the same command:
 ./build-scripts/cix-build ramparser
 ```
 
+`mainline-kernels` builds the CIX-patched Linux 6.18.48, 7.0.13, and 7.1.12
+kernels by reusing the same version-driven native build flow. The individual
+targets are `stable-kernel-6.18`, `stable-kernel`, and `stable-kernel-7.1`.
+Each target keeps its source cache and artifacts in a separate output directory.
+
 `all-6.6` builds the CIX Linux 6.6 kernel and the complete driver, firmware,
 userspace, multimedia, AI, and board-firmware target set. `all-7.0` builds the
 CIX-patched stable 7.0 kernel, VPU DKMS and firmware packages,
@@ -93,8 +101,8 @@ APT installs the exact workspace-built versions, including a downgrade when
 the host already has a newer version of the same CIX package. The sbuild
 backend keeps these packages inside its disposable build environment.
 
-The backend selection does not change `direct` targets such as `kernel`,
-`stable-kernel`, `audio-sof`, or the Sky1 firmware targets; those always
+The backend selection does not change `direct` targets such as `kernel`, the
+three stable-kernel targets, `audio-sof`, or the Sky1 firmware targets; those always
 execute their target-owned native build flow.
 A build set stops at the first failed target. `cix-build all-6.6 clean` and
 `cix-build all-7.0 clean` clean their targets in reverse dependency order.
@@ -152,14 +160,15 @@ suitable for Jenkins archival and do not replace the target artifacts.
 The supported build host baseline is native ARM64 Debian 13. Other Debian and
 Ubuntu host releases are intentionally outside the current scope.
 
-There are two independent native kernel targets. `kernel` builds the CIX 6.6
+There are four independent native kernel targets. `kernel` builds the CIX 6.6
 development kernel using its kernel-owned configuration fragments and the
-external temporary fix in `debian/kernel/patches/`. `stable-kernel` downloads
-the upstream release pinned in `build-map.yaml`, then applies the patch set and
-defconfig from the manifest-managed `cix-linux-main` checkout. Both use the
-`direct` builder and `make bindeb-pkg`; neither uses the Debian package backend.
-The stable target emits a `-cix` kernel release (for example, `7.0.13-cix`). The
-new system does not retain the legacy fixed `7.0.0-generic` package name.
+external temporary fix in `debian/kernel/patches/`. `stable-kernel-6.18`,
+`stable-kernel`, and `stable-kernel-7.1` download their upstream releases pinned
+in `build-map.yaml`, then select the matching patch set and defconfig from the
+manifest-managed `cix-linux-main` checkout. All four use the `direct` builder
+and `make bindeb-pkg`; none uses the Debian package backend. The upstream
+targets emit a `-cix` kernel release (for example, `7.0.13-cix`). The new system
+does not retain the legacy fixed `7.0.0-generic` package name.
 
 `audio-sof` builds on the native ARM64 host without using an x86 build
 machine. SOF firmware itself runs on the Sky1 Xtensa DSP, so the direct flow
