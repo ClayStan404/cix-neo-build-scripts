@@ -264,18 +264,21 @@ the O6 UEFI setup menu under
 Management`. Vendor/Automatic disables the external OPP table so PM firmware
 can use its native OPN/Vmin/guardband path; the generated PM config explicitly
 enables the fused Vmin curve instead of inheriting the disabled default.
-Custom enables a complete external CPU table with the Debug PM firmware and
+Custom enables a CPU-only partial external table with the Debug PM firmware and
 permits edits to the non-boot OPPs of GB0, GB1, GM0, and GM1
 within 800-3200 MHz and 550-1250 mV base voltage in steps of 10. Voltage-policy
 controls are exposed only where the pinned PM firmware assigns a Vmin tier to
-that domain and source OPP; each control offers Fixed plus that one tier. The
+that domain and source OPP; each control defaults to that fused tier while
+still offering Fixed as an explicit expert override. The
 effective 1500 MHz / 790 mV
-boot OPP, DSU, and non-CPU domains remain locked. CPU power entries use the
-measured-power table and interpolation from the exact pinned PM firmware
-source, then conservatively scale upward with voltage squared above the source
-voltage curve. Vmin modes reserve power at the source PM firmware's 980 mV
-ceiling. The NVRAM settings carry a revision, exact size, and signature so an
-incompatible layout cannot be consumed silently.
+boot OPP remains locked. DSU and every non-CPU domain are omitted from the
+external table, so PM firmware retains their native per-chip tables. CPU power
+entries use the measured-power table and interpolation from the exact pinned
+PM firmware source, then conservatively scale upward with voltage squared above
+the source voltage curve. Vmin modes reserve power at the source PM firmware's
+980 mV ceiling. The NVRAM settings carry a revision, exact size, and signature
+so an incompatible layout cannot be consumed silently. Revision 3 resets older
+settings to Vendor/Automatic instead of retaining legacy Fixed defaults.
 The build verifies the Debug PM binary against source revision `a2327331813f`,
 its SHA-256 digest, PM config ABI v3.4, and the generated v3.0 schema. On the
 following boot, a DXE driver validates, writes, reads back, and compares the

@@ -29,10 +29,14 @@ class PmTuningModelTests(unittest.TestCase):
 
     def test_accepts_source_vmin_tier_for_matching_opp(self) -> None:
         settings = model.default_settings(model.PROFILE_CUSTOM)
-        settings.voltage_modes[4] = model.VOLTAGE_VMIN3
-        settings.voltage_modes[5] = model.VOLTAGE_VMIN2
-        settings.voltage_modes[6] = model.VOLTAGE_VMIN1
         model.validate_settings(settings)
+
+    def test_source_vmin_tiers_are_the_safe_defaults(self) -> None:
+        settings = model.default_settings(model.PROFILE_CUSTOM)
+        self.assertEqual(settings.voltage_modes[4:7], [3, 2, 1])
+        self.assertEqual(settings.voltage_modes[17:20], [3, 2, 1])
+        self.assertEqual(settings.voltage_modes[29:33], [3, 3, 2, 1])
+        self.assertEqual(settings.voltage_modes[43:45], [1, 1])
 
     def test_rejects_vmin_tier_for_wrong_opp(self) -> None:
         settings = model.default_settings(model.PROFILE_CUSTOM)
@@ -45,6 +49,11 @@ class PmTuningModelTests(unittest.TestCase):
         settings.voltage_modes[0] = model.VOLTAGE_VMIN3
         with self.assertRaisesRegex(ValueError, "unsupported for OPP"):
             model.validate_settings(settings)
+
+    def test_fixed_remains_available_for_mapped_opp(self) -> None:
+        settings = model.default_settings(model.PROFILE_CUSTOM)
+        settings.voltage_modes[6] = model.VOLTAGE_FIXED
+        model.validate_settings(settings)
 
     def test_boot_opp_cannot_be_modified(self) -> None:
         settings = model.default_settings(model.PROFILE_CUSTOM)
@@ -64,6 +73,14 @@ class PmTuningModelTests(unittest.TestCase):
                 model.PROFILE_VENDOR,
                 model.SETTINGS_CURRENT_SIZE + 1,
             )
+
+    def test_legacy_custom_settings_reset_to_vendor(self) -> None:
+        for size in (1, model.SETTINGS_LEGACY_SIZE, model.SETTINGS_V1_SIZE):
+            with self.subTest(size=size):
+                self.assertEqual(
+                    model.migrate_profile(model.PROFILE_CUSTOM, size),
+                    model.PROFILE_VENDOR,
+                )
 
     def test_non_monotonic_custom_table_is_rejected(self) -> None:
         settings = model.default_settings(model.PROFILE_CUSTOM)

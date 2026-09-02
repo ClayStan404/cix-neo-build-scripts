@@ -51,8 +51,8 @@ def validation_block(opp_profile: str | None = None) -> bytes:
             1 if opp_profile == "vendor-auto" else 0
         )
         domain_base = verify_pm_config.PM_CONFIG_OPP_OFFSET + 1
-        expected_tables = verify_pm_config.expected_opp_tables(opp_profile)
-        for domain, expected in enumerate(expected_tables):
+        expected_domains = verify_pm_config.expected_opp_domains(opp_profile)
+        for domain, expected in expected_domains.items():
             domain_offset = domain_base + domain * verify_pm_config.OPP_DOMAIN_SIZE
             data[domain_offset : domain_offset + verify_pm_config.OPP_DOMAIN_SIZE] = (
                 b"\0" * verify_pm_config.OPP_DOMAIN_SIZE
@@ -111,7 +111,7 @@ class PmConfigVerifierTests(unittest.TestCase):
         result = verify_pm_config.verify(validation_block("vendor-auto"), "vendor-auto")
         self.assertIn("external OPP selection is disabled", result)
         self.assertIn("fused Vmin is enabled", result)
-        self.assertIn("source stock backup tables are valid", result)
+        self.assertIn("CPU-only source backup table is valid", result)
 
     def test_rejects_enabled_table_as_vendor_automatic(self) -> None:
         data = bytearray(validation_block("vendor-auto"))
@@ -139,6 +139,23 @@ class PmConfigVerifierTests(unittest.TestCase):
         with self.assertRaisesRegex(
             verify_pm_config.VerificationError,
             "fused Vmin is not explicitly enabled",
+        ):
+            verify_pm_config.verify(bytes(data), "vendor-auto")
+
+    def test_rejects_non_cpu_domain_in_vendor_backup(self) -> None:
+        data = bytearray(validation_block("vendor-auto"))
+        domain_offset = (
+            verify_pm_config.PM_CONFIG_OPP_OFFSET
+            + 1
+            + verify_pm_config.OPP_DOMAIN_SIZE * 7
+        )
+        data[domain_offset] = 0
+        length = struct.unpack_from("<I", data, 8)[0]
+        crc1, crc2 = verify_pm_config.checksum(data[:length])
+        struct.pack_into("<II", data, 16, crc1, crc2)
+        with self.assertRaisesRegex(
+            verify_pm_config.VerificationError,
+            "unused OPP domain 7 was unexpectedly configured",
         ):
             verify_pm_config.verify(bytes(data), "vendor-auto")
 

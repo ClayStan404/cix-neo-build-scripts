@@ -101,11 +101,20 @@ cix_sky1_validate_pm_ifr() {
         /CpuVoltageMode\[(6|19|32|43|44)\].*value = 1,/ {
             vmin1_fields++
         }
+        /CpuVoltageMode\[(6|19|32|43|44)\].*default = 1,/ {
+            vmin1_defaults++
+        }
         /CpuVoltageMode\[(5|18|31)\].*value = 2,/ {
             vmin2_fields++
         }
+        /CpuVoltageMode\[(5|18|31)\].*default = 2,/ {
+            vmin2_defaults++
+        }
         /CpuVoltageMode\[(4|17|29|30)\].*value = 3,/ {
             vmin3_fields++
+        }
+        /CpuVoltageMode\[(4|17|29|30)\].*default = 3,/ {
+            vmin3_defaults++
         }
         /CpuFrequency\[(2|15|28|41)\]/ ||
         /CpuVoltage\[(2|15|28|41)\]/ ||
@@ -116,6 +125,8 @@ cix_sky1_validate_pm_ifr() {
                    frequency_fields == 23 && voltage_fields == 23 &&
                    vmin_fields == 12 && vmin1_fields == 5 &&
                    vmin2_fields == 3 && vmin3_fields == 4 &&
+                   vmin1_defaults == 5 && vmin2_defaults == 3 &&
+                   vmin3_defaults == 4 &&
                    profile_options == 2 &&
                    !protected_opp)
         }
@@ -245,6 +256,8 @@ cix_sky1_prepare_workspace() {
             ignore-space-change
         cix_apply_patch "${work_uefi}/edk2-platforms" \
             "${pm_tuning_patch_root}/0003-Platform-enable-safe-fused-Vmin-policy.patch"
+        cix_apply_patch "${work_uefi}/edk2-platforms" \
+            "${pm_tuning_patch_root}/0004-Platform-use-CPU-only-partial-OPPs.patch"
 
         local pm_form="${work_uefi}/edk2-platforms/Platform/Radxa/Platforms/CIX/Sky1/Drivers/PlatformConfigDxe/PmMenu/PmConfig.hfr"
         [[ -s "${pm_form}" ]] || cix_die "O6 custom PM form is missing"
@@ -285,10 +298,14 @@ cix_sky1_prepare_workspace() {
             /VoltageModeMask/ { vmin_mode_masks = 1 }
             /PM_CONFIG_VMIN_ENABLE_VALUE/ { fused_vmin = 1 }
             /RADXA_PM_TUNING_REVISION/ { settings_revision = 1 }
+            /PM_CONFIG_OPP_EXTERNAL_PARTIAL/ { partial_opp = 1 }
+            /PmNonCpuDomainsAreUnused/ { non_cpu_native = 1 }
+            /PmDefaultVoltageMode/ { safe_vmin_defaults = 1 }
             /Settings->Profile != RADXA_PM_PROFILE_CUSTOM/ { exact_profiles = 1 }
             END {
                 exit !(conservative_power && vmin_ceiling && vmin_mode_masks &&
-                       fused_vmin && settings_revision && exact_profiles)
+                       fused_vmin && settings_revision && partial_opp &&
+                       non_cpu_native && safe_vmin_defaults && exact_profiles)
             }
         ' "${work_uefi}/edk2-platforms/Platform/CIX/Sky1/Drivers/PmConfigUpdateDxe/PmConfigUpdateDxe.c" ||
             cix_die "O6 PM updater is missing a safety policy"

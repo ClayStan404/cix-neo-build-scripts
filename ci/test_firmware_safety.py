@@ -45,6 +45,20 @@ class O6FirmwareSafetyTests(unittest.TestCase):
         self.assertIn("+    pr-debug)", patch)
         self.assertIn("+        exec_cix_mkimage pr debug", patch)
 
+    def test_cpu_tuning_uses_partial_external_opp_tables(self) -> None:
+        flow = (ROOT / "builders/direct/firmware-sky1.sh").read_text()
+        patch = (
+            ROOT
+            / "patches/radxa-pm-tuning"
+            / "0004-Platform-use-CPU-only-partial-OPPs.patch"
+        ).read_text()
+
+        self.assertIn("0004-Platform-use-CPU-only-partial-OPPs.patch", flow)
+        self.assertIn("PM_CONFIG_OPP_EXTERNAL_PARTIAL", patch)
+        self.assertIn("PmNonCpuDomainsAreUnused", patch)
+        self.assertIn("PmDefaultVoltageMode", patch)
+        self.assertIn("RADXA_PM_TUNING_REVISION     3", patch)
+
     def test_quarantined_sources_cannot_trigger_a_flashable_target(self) -> None:
         build_map = plan.load_build_map(
             ROOT / "build-map.yaml", ROOT.parent, check_paths=False

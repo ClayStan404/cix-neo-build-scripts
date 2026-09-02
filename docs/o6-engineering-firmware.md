@@ -175,19 +175,22 @@ Platform Configuration -> Advanced Configuration -> Power Management`:
 - `Vendor/Automatic (PM firmware native OPPs)` disables the external OPP table
   and explicitly enables the fused Vmin curve so PM firmware uses its native
   per-part OPN/Vmin/guardband path.
-- `Custom (complete CPU OPP table)` enables the complete external CPU table
-  with the Debug PM firmware.
+- `Custom (complete CPU OPP table)` enables a CPU-only partial external table
+  with the Debug PM firmware. Domains not present in that table continue to
+  use the PM firmware's native per-chip values.
 
 Custom exposes the non-boot OPPs of GB0, GB1, GM0, and GM1. Frequency inputs
 are 800-3200 MHz and base-voltage inputs are 550-1250 mV in steps of 10.
 Voltage policy is shown only for source OPPs with a Vmin checkpoint in the
 pinned PM firmware. GB0/GB1 OPP4-6 map to Vmin3/Vmin2/Vmin1, GM0 OPP3-6 map to
 Vmin3/Vmin3/Vmin2/Vmin1, and GM1 OPP4-5 map to Vmin1/Vmin1. Each such control
-offers Fixed plus only its mapped tier. A Vmin tier is a per-domain ATE
+offers Fixed plus only its mapped tier. The mapped fused tier is the default;
+Fixed remains an explicit expert override. A Vmin tier is a per-domain ATE
 checkpoint floor, not a safe-voltage guarantee for an arbitrary edited
 frequency. Frequencies must strictly increase and base voltages must not
 decrease. The effective 1500 MHz / 790 mV
-boot OPP, DSU, and non-CPU domains are not editable.
+boot OPP is not editable. DSU and non-CPU domains are encoded as absent
+(`0xffff`/`0xff`) rather than copied from a static board table.
 
 These input boundaries are not safe-operating guarantees. Available internal
 frequency and voltage data came from a K000086 EVB; a retail Radxa O6 may have
@@ -197,9 +200,22 @@ silicon population.
 Saving a changed profile is followed by one additional cold reset after the
 DXE driver validates, writes, reads back, and compares the dedicated PM entry.
 Do not interrupt power during that update. Unknown settings layouts, invalid
-PM data, disabled fused Vmin, modified protected OPPs, changed DSU data,
+PM data, disabled fused Vmin, modified protected OPPs, configured non-CPU data,
 unsupported per-OPP voltage modes, out-of-range input, and non-monotonic CPU
 tables are rejected.
+
+Settings revision 3 resets every older layout to Vendor/Automatic. This avoids
+silently reusing the revision-2 Fixed voltage defaults after an upgrade.
+
+## Hardware Validation Findings
+
+On 2026-09-02, a retail Radxa O6 running the engineering image was compared
+between Vendor/Automatic and a safe Custom marker. Vendor/Automatic restored
+the fused table, including GB0 2500 MHz at 950 mV and GB1 2600 MHz at 950 mV;
+USB HID remained functional on Linux 7.0.13. The earlier Custom image correctly
+applied a 2490 MHz GB0 marker, but also replaced DSU and other non-CPU tables
+and defaulted mapped CPU OPPs to Fixed voltage. Revision 3 addresses both
+findings. It still requires a new on-board A/B validation after flashing.
 
 ## Quarantined Memory Path
 

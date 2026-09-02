@@ -97,15 +97,17 @@ def decode_rail(data: bytes, offset: int) -> tuple[int, ...]:
     )
 
 
-def expected_opp_tables(profile: str) -> tuple:
-    if profile in ("stock-opp", "vendor-auto"):
-        return EXPECTED_OPP_TABLES
+def expected_opp_domains(profile: str) -> dict[int, tuple]:
+    if profile == "stock-opp":
+        return dict(enumerate(EXPECTED_OPP_TABLES))
+    if profile == "vendor-auto":
+        return {domain: EXPECTED_OPP_TABLES[domain] for domain in range(3, 7)}
     raise VerificationError(f"unsupported OPP profile: {profile}")
 
 
 def verify_external_opp(data: bytes, profile: str) -> None:
-    expected_tables = expected_opp_tables(profile)
-    if len(expected_tables) != OPP_DOMAIN_COUNT - 1:
+    expected_domains = expected_opp_domains(profile)
+    if profile == "stock-opp" and len(expected_domains) != OPP_DOMAIN_COUNT - 1:
         raise VerificationError("OPP verifier has an invalid domain count")
     expected_validity = 1 if profile == "vendor-auto" else 0
     if data[PM_CONFIG_OPP_OFFSET] != expected_validity:
@@ -114,8 +116,17 @@ def verify_external_opp(data: bytes, profile: str) -> None:
 
     domain_base = PM_CONFIG_OPP_OFFSET + 1
     empty_entry = (0, 0, 0, 0)
-    for domain, expected in enumerate(expected_tables):
+    for domain in range(OPP_DOMAIN_COUNT):
         offset = domain_base + domain * OPP_DOMAIN_SIZE
+        if domain not in expected_domains:
+            unused_domain = data[offset : offset + OPP_DOMAIN_SIZE]
+            if unused_domain != b"\xff" * OPP_DOMAIN_SIZE:
+                raise VerificationError(
+                    f"unused OPP domain {domain} was unexpectedly configured"
+                )
+            continue
+
+        expected = expected_domains[domain]
         size, sustained_idx = struct.unpack_from("<HH", data, offset)
         expected_sustained, *expected_entries = expected
         if (size, sustained_idx) != (len(expected_entries), expected_sustained):
@@ -132,14 +143,6 @@ def verify_external_opp(data: bytes, profile: str) -> None:
         )
         if entries != expected_padded:
             raise VerificationError(f"unexpected OPP domain {domain} table")
-
-    unused_offset = domain_base + len(expected_tables) * OPP_DOMAIN_SIZE
-    unused_domain = data[unused_offset : unused_offset + OPP_DOMAIN_SIZE]
-    if unused_domain != b"\xff" * OPP_DOMAIN_SIZE:
-        raise VerificationError(
-            f"unused OPP domain {OPP_DOMAIN_COUNT - 1} was unexpectedly configured"
-        )
-
 
 def verify_fused_vmin(data: bytes) -> None:
     vmin_disable, vmin_profile = struct.unpack_from(
@@ -202,8 +205,8 @@ def verify(data: bytes, profile: str = "pmic") -> str:
             verify_fused_vmin(data)
             return (
                 "PM config v3.0 custom PMIC is valid, external OPP selection "
-                "is disabled, fused Vmin is enabled, and source stock backup "
-                "tables are valid"
+                "is disabled, fused Vmin is enabled, and the CPU-only source "
+                "backup table is valid"
             )
         return "PM config v3.0 custom PMIC and source stock external OPP tables are valid"
     if profile != "pmic":

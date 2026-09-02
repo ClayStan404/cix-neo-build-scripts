@@ -18,7 +18,7 @@ VOLTAGE_FIXED_ONLY = 1 << VOLTAGE_FIXED
 VOLTAGE_FIXED_OR_VMIN1 = VOLTAGE_FIXED_ONLY | (1 << VOLTAGE_VMIN1)
 VOLTAGE_FIXED_OR_VMIN2 = VOLTAGE_FIXED_ONLY | (1 << VOLTAGE_VMIN2)
 VOLTAGE_FIXED_OR_VMIN3 = VOLTAGE_FIXED_ONLY | (1 << VOLTAGE_VMIN3)
-SETTINGS_REVISION = 2
+SETTINGS_REVISION = 3
 SETTINGS_SIGNATURE = 0x54504D52
 SETTINGS_LEGACY_SIZE = 209
 SETTINGS_V1_SIZE = 265
@@ -126,7 +126,15 @@ def default_settings(profile: int = PROFILE_VENDOR) -> Settings:
         base = cpu_index * 13
         frequencies[base : base + domain.size] = domain.frequencies
         voltages[base : base + domain.size] = domain.voltages
-    return Settings(profile, frequencies, voltages, [0] * 4, [0] * 52)
+    voltage_modes = [VOLTAGE_FIXED] * 52
+    for cpu_index, domain in enumerate(CPU_DOMAINS):
+        base = cpu_index * 13
+        for opp, mask in enumerate(domain.voltage_mode_masks):
+            for mode in (VOLTAGE_VMIN1, VOLTAGE_VMIN2, VOLTAGE_VMIN3):
+                if mask & (1 << mode):
+                    voltage_modes[base + opp] = mode
+                    break
+    return Settings(profile, frequencies, voltages, [0] * 4, voltage_modes)
 
 
 def validate_settings(settings: Settings) -> None:
@@ -181,6 +189,8 @@ def migrate_profile(profile: int, stored_size: int) -> int:
         SETTINGS_CURRENT_SIZE,
     ):
         raise ValueError("unknown settings size")
+    if stored_size != SETTINGS_CURRENT_SIZE:
+        return PROFILE_VENDOR
     if profile not in (PROFILE_VENDOR, PROFILE_CUSTOM):
         profile = PROFILE_VENDOR
     return profile

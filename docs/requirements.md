@@ -243,7 +243,9 @@ is confirmed.
   Expose only Vendor/Automatic and complete
   Custom profiles. Keep source checkouts clean by carrying the implementation
   as build-time patches. Vendor/Automatic must disable the external OPP table;
-  Custom must enable the complete external CPU table with Debug PM firmware.
+  Custom must enable a CPU-only partial external table with Debug PM firmware.
+  Encode every non-CPU domain as absent so PM firmware retains its native
+  per-chip DSU, GPU, NPU, VPU, and other domain tables.
   The generated PM config must explicitly enable the per-part fused Vmin curve;
   do not inherit the PackageTool default that leaves it disabled.
   Migrate removed fixed-frequency and partial profiles to Vendor/Automatic.
@@ -251,8 +253,8 @@ is confirmed.
   Custom modes may edit only the non-boot OPPs of GB0, GB1, GM0, and GM1 within
   800-3200 MHz and 550-1250 mV base voltage in steps of 10. Expose a Vmin mode
   only where the pinned PM firmware assigns that exact tier to the domain and
-  source OPP; offer Fixed plus only that tier and enforce the same mapping in
-  runtime validation. Require strictly increasing
+  source OPP; default to that tier, offer Fixed only as an explicit override,
+  and enforce the same mapping in runtime validation. Require strictly increasing
   frequencies and non-decreasing base voltages. Fix the effective boot OPP at
   1500 MHz / 790 mV; do not expose it, DSU, or non-CPU domains. Populate CPU
   power from the measured-power points and interpolation in the exact PM
@@ -266,8 +268,8 @@ is confirmed.
   Validate both the submitted settings and the complete existing v3 PM block
   before writing; recalculate the checksum; read back and compare the complete
   PM entry; and cold-reset only after a verified write. Version the setup
-  variable with a revision, exact size, and signature; migrate known old layouts
-  and reject unknown ones. Maintain a host-side semantic model for profile,
+  variable with a revision, exact size, and signature; reset known old layouts
+  to Vendor/Automatic and reject unknown sizes. Maintain a host-side semantic model for profile,
   migration, custom-table, and protected-OPP policy. The setup-save path must
   also prevent the legacy CPU limit from masking any selected profile.
 - The earlier requirement to include Memory Data Rate tuning in that same
@@ -575,12 +577,13 @@ selector and a v3 PM update driver over an image that contains source backup
 OPP tables. It reuses the manifest-pinned PR-debug bootloader1 and bootloader2
 and does not locally rebuild or sign early-boot firmware.
 Vendor/Automatic leaves external OPPs disabled while explicitly enabling the
-per-part fused Vmin curve. Custom enables the complete external CPU table with
+per-part fused Vmin curve. Custom enables a CPU-only partial external table with
 Debug PM firmware. The single CPU-tuning PR-debug image
 exposes only those two modes. Custom exposes only
-non-boot OPPs under bounded and monotonic input rules, with only the fused Vmin
-tier assigned to each source OPP exposed as an alternative to Fixed. The
-1500 MHz / 790 mV boot OPP, DSU, and non-CPU domains remain locked.
+non-boot OPPs under bounded and monotonic input rules, with the fused Vmin
+tier assigned to each source OPP selected by default and Fixed retained as an
+expert override. The 1500 MHz / 790 mV boot OPP remains locked; DSU and all
+non-CPU domains are absent from the external table and stay PM-firmware-native.
 CPU power follows the exact pinned PM firmware measured-power interpolation and
 is conservatively voltage-adjusted upward. Versioned settings, a host semantic
 model, current/generated PM validation, and complete flash read-back protect
