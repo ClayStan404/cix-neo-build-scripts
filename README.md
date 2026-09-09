@@ -126,11 +126,16 @@ cleanup only when those caches must be discarded:
 ```
 
 `distclean` first runs every target-owned cleaner, then removes all registered
-target directories and empties the persistent ccache and sbuild APT archive
-cache. It preserves the provisioned sbuild chroot and any nonempty unregistered
-entries under `output/`; each preserved entry is reported explicitly. Both
+target directories and the shared `output/.downloads` cache, and empties the
+persistent ccache and sbuild APT archive cache. It preserves the provisioned
+sbuild chroot and any nonempty unregistered entries under `output/`; each
+preserved entry is reported explicitly. Both
 global operations derive the complete target list from `build-map.yaml` rather
 than a duplicated shell list.
+
+Build reports, validation reports, retired targets, and manual experiment
+directories are unregistered entries and remain after `distclean`. The
+`output` directory itself is removed only when nothing remains inside it.
 
 Every target reports its elapsed time as `HH:MM:SS`, and a successful set
 reports the total elapsed time. On failure, the command reports the failed

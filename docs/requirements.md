@@ -375,9 +375,10 @@ is confirmed.
   `build-map.yaml`; remove empty output directory trees, including retired
   target leftovers, while retaining directories that contain reusable caches
   or unregistered artifacts. Provide
-  `distclean` to additionally remove every registered target directory and
-  empty the shared ccache and sbuild APT archive cache. Preserve the provisioned
-  sbuild chroot and nonempty unregistered output entries; report every
+  `distclean` to additionally remove every registered target directory and the
+  shared `output/.downloads` cache, and empty the shared ccache and sbuild APT
+  archive cache. Remove the output root if it becomes empty. Preserve the
+  provisioned sbuild chroot and nonempty unregistered output entries; report every
   preserved output entry instead of deleting data outside the registry.
 - Provide `firmware-sky1` as the board-matrix build set for all currently
   supported Sky1 product firmware targets. Product OS build sets may select

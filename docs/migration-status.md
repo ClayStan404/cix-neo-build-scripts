@@ -68,8 +68,9 @@ entry-point drift at this snapshot.
 - `clean-all` cleans every registered target, removes empty output directory
   trees including retired-target leftovers, and retains directories containing
   reusable caches or unregistered artifacts. `distclean` additionally
-  removes all registered target directories and empties the shared ccache and
-  sbuild APT archive cache while preserving the sbuild chroot and explicitly
+  removes all registered target directories and the shared `output/.downloads`
+  cache, removes an empty output root, and empties the shared ccache and sbuild
+  APT archive cache while preserving the sbuild chroot and explicitly
   reporting nonempty unregistered output entries.
 - Setup scripts install the recorded Debian 13 host and sbuild prerequisites
   needed to reproduce a new build machine.

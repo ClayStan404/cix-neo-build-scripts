@@ -23,6 +23,7 @@ Usage: cix-build TARGET|BUILD_SET [build|clean] [--backend sbuild|local] [OPTION
 Global cleanup commands:
   clean-all              Clean every registered target; preserve caches
   distclean              Clean all targets and clear persistent build caches
+                         Preserve reports and other unregistered output entries
 
 Options:
   --backend BACKEND      Debian package backend (default: sbuild)
@@ -354,6 +355,7 @@ if [[ -n "${global_clean_mode}" ]]; then
     mapfile -t build_set_targets < <(printf '%s\n' "${all_targets_plan}")
     cix_global_cleanup_preflight "${build_set_targets[@]}"
     if [[ "${global_clean_mode}" == distclean ]]; then
+        cix_global_cleanup_preflight .downloads
         cix_persistent_build_cache_preflight
     fi
     cix_log \

@@ -67,10 +67,12 @@ cix_remove_registered_outputs() {
     local output_root="${CIX_ROOT}/output"
 
     cix_require_command chmod find rmdir
-    for name in "$@"; do
+    cix_global_cleanup_preflight "$@" .downloads
+    # Ramparser downloads are shared workspace caches, not target outputs.
+    for name in "$@" .downloads; do
         output_dir="${output_root}/${name}"
         [[ -d "${output_dir}" ]] || continue
-        cix_log "Remove registered target directory ${output_dir}"
+        cix_log "Remove build output directory ${output_dir}"
         # distclean removes target-owned caches as well. Build tools such as
         # crosstool-NG install final toolchain directories without owner-write
         # permission, so make owned directory entries removable first.
@@ -83,6 +85,7 @@ cix_remove_registered_outputs() {
     while IFS= read -r -d '' output_entry; do
         cix_log "Preserve unregistered output entry ${output_entry}"
     done < <(find "${output_root}" -mindepth 1 -maxdepth 1 -print0)
+    rmdir --ignore-fail-on-non-empty -- "${output_root}"
 }
 
 cix_persistent_build_cache_preflight() {
