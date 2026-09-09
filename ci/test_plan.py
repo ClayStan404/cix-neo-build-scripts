@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import sys
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -39,6 +40,21 @@ class PlannerFixture:
 
 
 class BuildPlannerTests(unittest.TestCase):
+    def test_all_tracked_owned_paths_have_an_impact_or_ignore_rule(self) -> None:
+        workspace = Path(__file__).resolve().parents[2]
+        build_map = plan.load_build_map(workspace / "build-scripts/build-map.yaml", workspace, check_paths=False)
+        for repository in ("build-scripts", "debian"):
+            paths = subprocess.check_output(
+                ("git", "-C", str(workspace / repository), "ls-files", "-z"), text=True
+            ).split("\0")
+            for path in filter(None, paths):
+                with self.subTest(path=f"{repository}/{path}"):
+                    plan.map_changes([f"{repository}/{path}"], build_map)
+        seeds, _, _ = plan.map_changes(["build-scripts/commands/cleanup.sh"], build_map)
+        self.assertEqual(seeds, set(build_map.targets))
+        seeds, _, _ = plan.map_changes(["build-scripts/builders/debian.sh"], build_map)
+        self.assertIn("audio-sof", seeds)
+
     def setUp(self) -> None:
         self.fixture = PlannerFixture()
 

@@ -65,6 +65,7 @@ class Target:
     build_packages: tuple[str, ...]
     build_provides: tuple[str, ...]
     lfs: bool
+    inputs: tuple[str, ...] = ()
 
     @property
     def control(self) -> str | None:
@@ -209,6 +210,7 @@ def _target_from_mapping(name: str, entry: dict) -> Target:
         "files",
         "flow",
         "header_revision",
+        "inputs",
         "lfs",
         "patch_source",
         "payload_dir",
@@ -285,6 +287,14 @@ def _target_from_mapping(name: str, entry: dict) -> Target:
             )
         )
         if "source_overlays" in entry
+        else ()
+    )
+    inputs = (
+        tuple(
+            _relative_path(item, f"{context} inputs entry")
+            for item in _string_list(entry["inputs"], f"{context} inputs")
+        )
+        if "inputs" in entry
         else ()
     )
     build_packages = (
@@ -444,6 +454,7 @@ def _target_from_mapping(name: str, entry: dict) -> Target:
             "flow",
             "build_packages",
             "build_provides",
+            "inputs",
         }
         - flow_fields
     )
@@ -494,6 +505,7 @@ def _target_from_mapping(name: str, entry: dict) -> Target:
         build_packages=build_packages,
         build_provides=build_provides,
         lfs=lfs,
+        inputs=inputs,
     )
 
 
@@ -653,6 +665,12 @@ def load_build_map(
 
 
 def validate_target_paths(target: Target, workspace: Path) -> None:
+    for relative in target.inputs:
+        path = workspace / relative
+        if not path.exists() or not path.resolve().is_relative_to(workspace):
+            raise PlanError(
+                f"target {target.name} input is missing or outside the workspace: {path}"
+            )
     for field_name in ("source", "source_git", "debian", "patch_source"):
         relative = getattr(target, field_name)
         if relative is None:
@@ -708,6 +726,7 @@ def target_dict(target: Target) -> dict:
         "build_packages": list(target.build_packages),
         "build_provides": list(target.build_provides),
         "lfs": target.lfs,
+        "inputs": list(target.inputs),
     }
 
 

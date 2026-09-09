@@ -265,12 +265,14 @@ targets:
     builder: direct
     flow: sky1-tf-a
     source: sources/secure-firmware
+    inputs: [sources/secure-firmware/security/library]
 
   sky1-pbl:
     description: CIX Sky1 primary bootloader firmware
     builder: direct
     flow: sky1-pbl
     source: sources/secure-firmware
+    inputs: [sources/secure-firmware/security/library]
 
   sky1-optee:
     description: CIX Sky1 OP-TEE secure-world firmware
@@ -1046,7 +1048,7 @@ projects:
   cix-neo-build-scripts:
     path: build-scripts
     rules:
-      - paths: ["build-map.yaml", "cix-build", "builders/common.sh"]
+      - paths: ["build-map.yaml", "cix-build", "builders/common.sh", "commands/cleanup.sh"]
         targets: ["*"]
       - paths: ["builders/direct.sh"]
         targets: [kernel, stable-kernel-6.18, stable-kernel, stable-kernel-7.1, audio-sof, pmtool, radxa-o6-firmware, radxa-o6n-firmware, sky1-merak-firmware, sky1-edge-firmware, radxa-o6-firmware-engineering, sky1-tf-a, sky1-pbl, sky1-optee, sky1-se-firmware, ramparser, cix-test-tools, ltp]
@@ -1087,12 +1089,12 @@ projects:
       - paths: ["patches/radxa-pm-tuning/**", "ci/pm_tuning_model.py", "ci/test_pm_tuning_model.py"]
         targets: [radxa-o6-firmware-engineering]
       - paths: ["builders/debian.sh"]
-        targets: [gpu-dkms, bt-dkms, vpu-dkms, vpu-firmware, npu-dkms, grub-config, alsa-conf, cix-env, cix-firmware, audio-dsp, dpu-ddk, gpu-umd, isp-umd, isp-v4l2-dkms, isp-dkms, libdrm, libglvnd, libva, ffmpeg, mesa, libcme, cix-vaapi, noe-umd, npu-umd, ai-engine, mnn, gstreamer-6.6, gstreamer-base-7.0, gstreamer-good-7.0, nnstreamer, wlan-dkms]
+        targets: [gpu-dkms, bt-dkms, vpu-dkms, vpu-firmware, npu-dkms, grub-config, alsa-conf, cix-env, cix-firmware, audio-dsp, audio-sof, dpu-ddk, gpu-umd, isp-umd, isp-v4l2-dkms, isp-dkms, libdrm, libglvnd, libva, ffmpeg, mesa, libcme, cix-vaapi, noe-umd, npu-umd, ai-engine, mnn, gstreamer-6.6, gstreamer-base-7.0, gstreamer-good-7.0, nnstreamer, wlan-dkms]
       - paths: ["builders/debian/payload.sh"]
         targets: [vpu-firmware, cix-firmware, audio-dsp, dpu-ddk, gpu-umd, isp-umd, noe-umd, npu-umd]
       - paths: ["ci/plan.py"]
         targets: ["*"]
-      - paths: ["builders/preflight.sh", "ci/build_state.py"]
+      - paths: ["builders/preflight.sh", "ci/build_state.py", "ci/artifacts.py"]
         targets: ["*"]
       - paths: ["sbuild/**", "setup-host", "setup-sbuild"]
         targets: ["*"]
@@ -1101,12 +1103,20 @@ projects:
       - paths: ["tests/collect-o6-pm-state.sh"]
         targets: [pmtool, radxa-o6-firmware-engineering]
     ignore:
+      - ".gitattributes"
       - ".gitignore"
       - "Jenkinsfile"
       - "README.md"
       - "ci/execute.py"
       - "ci/publish_apt.py"
       - "ci/test_build_state.py"
+      - "ci/test_cleanup.py"
+      - "ci/test_firmware_safety.py"
+      - "ci/check_legacy_coverage.py"
+      - "ci/test_legacy_coverage.py"
+      - "ci/test_debian.py"
+      - "ci/test_artifacts.py"
+      - "ci/test_resume.py"
       - "ci/test_memory_config.py"
       - "ci/verify_memory_config.py"
       - "patches/radxa-memory-tuning/**"
@@ -1188,4 +1198,5 @@ projects:
       - paths: ["wlan-dkms/**"]
         targets: [wlan-dkms]
     ignore:
+      - ".gitattributes"
       - "README.md"

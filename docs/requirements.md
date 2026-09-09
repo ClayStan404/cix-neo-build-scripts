@@ -104,15 +104,25 @@ is confirmed.
 - Preflight every target in a requested build set before the first build starts.
   Validate source availability, Git and LFS inputs, Debian metadata, sbuild
   readiness, and applicable patch series without modifying source checkouts.
+  Apply quilt series to disposable source copies assembled with the same
+  exclusions and overlays as the package build.
 - Support safe resumable builds with fingerprints covering the target
   definition, all contributing Git states, selected Debian backend, internal
-  dependency states, and published artifact digests. Rebuild instead of
-  resuming whenever any part cannot be verified.
+  dependency states, build configuration, and published artifact digests.
+  Include explicitly declared linked repository inputs. Recursively verify
+  providers against their current inputs and actual dependency package
+  contents, including same-version rebuilds. Rebuild instead of resuming
+  whenever any part cannot be verified. If a standalone build uses dependency
+  packages without valid provider records, mark its result non-resumable.
 - Persist per-target logs, durations, fingerprints, artifact inventories, and a
-  machine-readable result for every build invocation.
+  machine-readable result for every build invocation. Require complete
+  deliverables before recording success; do not inventory intermediate build
+  trees, download caches, or host-tool caches as published artifacts.
 - Provide declarative 6.6 and 7.0 product validation profiles for artifacts,
   checksums, matching-kernel DKMS compilation, and read-only installed-host
   inspection. Keep test orchestration outside package build implementations.
+  Require all declared binary packages and each native flow's primary outputs.
+  Installed-host DKMS checks must match the running kernel and architecture.
 - Use external `3.0 (quilt)` Debian metadata for upstream DKMS source projects
   and proprietary firmware payloads. Use `3.0 (native)` for packages whose
   source is owned by the Debian metadata repository.
@@ -420,8 +430,9 @@ is confirmed.
   target. For a product build set, apply the selected backend only to Debian
   targets and leave direct flows unchanged.
 - Keep the backend default at `sbuild`. Select the host build explicitly with
-  `cix-build TARGET --backend local`; local builds must check the package's
-  `Build-Depends` and fail rather than installing dependencies implicitly.
+  `cix-build TARGET --backend local`; install mapped internal dependency packages
+  at their exact workspace versions, forcing reinstallation for same-version
+  rebuilds. Check the remaining `Build-Depends` and fail when unavailable.
 - Implement reusable build types rather than package-specific Shell dispatch.
   Adding another conventional native or quilt source package must require only
   its Debian metadata and declarative mapping entries, not a new build script or
@@ -517,6 +528,8 @@ is confirmed.
 - Execute CI plans through one checked-in executor that expands both reverse
   rebuild impact and forward build prerequisites, schedules only
   dependency-ready targets, and invokes the normal `cix-build` entry point.
+  Reject local backend execution with more than one concurrent target because
+  local targets share the host's installed packages.
 - Permit a successful Jenkins plan to publish its top-level Debian artifacts as
   a new unsigned, trusted, build-scoped APT repository. Include deterministic
   package indexes and a package/hash manifest; do not treat it as a permanent

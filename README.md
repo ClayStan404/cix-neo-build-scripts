@@ -98,7 +98,8 @@ and intentionally changes the host's installed CIX packages. The required
 `.deb` files are supplied directly from their mapped `output` directories, so
 unrelated binary packages from the same source are not required or installed.
 APT installs the exact workspace-built versions, including a downgrade when
-the host already has a newer version of the same CIX package. The sbuild
+the host already has a newer version of the same CIX package and a forced
+reinstall when a package was rebuilt without changing its version. The sbuild
 backend keeps these packages inside its disposable build environment.
 
 The backend selection does not change `direct` targets such as `kernel`, the
@@ -138,7 +139,9 @@ target's elapsed time and the total time before stopping.
 Every requested target is preflighted before the first target in a build set
 starts. This catches missing source projects or LFS payloads, incompatible
 sbuild environments, invalid Debian metadata, and patch-series drift before a
-long build changes any output. Run the same checks without building with:
+long build changes any output. Quilt preflight assembles a disposable source
+copy with the same exclusions and overlays as a build, then applies the full
+series with `dpkg-source`. Run the same checks without building with:
 
 ```bash
 ./build-scripts/cix-build all-6.6 --preflight-only
@@ -146,12 +149,23 @@ long build changes any output. Run the same checks without building with:
 
 Successful builds record an input fingerprint and SHA-256 inventory under
 `output/.cix-state`. `--resume` skips a target only when its target definition,
-Git inputs, internal dependency states, and every published artifact still
-match. A missing or changed input safely rebuilds the target:
+Git inputs, build scripts and configuration, current internal dependency inputs
+and package digests, and every published artifact still match. Linked Git
+repositories declared through a target's `inputs` field also contribute to its
+fingerprint. Dependency validation is recursive, so changes to indirect
+providers invalidate their consumers. A missing or changed input rebuilds the
+target:
 
 ```bash
 ./build-scripts/cix-build all-6.6 --resume
 ```
+
+State format v3 invalidates older records once. A standalone build may still
+use existing dependency packages without valid provider records, but its
+result is marked non-resumable. Build the providers first, or build the complete
+set, to establish verified state. Required deliverables must exist before a
+successful target record is written. Artifact inventories exclude build and
+download caches, including kernel `build/` trees.
 
 Each build or preflight invocation writes a machine-readable result and one
 log per built target under `output/build-reports/RUN_ID`. These reports are
@@ -557,6 +571,8 @@ trusted internal CI transport. It contains only top-level `.deb` artifacts from
 the successful plan, plus a package manifest; it is not a permanent archive.
 The executor preflights the complete expanded plan before starting its first
 build, then each normal `cix-build` invocation retains its own defensive check.
+The local backend requires `--jobs 1` because its targets share the host's
+installed packages. Parallel target execution is available with `sbuild`.
 The checked-in `Jenkinsfile` performs host/map checks, executes this workflow,
 and archives build, executor, and APT repository reports.
 
@@ -581,6 +597,12 @@ matching packaged CIX headers, and an optional installed local or SSH host:
 ./build-scripts/tests/product.py 6.6 --dkms --ltp-smoke
 ./build-scripts/tests/product.py 7.0 --host debian
 ```
+
+Every Debian binary declared in `control` and every native flow's required
+deliverable must be present. Kernel build caches or optional firmware capsules
+cannot substitute for kernel packages or flash images. Installed-host DKMS
+checks require each module to be installed for the running kernel and
+`aarch64` architecture.
 
 Add `--require-state` to require current input fingerprints and artifact
 inventories. JSON results are stored under `output/validation-reports`.

@@ -77,6 +77,8 @@ def execute_plan(
     resume: bool,
     jobs: int,
 ) -> tuple[list[str], dict[str, int]]:
+    if jobs < 1 or (backend == "local" and jobs != 1):
+        raise plan.PlanError("local builds require --jobs 1; sbuild jobs must be positive")
     graph = plan.build_dependency_graph(build_map)
     forward = plan.build_environment_forward(graph, build_map)
     expanded = dependency_closure(selected, forward)
@@ -143,6 +145,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser().parse_args(argv)
     if args.jobs < 1:
         print("ERROR: --jobs must be positive", file=sys.stderr)
+        return 2
+    if args.backend == "local" and args.jobs != 1:
+        print(
+            "ERROR: --backend local requires --jobs 1 because builds share host packages",
+            file=sys.stderr,
+        )
         return 2
     workspace = Path(__file__).resolve().parents[2]
     changes = args.changes or [line.strip() for line in sys.stdin if line.strip()]

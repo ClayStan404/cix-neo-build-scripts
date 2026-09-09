@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import sys
 import unittest
+from io import StringIO
 from pathlib import Path
 from unittest import mock
 
@@ -13,6 +14,15 @@ import execute
 
 
 class ExecuteTests(unittest.TestCase):
+    def test_local_parallelism_is_rejected_before_starting_work(self) -> None:
+        with mock.patch.object(execute, "execute_target") as build:
+            with self.assertRaisesRegex(execute.plan.PlanError, "local builds require"):
+                execute.execute_plan(Path("/workspace"), mock.Mock(), set(), "local", False, 2)
+            with mock.patch("sys.stderr", new_callable=StringIO) as error:
+                self.assertEqual(execute.main(["--backend", "local", "--jobs", "2"]), 2)
+            self.assertIn("requires --jobs 1", error.getvalue())
+        build.assert_not_called()
+
     def test_dependency_closure_adds_transitive_prerequisites(self) -> None:
         forward = {
             "application": frozenset({"library"}),

@@ -9,6 +9,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path, PurePosixPath
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -41,6 +42,15 @@ class BuildStateTests(unittest.TestCase):
             [entry["path"] for entry in artifacts],
             ["output/demo/demo.bin", "output/demo/images/firmware.bin"],
         )
+
+    def test_artifact_scan_does_not_enter_build_caches(self) -> None:
+        for name in ("build", "downloads", "host-tools", "work", "toolchain", "tests"):
+            (self.output / name).mkdir()
+            (self.output / name / "cache").write_text("cache")
+        (self.output / "result.deb").write_bytes(b"package")
+        with mock.patch.object(Path, "rglob", side_effect=AssertionError("entered cache")):
+            paths = [entry["path"] for entry in build_state.collect_artifacts(self.output, self.workspace)]
+        self.assertEqual(paths, ["output/demo/result.deb"])
 
     def test_state_detects_changed_artifact(self) -> None:
         artifact = self.output / "demo.bin"

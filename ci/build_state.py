@@ -13,13 +13,16 @@ import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
-from typing import Iterable, Sequence
+from typing import Callable, Iterable, Sequence
 
 import plan
+import artifacts as artifact_policy
 
 
-STATE_VERSION = 2
-EXCLUDED_ARTIFACT_ROOTS = {"tests", "toolchain", "work"}
+STATE_VERSION = 3
+EXCLUDED_ARTIFACT_ROOTS = {
+    "tests", "toolchain", "work", "build", "downloads", "host-tools", "bootloader-work",
+}
 
 
 class StateError(RuntimeError):
@@ -160,11 +163,17 @@ def _target_input_paths(target: plan.Target) -> tuple[PurePosixPath, ...]:
         ),
     }
     values.update(overlay.split("=", 1)[0] for overlay in target.source_overlays)
+    values.update(target.inputs)
     values.update(
         {
             "build-scripts/cix-build",
             "build-scripts/builders/common.sh",
             "build-scripts/builders/preflight.sh",
+            "build-scripts/ci/plan.py",
+            "build-scripts/ci/build_state.py",
+            "build-scripts/ci/artifacts.py",
+            "build-scripts/setup-host",
+            "build-scripts/setup-sbuild",
         }
     )
     if target.builder == "direct":
@@ -173,13 +182,18 @@ def _target_input_paths(target: plan.Target) -> tuple[PurePosixPath, ...]:
                 "build-scripts/builders/direct.sh",
                 "build-scripts/builders/direct",
                 "build-scripts/patches",
+                "build-scripts/ci/verify_pm_config.py",
+                "build-scripts/ci/verify_pm_firmware.py",
+                "build-scripts/ci/verify_o6n_patch.py",
+                "build-scripts/ci/pm_tuning_model.py",
             }
         )
-    else:
+    if target.builder == "debian" or target.flow == "sof-firmware":
         values.update(
             {
                 "build-scripts/builders/debian.sh",
                 "build-scripts/builders/debian",
+                "build-scripts/sbuild",
             }
         )
     return tuple(sorted(PurePosixPath(value) for value in values))
@@ -188,24 +202,25 @@ def _target_input_paths(target: plan.Target) -> tuple[PurePosixPath, ...]:
 def _input_repositories(
     workspace: Path, target: plan.Target
 ) -> tuple[tuple[Path, tuple[PurePosixPath, ...]], ...]:
-    inputs = _target_input_paths(target)
+    inputs = tuple((workspace / value).resolve() for value in _target_input_paths(target))
     candidates = set(_project_paths(workspace))
     candidates.update(PurePosixPath(value) for value in ("build-scripts", "debian"))
+    candidates.update(PurePosixPath(value) for value in target.inputs)
     selected: dict[Path, set[PurePosixPath]] = {}
 
     for candidate in candidates:
+        repository = (workspace / candidate).resolve()
         matching_inputs = tuple(
             input_path
             for input_path in inputs
             if (
-            candidate == input_path
-            or candidate.is_relative_to(input_path)
-            or input_path.is_relative_to(candidate)
+                repository == input_path
+                or repository.is_relative_to(input_path)
+                or input_path.is_relative_to(repository)
             )
         )
         if not matching_inputs:
             continue
-        repository = workspace / candidate
         if not repository.exists():
             continue
         try:
@@ -213,7 +228,7 @@ def _input_repositories(
                 str(
                     _run(
                         ("git", "rev-parse", "--show-toplevel"),
-                        cwd=repository,
+                        cwd=repository if repository.is_dir() else repository.parent,
                     )
                 )
             ).resolve()
@@ -222,7 +237,7 @@ def _input_repositories(
         if root != workspace and not root.is_relative_to(workspace):
             continue
         for input_path in matching_inputs:
-            input_absolute = (workspace / input_path).resolve()
+            input_absolute = input_path
             if root == input_absolute or root.is_relative_to(input_absolute):
                 relative = PurePosixPath(".")
             elif input_absolute.is_relative_to(root):
@@ -241,25 +256,60 @@ def _input_repositories(
     return tuple(result)
 
 
+def _dependency_package_inventory(
+    output: Path, packages: set[str], workspace: Path
+) -> tuple[list[dict], bool]:
+    inventory = []
+    counts = {package: 0 for package in packages}
+    for path in sorted(output.glob("*.deb")):
+        if not path.is_file() or path.is_symlink():
+            continue
+        package = str(_run(("dpkg-deb", "-f", str(path), "Package")))
+        if package not in packages:
+            continue
+        counts[package] += 1
+        inventory.append({
+            "path": path.relative_to(workspace).as_posix(),
+            "package": package,
+            "sha256": _sha256_artifact(path),
+        })
+    return inventory, all(count == 1 for count in counts.values())
+
+
 def _dependency_states(
     target: plan.Target,
     build_map: plan.BuildMap,
     state_root: Path,
-) -> dict[str, str | None]:
-    graph = plan.build_dependency_graph(build_map)
-    providers = sorted(
-        set(plan.build_environment_packages(target.name, graph, build_map).values())
-    )
-    result: dict[str, str | None] = {}
-    for provider in providers:
+    graph: plan.DependencyGraph,
+    calculate: Callable[[str, str], tuple[str, dict]],
+    backend: str,
+) -> dict[str, dict]:
+    packages = plan.build_environment_packages(target.name, graph, build_map)
+    result = {}
+    for provider in sorted(set(packages.values()) - {target.name}):
         state_path = state_root / "targets" / f"{provider}.json"
-        if not state_path.is_file():
-            result[provider] = None
-            continue
         try:
-            result[provider] = _read_json(state_path).get("fingerprint")
+            state = _read_json(state_path)
         except StateError:
-            result[provider] = None
+            state = {}
+        provider_backend = state.get("backend")
+        if provider_backend not in {"local", "sbuild"}:
+            provider_backend = backend
+        current, _ = calculate(provider, provider_backend)
+        try:
+            valid, _ = state_is_valid(state_path, current, build_map.workspace)
+        except (OSError, StateError):
+            valid = False
+        inventory, complete = _dependency_package_inventory(
+            build_map.workspace / "output" / provider,
+            {package for package, owner in packages.items() if owner == provider},
+            build_map.workspace,
+        )
+        result[provider] = {
+            "fingerprint": current,
+            "verified": valid and complete and state.get("target") == provider,
+            "artifacts": inventory,
+        }
     return result
 
 
@@ -271,34 +321,54 @@ def fingerprint(
     state_root: Path,
 ) -> tuple[str, dict]:
     build_map = plan.load_build_map(map_path, workspace, check_paths=True)
-    target = build_map.targets.get(target_name)
-    if target is None:
+    if target_name not in build_map.targets:
         raise StateError(f"unknown build target: {target_name}")
-    repositories = [
-        _repository_signature(repository, workspace, paths)
-        for repository, paths in _input_repositories(workspace, target)
-    ]
-    details = {
-        "version": STATE_VERSION,
-        "target": plan.target_dict(target),
-        "backend": backend if target.builder == "debian" else "direct",
-        "repositories": repositories,
-        "dependencies": _dependency_states(target, build_map, state_root),
-    }
-    encoded = json.dumps(details, sort_keys=True, separators=(",", ":")).encode()
-    return hashlib.sha256(encoded).hexdigest(), details
+    graph = plan.build_dependency_graph(build_map)
+    cache: dict[tuple[str, str], tuple[str, dict]] = {}
+    pending: set[str] = set()
+
+    def calculate(name: str, selected_backend: str) -> tuple[str, dict]:
+        target = build_map.targets[name]
+        effective_backend = selected_backend if target.builder == "debian" else "direct"
+        key = (name, effective_backend)
+        if key in cache:
+            return cache[key]
+        if name in pending:
+            raise StateError(f"cyclic build-state dependency: {name}")
+        pending.add(name)
+        details = {
+            "version": STATE_VERSION,
+            "target": plan.target_dict(target),
+            "backend": effective_backend,
+            "repositories": [
+                _repository_signature(repository, workspace, paths)
+                for repository, paths in _input_repositories(workspace, target)
+            ],
+            "dependencies": _dependency_states(
+                target, build_map, state_root, graph, calculate, selected_backend
+            ),
+        }
+        encoded = json.dumps(details, sort_keys=True, separators=(",", ":")).encode()
+        cache[key] = hashlib.sha256(encoded).hexdigest(), details
+        pending.remove(name)
+        return cache[key]
+
+    return calculate(target_name, backend)
 
 
 def _artifact_paths(output: Path) -> Iterable[Path]:
     if not output.is_dir():
-        return ()
-    return (
-        path
-        for path in sorted(output.rglob("*"))
-        if (path.is_file() or path.is_symlink())
-        and not path.relative_to(output).parts[0].startswith(".")
-        and path.relative_to(output).parts[0] not in EXCLUDED_ARTIFACT_ROOTS
-    )
+        return
+    for entry in sorted(output.iterdir()):
+        if entry.name.startswith(".") or entry.name in EXCLUDED_ARTIFACT_ROOTS:
+            continue
+        if entry.is_symlink() or entry.is_file():
+            yield entry
+        elif entry.is_dir():
+            yield from (
+                path for path in sorted(entry.rglob("*"))
+                if path.is_file() or path.is_symlink()
+            )
 
 
 def collect_artifacts(output: Path, workspace: Path) -> list[dict]:
@@ -332,6 +402,8 @@ def state_is_valid(
         return False, "state version changed"
     if state.get("fingerprint") != expected_fingerprint:
         return False, "input fingerprint changed"
+    if state.get("resumable") is False:
+        return False, "dependency inputs or artifacts were not verified; rebuild the providers"
     artifacts = state.get("artifacts")
     if not isinstance(artifacts, list) or not artifacts:
         return False, "artifact inventory is missing"
@@ -412,12 +484,14 @@ def record_target(
     state_root: Path,
 ) -> dict:
     output = workspace / "output" / target
+    artifact_policy.validate_outputs(plan.Target(**details["target"]), workspace)
     state = {
         "version": STATE_VERSION,
         "target": target,
         "backend": backend,
         "fingerprint": fingerprint_value,
         "inputs": details,
+        "resumable": all(value["verified"] for value in details["dependencies"].values()),
         "completed_at": _utc_now(),
         "duration_seconds": duration,
         "log": log.relative_to(workspace).as_posix(),
@@ -595,6 +669,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                 workspace,
                 state_root,
             )
+            if not state["resumable"]:
+                print(
+                    f"WARNING: {args.target} dependencies were not verified; "
+                    "rebuild their providers before expecting --resume to reuse this target",
+                    file=sys.stderr,
+                )
             print(json.dumps(state, sort_keys=True))
         elif args.command == "remove":
             (state_root / "targets" / f"{args.target}.json").unlink(missing_ok=True)
@@ -625,7 +705,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif args.command == "run-finish":
             report = args.report if args.report.is_absolute() else workspace / args.report
             finish_run(report, args.status, args.duration)
-    except (StateError, plan.PlanError) as exc:
+    except (StateError, plan.PlanError, artifact_policy.ArtifactError, OSError) as exc:
         sys.stderr.write(f"ERROR: {exc}\n")
         return 1
     return 0

@@ -110,9 +110,10 @@ cix_apply_quilt_patches() {
     local -a applied_patches=()
     local -a expected_patches=()
 
+    [[ -e "${source_tree}/debian/patches/series" ]] || return 0
     mapfile -t expected_patches < <(
-        sed -e 's/[[:space:]].*$//' -e '/^#/d' -e '/^$/d' \
-            "${source_tree}/debian/patches/series" 2>/dev/null || true
+        awk '{ sub(/#.*/, ""); if (NF) print $1 }' \
+            "${source_tree}/debian/patches/series"
     )
     ((${#expected_patches[@]} > 0)) || return 0
 
@@ -248,7 +249,7 @@ cix_install_local_internal_dependencies() {
     cix_log "Install locally built dependencies for ${TARGET[description]}"
     sudo DEBIAN_FRONTEND=noninteractive \
         apt-get "${apt_sources[@]}" install -y \
-            --allow-downgrades --no-install-recommends \
+            --reinstall --allow-downgrades --no-install-recommends \
             "${install_requests[@]}"
 }
 
@@ -347,6 +348,31 @@ cix_validate_dkms_metadata() {
         cix_die "Debian version ${upstream_version} does not match DKMS version ${dkms_version}"
 }
 
+cix_copy_quilt_source() {
+    local source_dir="$1"
+    local source_tree="$2"
+    local source_exclude
+    local source_overlay
+    local source_overlay_dir
+    local source_overlay_target
+    local -a source_copy_args=(-a --exclude=.git --exclude=/debian/)
+
+    mkdir -p -- "${source_tree}"
+    for source_exclude in "${TARGET_SOURCE_EXCLUDES[@]}"; do
+        source_copy_args+=(--exclude="/${source_exclude}")
+    done
+    rsync "${source_copy_args[@]}" "${source_dir}/" "${source_tree}/"
+    for source_overlay in "${TARGET_SOURCE_OVERLAYS[@]}"; do
+        source_overlay_dir="${CIX_ROOT}/${source_overlay%%=*}"
+        source_overlay_target="${source_overlay#*=}"
+        git -C "${source_overlay_dir}" rev-parse --is-inside-work-tree >/dev/null 2>&1 ||
+            cix_die "source overlay is not a Git worktree: ${source_overlay_dir}"
+        mkdir -p -- "${source_tree}/${source_overlay_target}"
+        rsync -a --exclude=.git --exclude=/debian/ \
+            "${source_overlay_dir}/" "${source_tree}/${source_overlay_target}/"
+    done
+}
+
 cix_debian_quilt_package() (
     local build_output="$1"
     local build_jobs="$2"
@@ -357,15 +383,11 @@ cix_debian_quilt_package() (
     local source_date_epoch
     local source_package
     local source_tree
-    local source_exclude
     local source_overlay
-    local source_overlay_dir
     local source_overlay_epoch
     local source_overlay_path
-    local source_overlay_target
     local upstream_version
     local work_root=
-    local -a source_copy_args=(-a --exclude=.git --exclude=/debian/)
 
     cix_validate_packaging "${packaging_dir}" "3.0 (quilt)"
     [[ -d "${source_dir}" ]] || cix_die "source directory is missing: ${source_dir}"
@@ -384,21 +406,7 @@ cix_debian_quilt_package() (
     cix_trap_debian_work_root "${work_root}"
     source_tree="${work_root}/${source_package}-${upstream_version}"
     cix_log "Assemble ${TARGET[description]} source package"
-    mkdir -p -- "${source_tree}"
-    for source_exclude in "${TARGET_SOURCE_EXCLUDES[@]}"; do
-        source_copy_args+=(--exclude="/${source_exclude}")
-    done
-    rsync "${source_copy_args[@]}" "${source_dir}/" "${source_tree}/"
-    for source_overlay in "${TARGET_SOURCE_OVERLAYS[@]}"; do
-        source_overlay_path="${source_overlay%%=*}"
-        source_overlay_target="${source_overlay#*=}"
-        source_overlay_dir="${CIX_ROOT}/${source_overlay_path}"
-        git -C "${source_overlay_dir}" rev-parse --is-inside-work-tree >/dev/null 2>&1 ||
-            cix_die "source overlay is not a Git worktree: ${source_overlay_dir}"
-        mkdir -p -- "${source_tree}/${source_overlay_target}"
-        rsync -a --exclude=.git --exclude=/debian/ \
-            "${source_overlay_dir}/" "${source_tree}/${source_overlay_target}/"
-    done
+    cix_copy_quilt_source "${source_dir}" "${source_tree}"
 
     source_date_epoch="$(git -C "${quilt_git}" log -1 --format=%ct)"
     for source_overlay in "${TARGET_SOURCE_OVERLAYS[@]}"; do

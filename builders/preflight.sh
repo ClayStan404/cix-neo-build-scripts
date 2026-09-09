@@ -111,6 +111,31 @@ cix_preflight_debian_git_overlay() {
     cix_validate_patch_series "${source_dir}" "${patches[@]}"
 }
 
+cix_preflight_quilt_patches() (
+    local source_dir="$1"
+    local packaging_dir="$2"
+    local source_overlay
+    local work_root
+    local cleanup_command
+    local -a patches=()
+
+    for source_overlay in "${TARGET_SOURCE_OVERLAYS[@]}"; do
+        cix_preflight_git "${CIX_ROOT}/${source_overlay%%=*}"
+    done
+    [[ -e "${packaging_dir}/patches/series" ]] || return 0
+    cix_append_patch_series patches "${packaging_dir}/patches/series" 1
+    ((${#patches[@]} > 0)) || return 0
+
+    work_root="$(mktemp -d -t cix-quilt-preflight.XXXXXXXXXX)"
+    printf -v cleanup_command 'find %q -depth -delete' "${work_root}"
+    # Capture the temporary path before the subshell's local scope ends.
+    # shellcheck disable=SC2064
+    trap "${cleanup_command}" EXIT
+    cix_copy_quilt_source "${source_dir}" "${work_root}/source"
+    cix_add_debian_metadata "${packaging_dir}" "${work_root}/source"
+    cix_apply_quilt_patches "${work_root}/source"
+)
+
 cix_preflight_debian() {
     local backend="$1"
     local packaging_dir="${CIX_ROOT}/${TARGET[debian]}"
@@ -138,6 +163,7 @@ cix_preflight_debian() {
                 cix_validate_dkms_metadata \
                     "${packaging_dir}" "${source_package}" "${upstream_version}"
             fi
+            cix_preflight_quilt_patches "${source_dir}" "${packaging_dir}"
             ;;
         debian-git)
             [[ -d "${source_dir}/debian" ]] ||

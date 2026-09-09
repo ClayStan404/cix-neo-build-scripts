@@ -7,6 +7,7 @@ import argparse
 import fnmatch
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -17,6 +18,7 @@ from typing import Sequence
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "ci"))
 import build_state  # noqa: E402
 import plan  # noqa: E402
+import artifacts as artifact_policy  # noqa: E402
 
 try:
     import yaml
@@ -64,8 +66,9 @@ def validate_artifact_target(
 ) -> dict:
     output = workspace / "output" / target.name
     try:
+        artifact_policy.validate_outputs(target, workspace)
         artifacts = build_state.collect_artifacts(output, workspace)
-    except build_state.StateError as exc:
+    except (build_state.StateError, artifact_policy.ArtifactError) as exc:
         raise ValidationError(str(exc)) from exc
 
     debs = sorted(output.glob("*.deb"))
@@ -181,11 +184,14 @@ def validate_host_output(profile: dict, output: str) -> dict:
             raise ValidationError(f"required package is not installed: {package}")
     for module in profile.get("live_dkms", []):
         if not any(
-            line.startswith(f"{module}/")
-            and (": installed" in line or ", installed" in line)
+            re.fullmatch(
+                rf"{re.escape(module)}/[^,]+,\s*{re.escape(kernel)},\s*aarch64"
+                r"(?::|,)\s*installed(?:\s+\([^\n]*\))?",
+                line.strip(),
+            )
             for line in output.splitlines()
         ):
-            raise ValidationError(f"DKMS module is not installed: {module}")
+            raise ValidationError(f"DKMS module is not installed for {kernel}/aarch64: {module}")
     return values
 
 
