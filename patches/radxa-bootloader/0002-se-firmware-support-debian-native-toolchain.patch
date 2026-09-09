@@ -57,7 +57,7 @@ diff --git a/driver/dap/dap_rsp.c b/driver/dap/dap_rsp.c
 index ffca5ff52c1b991a3043c123829de938d36503f7..01b48dceee78415ba24a4eb0563ec73ef06aa8ab 100644
 --- a/driver/dap/dap_rsp.c
 +++ b/driver/dap/dap_rsp.c
-@@ -57,7 +57,7 @@ static uint32_t dap_packet_size = 64; //usb2.0
+@@ -58,7 +58,7 @@ static uint32_t dap_packet_size = 64; //usb2.0
  
  static int rtp_rom_pwron(uint32_t base_address)
  {
@@ -65,7 +65,7 @@ index ffca5ff52c1b991a3043c123829de938d36503f7..01b48dceee78415ba24a4eb0563ec73e
 +	uint32_t val;
  
  	SMN_WRITEL(ARM_CS_SYSPCR_ROM_TABLE_PR, base_address + ARM_CS_ROM_TABLE_SYSPCR);
- 	hal_mdelay(10);
+ 	bperf_record_stage(BP_SE_DLY_ROM_PWRON, BPERF_RECORD_START);
 @@ -376,7 +376,7 @@ static int rsp_query_cmd(char *data)
  		len = sprintf(data, "PacketSize=%08x#1", dap_buf.size);
  	} else if (!strncmp(data, "qSetPacketNum=", 14)) {

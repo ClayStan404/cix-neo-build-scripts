@@ -1,16 +1,64 @@
 #!/usr/bin/env python3
-"""Regression tests for the O6 CPU-tuning firmware publication boundary."""
+"""Regression tests for firmware patches and publication boundaries."""
 
 from __future__ import annotations
 
+import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
-import sys
 
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "ci"))
 import plan  # noqa: E402
+
+
+class SecureFirmwarePatchTests(unittest.TestCase):
+    def test_native_toolchain_patch_preserves_upstream_bootperf(self) -> None:
+        patch = (
+            ROOT / "patches/radxa-bootloader"
+            / "0002-se-firmware-support-debian-native-toolchain.patch"
+        )
+        with tempfile.TemporaryDirectory(prefix="cix-se-patch-test.") as temporary:
+            worktree = Path(temporary)
+            subprocess.run(["git", "init", "-q", str(worktree)], check=True)
+            dap_path = worktree / "driver/dap/dap_rsp.c"
+            dap_path.parent.mkdir(parents=True)
+            # Keep upstream context independent of the patch and source checkout.
+            dap_path.write_text(
+                "static uint32_t dap_packet_size = 64; //usb2.0\n"
+                "\nstatic int rtp_rom_pwron(uint32_t base_address)\n{\n"
+                "\tuint val;\n\n"
+                "\tSMN_WRITEL(ARM_CS_SYSPCR_ROM_TABLE_PR, "
+                "base_address + ARM_CS_ROM_TABLE_SYSPCR);\n"
+                "\tbperf_record_stage(BP_SE_DLY_ROM_PWRON, BPERF_RECORD_START);\n"
+                "\thal_mdelay(10);\n"
+                "/* Remaining function body omitted. */\n}\n\n"
+                "static int rsp_query_cmd(char *data)\n{\n"
+                "\tif (!strncmp(data, \"qSupported\", 10)) {\n"
+                "\t\tlen = sprintf(data, \"PacketSize=%08x#1\", dap_buf.size);\n"
+                "\t} else if (!strncmp(data, \"qSetPacketNum=\", 14)) {\n"
+                "\t\tchar *buf = data + 14;\n"
+                "\t\tuint num = strtoul(buf, NULL, 16);\n"
+                "\t\tif (!num)\n\t\t\tnum = 1;\n"
+                "\t\tdap_buf.size = num * dap_packet_size;\n"
+                "\t}\n}\n"
+            )
+            result = subprocess.run(
+                ["git", "-C", str(worktree), "apply",
+                 "--include=driver/dap/dap_rsp.c", str(patch)],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            dap = dap_path.read_text()
+            self.assertIn("\tuint32_t val;", dap)
+            self.assertIn(
+                "bperf_record_stage(BP_SE_DLY_ROM_PWRON, BPERF_RECORD_START);\n"
+                "\thal_mdelay(10);",
+                dap,
+            )
 
 
 class O6FirmwareSafetyTests(unittest.TestCase):
